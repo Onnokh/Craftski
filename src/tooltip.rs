@@ -1,5 +1,5 @@
-//! What a hover tooltip says: the item's name in its quality colour, then the few figures that
-//! decide a craft or a flip. UI-free.
+//! What a hover tooltip says: the item's name in its quality colour, what a craft takes, then
+//! the few figures that decide a craft or a flip. UI-free.
 
 use crate::copper::Copper;
 use crate::flips::Flip;
@@ -34,6 +34,8 @@ impl Tip {
 pub struct Card {
     pub name: String,
     pub quality: Quality,
+    /// What a craft takes, above the figures; empty for anything not crafted.
+    pub mats: Vec<Reagent>,
     /// A label on the left, its figure on the right.
     pub lines: Vec<(&'static str, Value)>,
 }
@@ -62,15 +64,15 @@ fn with_profit(mut lines: Vec<(&'static str, Value)>, profit: Option<i64>) -> Ve
 }
 
 pub fn recipe(recipe: &Recipe, e: &Evaluation, book: &PriceBook) -> Card {
-    Card { name: recipe.item_name.clone(), quality: recipe.quality, lines: with_profit(market(book, recipe.item_id), e.profit) }
+    Card { name: recipe.item_name.clone(), quality: recipe.quality, mats: recipe.reagents.clone(), lines: with_profit(market(book, recipe.item_id), e.profit) }
 }
 
 pub fn reagent(reagent: &Reagent, book: &PriceBook) -> Card {
-    Card { name: reagent.item_name.clone(), quality: reagent.quality, lines: market(book, reagent.item_id) }
+    Card { name: reagent.item_name.clone(), quality: reagent.quality, mats: Vec::new(), lines: market(book, reagent.item_id) }
 }
 
 pub fn flip(name: String, flip: &Flip, item: Option<&Item>, book: &PriceBook) -> Card {
-    Card { name, quality: item.map_or(Quality::Common, |i| i.quality), lines: with_profit(market(book, flip.item), flip.profit) }
+    Card { name, quality: item.map_or(Quality::Common, |i| i.quality), mats: Vec::new(), lines: with_profit(market(book, flip.item), flip.profit) }
 }
 
 #[cfg(test)]

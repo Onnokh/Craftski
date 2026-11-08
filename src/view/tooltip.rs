@@ -1,7 +1,7 @@
 //! The hover tooltip, drawn as the game draws GameTooltip: its border and dark blue ground, the
-//! name in its quality colour, then the card's figures.
+//! name in its quality colour, the reagents of a craft, then the card's figures.
 
-use rune::{Align, El, Side, col, el, row, text};
+use rune::{Align, El, Side, Span, col, el, row, text};
 
 use super::{App, Ready, skin};
 use crate::skin::Piece;
@@ -54,7 +54,16 @@ fn card(s: &App, r: &Ready, tip: Tip) -> Option<Card> {
 
 fn body(panel: El, card: Card) -> El {
     let title = text(&card.name).font(theme::BODY_STRONG).color(p().quality(card.quality)).wrap().mb(4.0);
-    card.lines.into_iter().fold(panel.child(title), |out, (label, value)| {
+    let mats = card.mats.iter().fold(col().w_full(), |out, m| {
+        let line = format!("{} \u{d7} {}", m.count, m.item_name);
+        let count = line.len() - m.item_name.len();
+        out.child(text(&line).font(theme::CAPTION).color(p().quality(m.quality)).spans(vec![Span::new(0, count).color(p().muted)]).truncate())
+    });
+    let panel = match card.mats.is_empty() {
+        true => panel.child(title),
+        false => panel.child(title).child(mats.mb(8.0)),
+    };
+    card.lines.into_iter().fold(panel, |out, (label, value)| {
         out.child(row().w_full().h(18.0).gap(12.0).justify_between().center_y().child(text(label).font(theme::CAPTION).color(p().text)).child(figure(value)))
     })
 }
