@@ -1,9 +1,9 @@
 //! Search, then one pill per filter: sold per day, the player's skill, and priced only.
 
-use rune::{Cursor, El, Key, KeyEvent, Tx, row, text, text_input};
+use rune::{Cursor, El, Key, KeyEvent, Tx, el, row, text, text_input};
 
 use super::menu::trigger;
-use super::widgets::{TOOLBAR_GAP, checkbox, pill, search_box};
+use super::widgets::{TOOLBAR_GAP, arrow_room, checkbox, pill, search_box};
 use super::{App, Dims};
 use crate::menu::{Menu, SOLD_STEPS, skill_active, sold_active};
 use crate::settings;
@@ -21,7 +21,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
         s.hide_unpriced = !s.hide_unpriced;
         s.refresh();
     });
-    row().w_full().h(64.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(search(s)).child(sold).child(skill(s)).child(priced)
+    row().w_full().h(56.0).pt(16.0).pb(8.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(search(s)).child(el().grow(1.0)).child(sold).child(skill(s)).child(priced)
 }
 
 fn skill(s: &App) -> El {
@@ -39,6 +39,7 @@ fn skill(s: &App) -> El {
             s.refresh();
         });
     pill(skill_active(&s.skill.text), s.skill.focused)
+        .pr(arrow_room())
         .cursor(Cursor::Text)
         .child(text("Your skill").font(theme::BODY).color(p().muted))
         .child(field)

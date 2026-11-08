@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use rune::{Image, ImageCache, Pixels};
+use rune::{Align, El, Image, ImageCache, Pixels, SurfaceFit, el};
 
 use crate::skin::{self, Piece};
 
@@ -76,4 +76,66 @@ pub fn art(piece: Piece) -> Option<&'static Pixels> {
     let a = ART[piece as usize].get()?;
     let cells_ready = a.cells.iter().flatten().flatten().all(ready);
     (ready(&a.whole) && cells_ready).then(|| a.whole.pixels())
+}
+
+fn cells(piece: Piece) -> Option<[Option<&'static Pixels>; 9]> {
+    art(piece)?;
+    let cells = ART[piece as usize].get()?.cells.as_ref()?;
+    Some(std::array::from_fn(|i| cells[i].as_ref().map(Image::pixels)))
+}
+
+/// A layer under or over its parent's content, in the box `pin` places it. The image fills a
+/// child, because an element given one side takes the other from the image's aspect ratio.
+fn layer(pixels: &Pixels) -> El {
+    el().a11y_hidden().child(el().w_full().h_full().pixels(pixels))
+}
+
+/// `piece` stretched over its parent's whole box.
+pub fn stretch(piece: Piece) -> Option<El> {
+    art(piece).map(|px| layer(px).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
+}
+
+/// `piece` covering its parent's box at its own aspect ratio, cropped away from `anchor`.
+pub fn cover(piece: Piece, anchor: (Align, Align)) -> Option<El> {
+    art(piece).map(|px| el().pixels_fit(px, SurfaceFit::Fill).surface_anchor(anchor.0, anchor.1).a11y_hidden().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
+}
+
+/// `piece` around its parent's box: its corners `caps` points across (left, top, right,
+/// bottom), its edges and middle stretched between them.
+pub fn nine_slice(piece: Piece, caps: [f32; 4]) -> Option<Vec<El>> {
+    let cells = cells(piece)?;
+    let [l, t, r, b] = caps;
+    // Each axis: the near cap, the stretch between the caps, the far cap.
+    let span = |i: usize, near: f32, far: f32| match i {
+        0 => (Some(0.0), None, Some(near)),
+        1 => (Some(near), Some(far), None),
+        _ => (None, Some(0.0), Some(far)),
+    };
+    Some(
+        cells
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, cell)| {
+                let ((left, right, w), (top, bottom, h)) = (span(i % 3, l, r), span(i / 3, t, b));
+                let mut cell = layer(cell?).pin(left, top, right, bottom);
+                if let Some(w) = w {
+                    cell = cell.w(w);
+                }
+                if let Some(h) = h {
+                    cell = cell.h(h);
+                }
+                Some(cell)
+            })
+            .collect(),
+    )
+}
+
+/// Three pieces side by side across their parent's box: `left` and `right` `caps` points wide,
+/// `middle` stretched between them.
+pub fn three_slice([left, middle, right]: [Piece; 3], caps: [f32; 2]) -> Option<Vec<El>> {
+    Some(vec![
+        layer(art(left)?).pin(Some(0.0), Some(0.0), None, Some(0.0)).w(caps[0]),
+        layer(art(middle)?).pin(Some(caps[0]), Some(0.0), Some(caps[1]), Some(0.0)),
+        layer(art(right)?).pin(None, Some(0.0), Some(0.0), Some(0.0)).w(caps[1]),
+    ])
 }

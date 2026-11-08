@@ -1,9 +1,10 @@
 //! The selected recipe: profit per craft, where the sale price goes, the market behind it,
 //! reagents, where it stands among the others and skill range.
 
-use rune::{Color, Cursor, El, InlineIcon, ScrollSpec, Span, Tx, col, el, row, text};
+use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Span, Tx, col, el, row, text};
 
-use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, primary, unknown, wowhead};
+use super::skin;
+use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, red_button, unknown, wowhead};
 use super::{App, Dims, Ready, recipe_at};
 use crate::breakdown::{Caution, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, wowhead_url};
 use crate::charts::{self, Split, Standing};
@@ -11,6 +12,7 @@ use crate::copper::Copper;
 use crate::profit::{AuctionBasis, Evaluation, PriceOrigin};
 use crate::recipes::{Recipe, Skill};
 use crate::rows::{per_day, percent};
+use crate::skin::Piece;
 use crate::theme::{self, p};
 
 const PAD: f32 = 24.0;
@@ -20,7 +22,7 @@ const STANDING_LABEL: f32 = 64.0;
 const STANDING_RANK: f32 = 40.0;
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
-    let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
+    let panel = panel(d).children(skin::cover(Piece::BackgroundCard, (Align::End, Align::End)));
     let Some((_, index)) = s.picked() else {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };
@@ -64,7 +66,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         .w_full()
         .gap(8.0)
         .pt(16.0)
-        .child(primary("Copy shopping list", &CLIPBOARD_LIST, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
+        .child(red_button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, None, 36.0, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
         .child(wowhead::<App>(wowhead_url(recipe.item_id)));
     panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions)
 }
@@ -74,8 +76,9 @@ fn identity(s: &App, recipe: &Recipe) -> El {
     row()
         .w_full()
         .pt(20.0)
-        .gap(16.0)
-        .child(icon_frame(s.icons.item(recipe.icon), 48.0, quality))
+        .gap(12.0)
+        .center_y()
+        .child(icon_frame(s.icons.item(recipe.icon), 52.0, quality))
         .child(
             flexible()
                 .child(text(&recipe.item_name).font(theme::HEADING).color(quality).truncate())
@@ -131,9 +134,14 @@ fn stack(split: Split) -> El {
     row().w_full().h(ROW).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().rule).child(bar)
 }
 
-/// A section label over its rows, ruled a step stronger than they are.
+/// The detail panel's box, ruled off from the table.
+pub(super) fn panel(d: Dims) -> El {
+    col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], Color::BLACK)
+}
+
+/// A gold section label over its rows, ruled in bronze.
 pub(super) fn band(label: &str) -> El {
-    row().w_full().h(ROW).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().line).child(text(label).font(theme::LABEL).color(p().muted))
+    row().w_full().h(ROW).mt(12.0).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().bronze).child(text(label).font(theme::LABEL).color(p().gold))
 }
 
 pub(super) fn ledger(label: &str, value: El) -> El {
@@ -205,7 +213,7 @@ fn reagent(s: &App, l: &ReagentLine, money: Money, cost: Option<Copper>) -> El {
         .gap(8.0)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
-        .child(icon_frame(s.icons.item(l.reagent.icon), 24.0, p().quality(l.reagent.quality)))
+        .child(icon_frame(s.icons.item(l.reagent.icon), 26.0, p().quality(l.reagent.quality)))
         .child(flexible().child(what))
         .child(share_bar(share))
         .child(l.total.map_or_else(unknown, |t| money.show(t)));
@@ -242,14 +250,14 @@ fn standings(r: &Ready, e: &Evaluation, d: Dims) -> Option<El> {
     Some(out)
 }
 
-/// One measure's strip: a tick per recipe on a rule, this recipe's in brass, then its rank of
+/// One measure's strip: a tick per recipe on a rule, this recipe's in gold, then its rank of
 /// `of`.
 fn standing(label: &str, s: Standing, of: usize, width: f32) -> El {
     let mut strip = el().w(width).h(16.0).a11y_hidden().child(el().absolute(0.0, 8.0).w(width).h(1.0).fill(p().rule));
     for x in s.ticks {
         strip = strip.child(el().absolute(x - 0.5, 2.0).w(1.0).h(12.0).fill(p().text.alpha(0.30)));
     }
-    strip = strip.child(el().absolute(s.at - 1.0, 0.0).w(2.0).h(16.0).fill(p().brass));
+    strip = strip.child(el().absolute(s.at - 1.0, 0.0).w(2.0).h(16.0).fill(p().gold));
     let rank = charts::ordinal(s.rank);
     row()
         .w_full()
@@ -266,6 +274,18 @@ fn standing(label: &str, s: Standing, of: usize, width: f32) -> El {
 /// Yellow from learning to green, green to grey, then grey: the ranks where a craft still
 /// raises the skill.
 fn skill_range(skill: Skill) -> El {
+    let labels = [format!("Yellow {}", skill.learn), format!("Green {}", skill.green()), format!("Grey {}", skill.grey)];
+    let (Some(track), Some(frame)) = (skin::stretch(Piece::ProgressBg), skin::stretch(Piece::ProgressFrame)) else { return flat_skill_range(labels) };
+    let segments = p().skill_bar.into_iter().fold(row().pin(Some(5.0), Some(5.0), Some(5.0), Some(5.0)).gap(2.0), |out, [top, bottom]| {
+        out.child(el().w(0.0).grow(1.0).h_full().fill(bottom).linear_gradient(std::f32::consts::PI, [(0.0, top), (1.0, bottom)]))
+    });
+    let bar = el().w_full().h(22.0).mt(12.0).a11y_hidden().child(track).child(segments).child(frame);
+    let labels = labels.into_iter().fold(row().w_full().mt(6.0).justify_between(), |out, l| out.child(text(l).font(theme::CAPTION).color(p().muted)));
+    col().w_full().child(bar).child(labels)
+}
+
+/// The skill range as three thin bars, each over its label, where the game's bar is missing.
+fn flat_skill_range([yellow_at, green_at, grey_at]: [String; 3]) -> El {
     let [yellow, green, grey] = p().skill;
     let third = |color, label: String| col().w(0.0).grow(1.0).child(el().w_full().h(4.0).radius(2.0).fill(color)).child(text(label).font(theme::CAPTION).color(p().muted).mt(8.0));
     row()
@@ -273,7 +293,7 @@ fn skill_range(skill: Skill) -> El {
         .h(ROW)
         .gap(2.0)
         .center_y()
-        .child(third(yellow, format!("Yellow {}", skill.learn)))
-        .child(third(green, format!("Green {}", skill.green())))
-        .child(third(grey, format!("Grey {}", skill.grey)))
+        .child(third(yellow, yellow_at))
+        .child(third(green, green_at))
+        .child(third(grey, grey_at))
 }

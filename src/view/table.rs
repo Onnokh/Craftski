@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
-use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, sold_per_day, unknown};
+use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
 use super::{App, Dims, Ready, recipe_at};
 use crate::charts;
 use crate::menu::SOLD_STEPS;
@@ -96,7 +96,7 @@ fn head(s: &App, d: Dims) -> El {
             s.refresh();
         })
     };
-    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().line).child(title(Column::Item, flexible().items_start()));
+    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze).child(title(Column::Item, flexible().items_start()));
     for (slot, width) in slots(d) {
         let cell = slot.cell(width);
         out = out.child(match slot.column() {
@@ -117,16 +117,14 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .gap(8.0)
         .center_y()
         .w_full()
-        .child(icon_frame(s.icons.item(recipe.icon), 24.0, quality))
+        .child(icon_frame(s.icons.item(recipe.icon), 26.0, quality))
         .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0));
-    let mut out = row()
-        .w_full()
+    let mut out = selectable_row(selected)
         .h(ROW)
         .px(d.pad)
         .gap(d.gap)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
-        .hover(Color::WHITE.alpha(0.025))
         .cursor(Cursor::Pointer)
         .role("row")
         .label(recipe.item_name.clone())
@@ -142,9 +140,6 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
             Slot::Listed => e.auctions.map_or_else(unknown, |v| number(v.to_string())),
         };
         out = out.child(slot.cell(width).child(content));
-    }
-    if selected {
-        out = out.fill(p().selected).child(el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(p().brass));
     }
     let id = recipe.spell_id;
     out.on_press(move |s: &mut App| s.selected = Some(id))

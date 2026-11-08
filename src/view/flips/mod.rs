@@ -9,7 +9,6 @@ use std::collections::BTreeSet;
 
 use rune::{El, TextEdit, Tx, col, row};
 
-use super::status::status;
 use super::{App, Dims, Load, message};
 use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
 use crate::flips::{self, Flip};
@@ -236,7 +235,9 @@ pub fn main(s: &App, d: Dims) -> El {
         Shelf::Failed(e) => return message(&format!("Could not load merchants: {e}")),
         Shelf::Ready(f) => f,
     };
-    let Load::Ready(r) = &s.load else { return message("Loading TSM prices...") };
+    if !matches!(s.load, Load::Ready(_)) {
+        return message("Loading TSM prices...");
+    }
     row()
         .grow(1.0)
         .h_full()
@@ -247,10 +248,8 @@ pub fn main(s: &App, d: Dims) -> El {
                 .shrink()
                 .min_w(0.0)
                 .h_full()
-                .child(header::header(s, f, d))
-                .child(toolbar::toolbar(s, d))
-                .child(table::table(s, f, d))
-                .child(status(s, r, d)),
+                .child(super::header::banner(None, header::header(s, f, d), toolbar::toolbar(s, d)))
+                .child(table::table(s, f, d)),
         )
         .child(detail::detail(s, f, d))
 }

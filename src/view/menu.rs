@@ -3,14 +3,18 @@
 use rune::{Align, Color, Cursor, El, ScrollSpec, Side, col, el, row, spacer, text};
 
 use super::{App, Load};
-use super::widgets::{CHECK, CHEVRON_DOWN, glyph, pill};
+use super::skin;
+use super::widgets::{ARROW_ROOM, CHECK, CHEVRON_DOWN, DROPDOWN_GAP, glyph, pill};
 use crate::menu::{self, Item, Menu, Pick};
 use crate::overview::Feed;
 use crate::settings;
+use crate::skin::Piece;
 use crate::theme::{self, p};
 
 const CHECK_SIZE: f32 = 14.0;
-/// The chevron that ends every pill opening a menu.
+/// The game's tick, which draws larger than the glyph it stands in for.
+const CHECKMARK: f32 = 18.0;
+/// The chevron that ends a pill opening a menu where the dropdown art is missing.
 pub const CHEVRON: f32 = 12.0;
 
 /// The key of the pill a menu opens under.
@@ -49,17 +53,21 @@ fn side(m: Menu) -> Side {
     }
 }
 
-/// A toolbar pill that opens `m` under itself: `parts`, then a chevron.
+/// A toolbar pill that opens `m` under itself.
 pub fn trigger(s: &App, m: Menu, active: bool, spoken: String, parts: Vec<El>) -> El {
     opener(pill(active, s.menu == Some(m)), m, spoken, parts)
 }
 
-/// `base` holding `parts` and a chevron, opening `m` on a press.
+/// `base` holding `parts`, opening `m` on a press. Its right keeps the room the dropdown art
+/// draws its arrow in, or holds a chevron without the art.
 pub fn opener(base: El, m: Menu, spoken: String, parts: Vec<El>) -> El {
-    parts
-        .into_iter()
-        .fold(base.key(anchor(m)), |out, part| out.child(part))
-        .child(glyph(&CHEVRON_DOWN, CHEVRON, p().muted))
+    let out = parts.into_iter().fold(base.key(anchor(m)), |out, part| out.child(part));
+    let out = if skin::art(Piece::Dropdown).is_some() {
+        out.pr(ARROW_ROOM)
+    } else {
+        out.child(glyph(&CHEVRON_DOWN, CHEVRON, p().muted)).pr(ARROW_ROOM - DROPDOWN_GAP - CHEVRON)
+    };
+    out
         .role("button")
         .label(spoken)
         .cursor(Cursor::Pointer)
@@ -71,15 +79,14 @@ pub fn overlay(s: &App) -> Vec<El> {
     let Some(m) = s.menu else { return Vec::new() };
     let scrim = el().key("menu-scrim").role("none").absolute(0.0, 0.0).w_full().h_full().on_press(|s: &mut App| s.menu = None);
     let list = s.menu_items(m).into_iter().fold(col().w_full(), |list, i| list.child(item(i)));
-    // Rune borders take no layout space, so the 4pt padding grows by the 1pt border.
-    let panel = col()
-        .key("menu")
-        .w(width(m))
-        .padding(5.0)
-        .radius(4.0)
-        .fill(p().surface)
-        .border(1.0, p().line2)
-        .clip_rounded(4.0)
+    let panel = col().key("menu").w(width(m));
+    let panel = match skin::nine_slice(Piece::MenuBg, [12.0; 4]) {
+        // The art's middle lets a little through; the rows under a menu should not show.
+        Some(layers) => panel.padding(8.0).child(el().pin(Some(6.0), Some(6.0), Some(6.0), Some(6.0)).fill(p().ground)).children(layers),
+        // Rune borders take no layout space, so the 4pt padding grows by the 1pt border.
+        None => panel.padding(5.0).radius(4.0).fill(p().surface).border(1.0, p().line2).clip_rounded(4.0),
+    };
+    let panel = panel
         .child(col().w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list))
         .role("listbox")
         .label(name(m))
@@ -88,23 +95,34 @@ pub fn overlay(s: &App) -> Vec<El> {
 }
 
 fn item(i: Item) -> El {
-    let color = if i.on { p().text } else { p().muted };
     let mut out = row()
         .w_full()
-        .h(32.0)
+        .h(28.0)
         .px(8.0)
         .gap(12.0)
         .radius(2.0)
         .center_y()
         .cursor(Cursor::Pointer)
-        .child(text(&i.label).font(theme::CAPTION).color(color).truncate().shrink().min_w(0.0))
+        .child(text(&i.label).font(theme::MENU).color(p().text).truncate().shrink().min_w(0.0))
         .child(spacer());
     if let Some(hint) = &i.hint {
         out = out.child(text(hint).font(theme::CAPTION).color(p().faint));
     }
-    let check = if i.on { glyph(&CHECK, CHECK_SIZE, p().text) } else { el().w(CHECK_SIZE).h(CHECK_SIZE) };
+    let tick = skin::art(Piece::Checkmark);
+    let check = match (i.on, tick) {
+        (true, Some(px)) => el().w(CHECKMARK).h(CHECKMARK).pixels(px).a11y_hidden(),
+        (true, None) => glyph(&CHECK, CHECK_SIZE, p().text),
+        (false, _) => {
+            let size = if tick.is_some() { CHECKMARK } else { CHECK_SIZE };
+            el().w(size).h(size)
+        }
+    };
     let out = out.child(check).role("option").label(i.spoken).checked(i.on);
-    let out = if i.on { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) };
+    let out = match (i.on, tick) {
+        (true, Some(_)) => out.linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, p().gold.alpha(0.18)), (1.0, p().gold.alpha(0.0))]),
+        (true, None) => out.fill(p().active),
+        (false, _) => out.hover(Color::WHITE.alpha(0.03)),
+    };
     let pick = i.pick;
     out.on_press(move |s: &mut App| s.pick(pick.clone()))
 }

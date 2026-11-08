@@ -9,7 +9,7 @@ use crate::copper::Copper;
 use crate::flip_rows::{Column, Row};
 use crate::rows;
 use crate::theme::{self, p};
-use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, sold_per_day, unknown};
+use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
 use crate::view::{App, Dims};
 
 const ROW: f32 = 32.0;
@@ -59,7 +59,7 @@ fn hint(s: &App, f: &Stocked, d: Dims) -> Option<El> {
 
 fn head(s: &App, d: Dims) -> El {
     let sort = s.flips.sort;
-    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().line);
+    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze);
     for (column, width) in columns(d) {
         let descending = (sort.column == column).then_some(sort.descending);
         out = out.child(cell(column, width).child(column_title(column.title(), descending)).role("columnheader").cursor(Cursor::Pointer).on_press(move |s: &mut App| {
@@ -88,14 +88,12 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
     let quality = item.map_or(p().text, |i| p().quality(i.quality));
     let money = Money::new(theme::BODY, p().text).short();
     let number = |v: String| text(v).font(theme::BODY).color(p().text);
-    let mut out = row()
-        .w_full()
+    let mut out = selectable_row(selected)
         .h(ROW)
         .px(d.pad)
         .gap(d.gap)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
-        .hover(Color::WHITE.alpha(0.025))
         .cursor(Cursor::Pointer)
         .role("row")
         .label(format!("{name}, {}", merchant.name))
@@ -106,7 +104,7 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
                 .gap(8.0)
                 .center_y()
                 .w_full()
-                .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 24.0, quality))
+                .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 26.0, quality))
                 .child(text(&name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0)),
             Column::Vendor => vendor(s, merchant, entry.others.len()),
             Column::Paid => flip.paid.map_or_else(unknown, |paid| money.show(paid.copper())),
@@ -118,9 +116,6 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
             Column::Limit => flip.limit.map_or_else(unknown, |l| number(l.to_string())),
         };
         out = out.child(cell(column, width).child(content));
-    }
-    if selected {
-        out = out.fill(p().selected).child(el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(p().brass));
     }
     out.on_press(move |s: &mut App| s.flips.selected = Some(key))
 }

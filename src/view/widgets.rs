@@ -5,9 +5,11 @@ use std::sync::OnceLock;
 
 use rune::{Color, Cursor, El, Icon, Image, ImageCache, TextStyle, Tx, col, el, icon, row, text};
 
+use super::skin;
 use crate::charts;
 use crate::copper::{Coin, Copper, Lanes};
 use crate::rows::per_day;
+use crate::skin::Piece;
 use crate::theme::{self, p};
 
 // Rune borders take no layout space, so boxes that CSS sizes around a 1pt border pad 1pt more.
@@ -89,53 +91,95 @@ fn coin_icon(coin: Coin, size: f32) -> El {
     }
 }
 
-/// An item icon in a 1px frame of its quality colour. A missing or undecoded image leaves the
+/// An item icon in a slot `size` points square: the game's slot frame around a smaller icon, or
+/// without the art a 1px frame of its quality colour. A missing or undecoded image leaves the
 /// black backing.
 pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
-    let inner = el().w_full().h_full().radius(3.0);
+    let Some(frame) = skin::stretch(Piece::SlotFrame) else {
+        let inner = el().w_full().h_full().radius(3.0);
+        let inner = match image {
+            Some(i) => inner.pixels(i.pixels()),
+            None => inner,
+        };
+        return el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden();
+    };
+    let icon = (size * 0.85).round();
+    let inset = (size - icon) / 2.0;
+    let inner = el().absolute(inset, inset).w(icon).h(icon).fill(Color::BLACK);
     let inner = match image {
         Some(i) => inner.pixels(i.pixels()),
         None => inner,
     };
-    el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden()
+    el().w(size).h(size).child(inner).child(frame).a11y_hidden()
 }
 
 /// Between a toolbar's search and its pills.
 pub const TOOLBAR_GAP: f32 = 12.0;
+/// The room a dropdown keeps on its right for the arrow its art draws, or the chevron without it.
+pub const ARROW_ROOM: f32 = 30.0;
 
-/// A toolbar filter's outline: 32pt tall in the line colour, or filled with the stronger
-/// border while `active` says its filter narrows the rows. `open` strengthens the border alone,
-/// for a pill whose menu is open or whose field has focus.
+/// The right padding of a dropdown with no menu: the room for the art's arrow, or a plain
+/// margin without the art.
+pub fn arrow_room() -> f32 {
+    if skin::art(Piece::Dropdown).is_some() { ARROW_ROOM } else { 11.0 }
+}
+/// Between a dropdown's parts.
+pub const DROPDOWN_GAP: f32 = 6.0;
+
+/// A dropdown's body, `height` tall with `left` padding: the game's dropdown button, brighter
+/// while `open`, or without the art an outline filled while `active` says its filter narrows
+/// the rows. The opener adds the room on its right.
+pub fn dropdown(height: f32, left: f32, active: bool, open: bool) -> El {
+    let out = row().h(height).pl(left).gap(DROPDOWN_GAP).center_y();
+    match skin::nine_slice(if open { Piece::DropdownOpen } else { Piece::Dropdown }, [8.0, 8.0, 28.0, 8.0]) {
+        Some(layers) => out.children(layers).hover(Color::WHITE.alpha(0.03)),
+        None => outline(out, active, open),
+    }
+}
+
+/// A toolbar dropdown.
 pub fn pill(active: bool, open: bool) -> El {
-    let out = row().h(32.0).pl(13.0).pr(11.0).gap(8.0).center_y().radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
+    dropdown(32.0, 12.0, active, open)
+}
+
+/// The flat pill: 32pt tall in the line colour, filled with the stronger border while `active`.
+/// `open` strengthens the border alone, for a pill whose menu is open or whose field has focus.
+fn outline(out: El, active: bool, open: bool) -> El {
+    let out = out.radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
     if active { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) }
 }
 
-/// A toolbar's search: a magnifier and `field` in an outline that takes the width the pills
-/// leave.
+/// A toolbar's search: a magnifier and `field` in the game's search border, 400pt wide while
+/// the pills leave room.
 pub fn search_box(field: El, focused: bool) -> El {
-    row()
-        .h(32.0)
-        .grow(1.0)
-        .shrink()
-        .gap(8.0)
-        .px(13.0)
-        .center_y()
-        .radius(4.0)
-        .border(1.0, if focused { p().line2 } else { p().line })
-        .clip_rounded(4.0)
-        .cursor(Cursor::Text)
-        .child(glyph(&SEARCH, 16.0, p().faint))
-        .child(field)
+    let out = row().h(32.0).w(400.0).shrink().gap(8.0).px(12.0).center_y().cursor(Cursor::Text);
+    let out = match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
+        Some(layers) => out.children(layers),
+        None => out.radius(4.0).border(1.0, if focused { p().line2 } else { p().line }).clip_rounded(4.0),
+    };
+    let magnifier = match skin::art(Piece::Magnifier) {
+        Some(px) => el().w(16.0).h(16.0).pixels(px).a11y_hidden(),
+        None => glyph(&SEARCH, 16.0, p().faint),
+    };
+    out.child(magnifier).child(field)
 }
 
-/// A pill holding a brass checkbox and its label; pressing anywhere on it flips the box.
+/// A checkbox and its label; pressing anywhere on it flips the box. The game's box and tick, or
+/// without them a brass square in a pill.
 pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
-    let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
-    let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
-    pill(false, false)
-        .child(square)
-        .child(text(label).font(theme::BODY).color(p().text))
+    let out = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
+        (Some(bx), Some(tick)) => {
+            let square = el().w(22.0).h(22.0).pixels(bx).a11y_hidden();
+            let square = if on { square.child(el().absolute(0.0, -1.0).w(22.0).h(22.0).pixels(tick)) } else { square };
+            row().h(32.0).gap(8.0).center_y().child(square)
+        }
+        _ => {
+            let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
+            let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
+            outline(row().h(32.0).pl(13.0).pr(11.0).gap(8.0).center_y(), false, false).child(square)
+        }
+    };
+    out.child(text(label).font(theme::BODY).color(p().text))
         .role("checkbox")
         .label(label)
         .checked(on)
@@ -143,50 +187,54 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
         .on_press(move |s: &mut S| flip(s))
 }
 
-/// The panel's main action: brass, taking the width its row leaves, with `leading` before the label.
-pub fn primary<S: 'static>(label: &str, leading: &'static Icon, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    row()
-        .h(40.0)
-        .grow(1.0)
-        .px(16.0)
-        .gap(8.0)
-        .radius(4.0)
-        .center_y()
-        .justify_center()
-        .fill(p().brass)
-        .hover(Color::WHITE.alpha(0.10))
-        .press(Color::BLACK.alpha(0.10))
-        .child(glyph(leading, 16.0, p().on_brass))
-        .child(text(label).font(theme::BODY_MEDIUM).color(p().on_brass))
+/// The game's red button, `height` tall and `width` wide or taking the width its row leaves,
+/// with `leading` before a gold label; without the art, a dark red one.
+pub fn red_button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, width: Option<f32>, height: f32, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    let out = row().h(height).px(12.0).gap(if height < 32.0 { 6.0 } else { 8.0 }).center_y().justify_center();
+    let out = match width {
+        Some(w) => out.w(w),
+        None => out.grow(1.0),
+    };
+    // The art's caps keep their shape at any height; a button too narrow for both shrinks them.
+    let caps = [114.0 / 128.0 * height, 292.0 / 128.0 * height];
+    let fit = width.map_or(1.0, |w| (w / (caps[0] + caps[1])).min(1.0));
+    let out = match skin::three_slice([Piece::RedLeft, Piece::RedMid, Piece::RedRight], caps.map(|c| c * fit)) {
+        Some(layers) => out.children(layers),
+        None => out.radius(4.0).fill(p().red).border(1.0, p().bronze),
+    };
+    let (icon, font) = if height < 32.0 { (12.0, theme::LABEL) } else { (16.0, theme::BODY_MEDIUM) };
+    out.hover(Color::WHITE.alpha(0.06))
+        .press(Color::BLACK.alpha(0.12))
+        .child(glyph(leading, icon, p().gold))
+        .child(text(label).font(font).color(p().gold))
         .role("button")
-        .label(label)
+        .label(spoken)
         .cursor(Cursor::Pointer)
         .on_press_tx(act)
 }
 
-/// An outlined "Wowhead" button that opens `url` in the browser, marked as leaving the app.
+/// A "Wowhead" button that opens `url` in the browser, marked as leaving the app.
 pub fn wowhead<S: 'static>(url: String) -> El {
-    row()
-        .h(40.0)
-        .px(17.0)
-        .gap(8.0)
-        .radius(4.0)
-        .center_y()
-        .justify_center()
-        .border(1.0, p().line)
-        .hover(Color::WHITE.alpha(0.04))
-        .press(Color::WHITE.alpha(0.07))
-        .child(text("Wowhead").font(theme::BODY_MEDIUM).color(p().text))
-        .child(glyph(&EXTERNAL, 16.0, p().muted))
-        .role("button")
-        .label("Open on Wowhead")
-        .cursor(Cursor::Pointer)
-        .on_press_tx(move |_: &mut S, tx: &mut Tx| {
-            if let Err(e) = tx.open_url(&url) {
-                eprintln!("{url}: {e}");
-            }
-        })
+    red_button("Wowhead", "Open on Wowhead", &EXTERNAL, Some(112.0), 36.0, move |_: &mut S, tx: &mut Tx| {
+        if let Err(e) = tx.open_url(&url) {
+            eprintln!("{url}: {e}");
+        }
+    })
 }
+
+/// A table row's box: hovered faintly, and when `selected` tinted warm under the game's
+/// selection glow, or without the art a brass edge.
+pub fn selectable_row(selected: bool) -> El {
+    let out = row().w_full().hover(Color::WHITE.alpha(0.025));
+    if !selected {
+        return out;
+    }
+    match skin::stretch(Piece::RowSelected) {
+        Some(glow) => out.fill(p().gold.alpha(0.05)).child(glow.dim(0.4)),
+        None => out.fill(p().selected).child(el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(p().brass)),
+    }
+}
+
 
 /// A Rune Icons outline glyph from `assets/icons`, drawn in its element's colour: the files'
 /// `stroke="black"` names no hex colour, so rune draws them as a tintable coverage mask.
@@ -217,10 +265,10 @@ pub fn unknown() -> El {
     text("\u{2014}").font(theme::BODY).color(p().faint)
 }
 
-/// A column head's title; `descending` is Some on the sorted column, which reads brighter and
-/// ends in an arrow the way it sorts.
+/// A column head's title in gold; `descending` is Some on the sorted column, which reads white
+/// and ends in an arrow the way it sorts.
 pub fn column_title(title: &str, descending: Option<bool>) -> El {
-    let label = text(title).font(theme::LABEL).color(if descending.is_some() { p().text } else { p().muted });
+    let label = text(title).font(theme::LABEL).color(if descending.is_some() { p().text } else { p().gold });
     match descending {
         Some(down) => row().gap(4.0).center_y().child(label).child(glyph(if down { &ARROW_DOWN } else { &ARROW_UP }, 12.0, p().text)),
         None => label,
@@ -233,15 +281,17 @@ pub fn sold_per_day(sold: Option<f64>) -> El {
     let lit = charts::pips_lit(sold);
     let mut pips = row().h(12.0).gap(2.0).items_end().a11y_hidden();
     for (i, height) in [6.0, 9.0, 12.0].into_iter().enumerate() {
-        pips = pips.child(el().w(4.0).h(height).radius(1.0).fill(p().text.alpha(if i < lit { 0.7 } else { 0.12 })));
+        pips = pips.child(el().w(4.0).h(height).radius(1.0).fill(if i < lit { p().pip } else { Color::WHITE.alpha(0.12) }));
     }
     row().gap(8.0).center_y().child(pips).child(row().min_w(28.0).justify_end().child(text(per_day(sold)).font(theme::BODY).color(p().muted)))
 }
 
-/// A horizontal bar `width` points long, brighter on the selected row; nothing without a width.
+/// A gold bar `width` points long in a black ring, brighter on the selected row; nothing without
+/// a width.
 pub fn bar(width: Option<f32>, selected: bool) -> El {
+    let [top, bottom] = if selected { p().bar_selected } else { p().bar };
     match width {
-        Some(w) => el().w(w).h(8.0).radius(2.0).fill(p().text.alpha(if selected { 0.5 } else { 0.3 })).a11y_hidden(),
+        Some(w) => el().w(w).h(6.0).fill(bottom).linear_gradient(std::f32::consts::PI, [(0.0, top), (1.0, bottom)]).border(1.0, Color::BLACK).a11y_hidden(),
         None => el(),
     }
 }

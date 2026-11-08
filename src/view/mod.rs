@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
+use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
 use crate::icons;
 use crate::market::{self, Market};
@@ -418,14 +418,19 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::header(r, d))
-                    .child(toolbar::toolbar(s, d))
-                    .child(table::table(s, r, d))
-                    .child(status::status(s, r, d)),
+                    .child(header::banner(Some(Piece::OverviewCard), header::header(r, d), toolbar::toolbar(s, d)))
+                    .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
     };
-    let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
+    let root = col()
+        .key("root")
+        .w_full()
+        .h_full()
+        .fill(p().ground)
+        .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
+        .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s)).child(main))
+        .children(s.ready().map(|r| status::status(s, r, d)));
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e))
 }
 
