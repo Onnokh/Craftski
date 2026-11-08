@@ -1,45 +1,37 @@
-//! Price source, filters and search.
+//! Price source, filters, the priced count and search.
 
-use rune::{Cursor, El, Key, KeyEvent, Tx, el, row, spacer, text, text_input};
+use rune::{Cursor, El, Key, KeyEvent, Tx, row, spacer, text, text_input};
 
-use super::widgets::{SEARCH, Segment, caps, glyph, segmented, toggle};
-use super::{App, Dims, SOLD_STEPS};
+use super::widgets::{SEARCH, Segment, checkbox, glyph, segmented};
+use super::{App, Dims, Ready, SOLD_STEPS};
 use crate::profit::PriceSource;
 use crate::theme::{self, p};
 
-pub fn toolbar(s: &App, d: Dims) -> El {
+pub fn toolbar(s: &App, r: &Ready, d: Dims) -> El {
     let source = segmented(
         "Price source",
         vec![
-            Segment { label: "Realm", on: s.source == PriceSource::Realm, brass: true, pick: Some(|s: &mut App| s.set_source(PriceSource::Realm)) },
-            Segment { label: "Region", on: s.source == PriceSource::Region, brass: true, pick: Some(|s: &mut App| s.set_source(PriceSource::Region)) },
+            Segment { label: "Realm", on: s.source == PriceSource::Realm, pick: |s: &mut App| s.set_source(PriceSource::Realm) },
+            Segment { label: "Region", on: s.source == PriceSource::Region, pick: |s: &mut App| s.set_source(PriceSource::Region) },
         ],
     );
-    let unpriced = toggle("Hide unpriced", s.hide_unpriced, |s: &mut App| {
+    let unpriced = checkbox("Hide unpriced", s.hide_unpriced, |s: &mut App| {
         s.hide_unpriced = !s.hide_unpriced;
         s.refresh();
     });
     let picks: [fn(&mut App); 4] = [|s| s.set_min_sold(0), |s| s.set_min_sold(1), |s| s.set_min_sold(2), |s| s.set_min_sold(3)];
-    let mut steps: Vec<Segment<App>> = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: s.min_sold == i, brass: false, pick: Some(pick) }).collect();
-    steps.push(Segment { label: "/ day", on: false, brass: false, pick: None });
-    row()
-        .w_full()
-        .px(d.pad)
-        .pt(14.0)
-        .pb(15.0)
-        .gap(12.0)
-        .center_y()
-        .border_sides([0.0, 0.0, 1.0, 0.0], p().line)
-        .child(source)
-        .child(unpriced.ml(8.0))
-        .child(caps("Sells", p().faint).font(theme::sans(12.0, 500.0).tracking(0.72)).ml(8.0))
-        .child(segmented("Minimum sold per day", steps))
-        .child(spacer())
-        .child(search(s, d))
+    let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: s.min_sold == i, pick }).collect();
+    let sold = row().gap(8.0).center_y().child(text("Sold per day").font(theme::BODY).color(p().muted)).child(segmented("Minimum sold per day", steps));
+    let mut bar = row().w_full().h(64.0).px(d.pad).gap(d.gap).center_y().child(source).child(unpriced).child(sold).child(spacer());
+    if !d.compact {
+        let o = &r.overview;
+        bar = bar.child(text(format!("{} of {} recipes priced", o.priced, o.total)).font(theme::BODY).color(p().muted));
+    }
+    bar.child(search(s, d))
 }
 
 fn search(s: &App, d: Dims) -> El {
-    let field = text_input(&s.search, theme::sans(13.0, 400.0))
+    let field = text_input(&s.search, theme::BODY)
         .key("search")
         .single_line()
         .grow(1.0)
@@ -61,23 +53,18 @@ fn search(s: &App, d: Dims) -> El {
             Key::Up => s.step(-1, tx),
             _ => false,
         });
-    let mut b = row()
+    let b = row()
+        .h(32.0)
         .gap(8.0)
         .px(13.0)
-        .py(9.0)
         .center_y()
-        .radius(10.0)
-        .fill(p().surface)
+        .radius(4.0)
         .border(1.0, if s.search.focused { p().line2 } else { p().line })
-        .clip_rounded(10.0)
+        .clip_rounded(4.0)
         .cursor(Cursor::Text)
-        .child(glyph(&SEARCH, 14.0, p().faint))
+        .child(glyph(&SEARCH, 16.0, p().faint))
         .child(field);
-    b = if d.compact { b.grow(1.0).shrink().min_w(120.0).max_w(300.0) } else { b.w(300.0) };
-    if !d.compact {
-        b = b.child(el().px(6.0).py(2.0).radius(5.0).border(1.0, p().line2).child(text("Ctrl K").font(theme::mono(11.0, 500.0)).color(p().faint)).a11y_hidden());
-    }
-    b
+    if d.compact { b.grow(1.0).shrink().min_w(160.0).max_w(280.0) } else { b.w(280.0) }
 }
 
 impl App {

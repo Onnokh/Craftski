@@ -104,41 +104,32 @@ pub fn section(label: &str) -> El {
 pub struct Segment<S> {
     pub label: &'static str,
     pub on: bool,
-    /// Brass instead of plain text when chosen, for the control's primary choice.
-    pub brass: bool,
-    pub pick: Option<fn(&mut S)>,
+    pub pick: fn(&mut S),
 }
 
 pub fn segmented<S: 'static>(name: &str, segments: Vec<Segment<S>>) -> El {
-    let mut out = row().fill(p().surface).border(1.0, p().line).radius(10.0).padding(4.0).role("radiogroup").label(name);
-    for s in segments {
-        let color = match (s.on, s.brass) {
-            (true, true) => p().brass,
-            (true, false) => p().text,
-            (false, _) => p().muted,
-        };
-        let mut item = el().px(14.0).py(6.0).radius(7.0).child(text(s.label).font(theme::sans(13.0, 500.0)).color(color));
-        if s.on {
-            item = item.fill(p().raised).box_shadow(Shadow { spread: 1.0, color: p().line2, inset: true, ..Shadow::default() });
+    let mut out = row().h(32.0).padding(1.0).radius(4.0).border(1.0, p().line).clip_rounded(4.0).role("radiogroup").label(name);
+    for (i, s) in segments.into_iter().enumerate() {
+        if i > 0 {
+            out = out.child(el().w(1.0).h_full().fill(p().line));
         }
-        out = out.child(match s.pick {
-            Some(pick) => item.role("radio").label(s.label).checked(s.on).cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.03)).on_press(move |st: &mut S| pick(st)),
-            None => item.px(10.0).a11y_hidden(),
-        });
+        let item = row().h_full().px(12.0).center_y().child(text(s.label).font(theme::BODY).color(if s.on { p().text } else { p().muted }));
+        let item = if s.on { item.fill(p().active) } else { item.hover(Color::WHITE.alpha(0.03)) };
+        let pick = s.pick;
+        out = out.child(item.role("radio").label(s.label).checked(s.on).cursor(Cursor::Pointer).on_press(move |st: &mut S| pick(st)));
     }
     out
 }
 
-pub fn toggle<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
-    let knob = el().w(14.0).h(14.0).radius(7.0).fill(if on { p().knob } else { p().muted });
-    let track = row().w(32.0).h(18.0).radius(9.0).padding(2.0).center_y().fill(if on { p().brass } else { p().line2 });
-    let track = if on { track.justify_end() } else { track };
+pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
+    let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
+    let square = if on { square.fill(p().brass).child(glyph(&CHECK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
     row()
         .gap(8.0)
         .center_y()
-        .child(track.child(knob))
-        .child(text(label).font(theme::sans(13.0, 400.0)).color(p().muted))
-        .role("switch")
+        .child(square)
+        .child(text(label).font(theme::BODY).color(p().text))
+        .role("checkbox")
         .label(label)
         .checked(on)
         .cursor(Cursor::Pointer)
@@ -184,3 +175,9 @@ pub fn unknown(label: &str) -> El {
 pub fn flexible() -> El {
     col().grow(1.0).shrink().min_w(0.0)
 }
+
+pub static CHECK: Icon = Icon {
+    name: "tsm-check",
+    view: 16.0,
+    body: r#"<path d="m4.5 8.5 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};

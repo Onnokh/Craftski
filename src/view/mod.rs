@@ -96,16 +96,16 @@ struct Dims {
     pad: f32,
     detail: f32,
     gap: f32,
-    /// Skill, mats cost, sells for, profit, margin, sold/day, listed.
+    /// Skill, materials, net sale, profit, margin, sold/day, listed.
     cols: [f32; 7],
 }
 
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 20.0, detail: 360.0, gap: 10.0, cols: [44.0, 104.0, 104.0, 112.0, 52.0, 60.0, 48.0] }
+            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, cols: [40.0, 104.0, 104.0, 104.0, 56.0, 56.0, 40.0] }
         } else {
-            Dims { compact, pad: 32.0, detail: 420.0, gap: 14.0, cols: [104.0, 118.0, 118.0, 128.0, 112.0, 84.0, 64.0] }
+            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, cols: [56.0, 112.0, 112.0, 112.0, 72.0, 80.0, 64.0] }
         }
     }
 }
@@ -280,7 +280,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .min_w(0.0)
                     .h_full()
                     .child(header::header(s, r, d))
-                    .child(toolbar::toolbar(s, d))
+                    .child(toolbar::toolbar(s, r, d))
                     .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
