@@ -118,11 +118,6 @@ pub const TOOLBAR_GAP: f32 = 12.0;
 /// The room a dropdown keeps on its right for the arrow its art draws, or the chevron without it.
 pub const ARROW_ROOM: f32 = 30.0;
 
-/// The right padding of a dropdown with no menu: the room for the art's arrow, or a plain
-/// margin without the art.
-pub fn arrow_room() -> f32 {
-    if skin::art(Piece::Dropdown).is_some() { ARROW_ROOM } else { 11.0 }
-}
 /// Between a dropdown's parts.
 pub const DROPDOWN_GAP: f32 = 6.0;
 
@@ -147,6 +142,16 @@ pub fn pill(active: bool, open: bool) -> El {
 fn outline(out: El, active: bool, open: bool) -> El {
     let out = out.radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
     if active { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) }
+}
+
+/// A toolbar text field's frame, 32pt tall: the game's search border, or without it the flat
+/// pill, filled while `active` says its value narrows the rows.
+pub fn field_box(active: bool, focused: bool) -> El {
+    let out = row().h(32.0).px(12.0).gap(8.0).center_y().cursor(Cursor::Text);
+    match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
+        Some(layers) => out.children(layers),
+        None => outline(out, active, focused),
+    }
 }
 
 /// A toolbar's search: a magnifier and `field` in the game's search border, 400pt wide while
