@@ -51,7 +51,6 @@ fn is_truetype(bytes: &[u8]) -> bool {
 pub struct Palette {
     pub ground: Color,
     pub surface: Color,
-    pub line2: Color,
     /// Row dividers, quieter than the bronze that rules the column heads and bands.
     pub rule: Color,
     pub selected: Color,
@@ -92,7 +91,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
     Palette {
         ground: c("#0B0806"),
         surface: c("#120E0A"),
-        line2: c("#3A332B"),
         rule: c("#FFE2AA").alpha(0.07),
         selected: c("#221D17"),
         active: c("#26211B"),

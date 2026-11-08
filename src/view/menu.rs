@@ -76,15 +76,16 @@ pub fn overlay(s: &App) -> Vec<El> {
     let Some(m) = s.menu else { return Vec::new() };
     let scrim = el().key("menu-scrim").role("none").absolute(0.0, 0.0).w_full().h_full().on_press(|s: &mut App| s.menu = None);
     let list = s.menu_items(m).into_iter().fold(col().w_full(), |list, i| list.child(item(i)));
-    let panel = col().key("menu").w(width(m));
-    let panel = match skin::nine_slice(Piece::MenuBg, [12.0; 4]) {
-        // The art's middle lets a little through; the rows under a menu should not show. The
-        // rows keep clear of its 12pt frame.
-        Some(layers) => panel.padding(12.0).child(el().pin(Some(6.0), Some(6.0), Some(6.0), Some(6.0)).fill(p().ground)).children(layers),
-        // Rune borders take no layout space, so the 4pt padding grows by the 1pt border.
-        None => panel.padding(5.0).radius(4.0).fill(p().surface).border(1.0, p().line2).clip_rounded(4.0),
-    };
-    let panel = panel
+    let panel = col()
+        .key("menu")
+        .w(width(m))
+        .padding(4.0)
+        .radius(4.0)
+        .fill(p().surface)
+        .border(1.0, p().bronze)
+        .border_layout()
+        .shadow(8.0, 24.0, Color::BLACK.alpha(0.6))
+        .clip_rounded(4.0)
         .child(col().w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list))
         .role("listbox")
         .label(name(m))
@@ -98,7 +99,7 @@ fn item(i: Item) -> El {
         .h(28.0)
         .px(8.0)
         .gap(12.0)
-        .radius(2.0)
+        .radius(3.0)
         .center_y()
         .cursor(Cursor::Pointer)
         .child(text(&i.label).font(theme::MENU).color(p().text).truncate().shrink().min_w(0.0))
@@ -116,11 +117,7 @@ fn item(i: Item) -> El {
         }
     };
     let out = out.child(check).role("option").label(i.spoken).checked(i.on);
-    let out = match (i.on, tick) {
-        (true, Some(_)) => out.linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, p().gold.alpha(0.18)), (1.0, p().gold.alpha(0.0))]),
-        (true, None) => out.fill(p().active),
-        (false, _) => out.hover(Color::WHITE.alpha(0.03)),
-    };
+    let out = if i.on { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.04)) };
     let pick = i.pick;
     out.on_press(move |s: &mut App| s.pick(pick.clone()))
 }
