@@ -200,7 +200,7 @@ fn reagent(s: &App, l: &ReagentLine, money: Money) -> El {
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
         .child(icon_frame(s.icons.item(l.reagent.icon), 22.0, p().quality(l.reagent.quality)))
-        .child(flexible().child(what.key(Tip::Reagent(l.reagent.item_id).anchor())))
+        .child(flexible().child(what))
         .child(l.total.map_or_else(unknown, |t| money.minus(t)));
     let out = tooltip::hover(out, Tip::Reagent(l.reagent.item_id));
     match recipe {

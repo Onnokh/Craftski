@@ -15,9 +15,9 @@ use crate::flips::{self, Flip};
 use crate::items::Item;
 use crate::menu::SOLD_STEPS;
 use crate::merchants::{Catalog, Merchant};
-use crate::prices::PriceBook;
-use crate::recipes::FileDataId;
-use crate::tooltip::{self, Card};
+use crate::recipes::{FileDataId, Quality};
+use crate::sheets::Sheets;
+use crate::tooltip::Card;
 use crate::rows::{Hidden, Sort};
 
 pub struct State {
@@ -87,11 +87,11 @@ impl State {
     }
 
     /// The tooltip of the flip at `i` in the flips list.
-    pub fn tip(&self, i: usize, book: &PriceBook) -> Option<Card> {
+    pub fn tip(&self, i: usize, sheets: Option<&Sheets>) -> Option<Card> {
         let f = self.stocked().filter(|f| i < f.flips.len())?;
         let (flip, _, item) = f.at(i);
         let name = item.map_or_else(|| format!("Item #{}", flip.item), |i| i.name.clone());
-        Some(tooltip::flip(name, flip, item, book))
+        Some(Card::item(name, item.map_or(Quality::Common, |i| i.quality), flip.item, sheets))
     }
 
     fn refilter(&mut self) {

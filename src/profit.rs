@@ -7,7 +7,7 @@ use crate::recipes::Recipe;
 /// The auction house keeps 5% of every sale. Kept as a percent so whole results divide exactly.
 pub const SELLER_PERCENT: f64 = 95.0;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
     /// None when any reagent is unpriced; `unpriced` names them.
     pub cost: Option<Copper>,

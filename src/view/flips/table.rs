@@ -106,7 +106,7 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
                 .center_y()
                 .w_full()
                 .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 26.0, quality))
-                .child(text(&name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0).key(Tip::Flip(entry.flip).anchor())),
+                .child(text(&name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0)),
             Column::Vendor => vendor(s, merchant, entry.others.len()),
             Column::Paid => flip.paid.map_or_else(unknown, |paid| money.show(paid.copper())),
             Column::Sells => flip.sale.map_or_else(unknown, |sale| money.show(sale.unit)),

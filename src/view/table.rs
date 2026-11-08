@@ -123,7 +123,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .center_y()
         .w_full()
         .child(icon_frame(s.icons.item(recipe.icon), 26.0, quality))
-        .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0).key(Tip::Recipe(recipe.spell_id).anchor()));
+        .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0));
     let mut out = selectable_row(selected)
         .h(ROW)
         .px(d.pad)

@@ -27,6 +27,7 @@ use crate::profit::{self, Evaluation, PriceOrigin};
 use crate::recipes::{self, FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
+use crate::sheets::Sheets;
 use crate::skin::Piece;
 use crate::theme::{self, p};
 use crate::tooltip::Tip;
@@ -61,6 +62,10 @@ pub struct App {
     menu: Option<Menu>,
     /// What the pointer rests on that opens a tooltip.
     tip: Option<Tip>,
+    /// foreverdb's item data, which tooltips read once it loads.
+    sheets: Option<Sheets>,
+    /// Where the pointer last moved over something with a tooltip, in window points.
+    pointer: (f32, f32),
     /// The realm the player last chose, which prices come from whenever AppData.lua holds it.
     realm: String,
     /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
@@ -78,6 +83,7 @@ enum Msg {
     Market(Profession, Box<Result<Market, String>>),
     Recipes(Profession, Box<Result<Vec<Recipe>, String>>),
     Catalog(Box<Result<Catalog, String>>),
+    Sheets(Box<Result<Sheets, String>>),
     Icon(FileDataId, PathBuf),
     Rail(&'static str, PathBuf),
     Skin(Piece, PathBuf),
@@ -182,6 +188,8 @@ impl App {
             flips: flips::State::new(),
             menu: None,
             tip: None,
+            sheets: None,
+            pointer: (0.0, 0.0),
             realm: settings::load_realm(),
             now: unix_secs(SystemTime::now()),
         }
@@ -364,6 +372,8 @@ pub fn setup(s: &mut App, wake: Waker) {
     s.art_asks = Some(ask);
     let (art, first) = (out.clone(), s.profession);
     std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, path)))));
+    let sheets = out.clone();
+    std::thread::spawn(move || sheets.send(Msg::Sheets(Box::new(settled(crate::sheets::load)))));
     let (realm, profession) = (s.realm.clone(), s.profession);
     std::thread::spawn(move || {
         let market = settled(|| market::load(&realm, profession));
@@ -425,6 +435,10 @@ fn drain(s: &mut App) -> bool {
             Msg::Market(profession, result) => s.land(profession, *result),
             Msg::Recipes(profession, result) => s.land_recipes(profession, *result),
             Msg::Catalog(result) => s.land_catalog(*result),
+            Msg::Sheets(result) => match *result {
+                Ok(sheets) => s.sheets = Some(sheets),
+                Err(e) => eprintln!("item tooltips: {e}"),
+            },
             Msg::Icon(id, path) => s.icons.show(id, &path),
             Msg::Rail(name, path) => s.icons.show_rail(name, &path),
             Msg::Skin(piece, path) => {
@@ -523,6 +537,7 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 /// The profession `--profession` names, else the one last shown, with every icon and piece of
 /// art it draws fetched and decoded, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
+    s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
     s.land(s.profession, market::load(&s.realm, s.profession));
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
@@ -530,6 +545,7 @@ pub fn scene_loaded(s: &mut App) {
 
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
+    s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
     s.tab = Tab::Flips;
     s.land(s.profession, market::load(&s.realm, s.profession));
     let catalog = merchants::load();
