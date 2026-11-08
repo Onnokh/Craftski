@@ -80,12 +80,6 @@ pub struct Palette {
     pub loss: Color,
     /// The caution icon beside a market figure the data cannot vouch for.
     pub warn: Color,
-    /// Where a sale price goes, on the breakdown bar and its swatches: the auction house cut
-    /// (with an edge so the faint fill reads), the materials and the profit.
-    pub cut: Color,
-    pub cut_edge: Color,
-    pub materials: Color,
-    pub profit: Color,
     /// Skill-up bands: still yellow, green, then grey.
     pub skill: [Color; 3],
     /// The game bar's skill-up segments, each top to bottom.
@@ -119,10 +113,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         on_brass: c("#1E1608"),
         loss: c("#E57560"),
         warn: c("#FFB733"),
-        cut: text.alpha(0.08),
-        cut_edge: text.alpha(0.14),
-        materials: text.alpha(0.20),
-        profit: text.alpha(0.64),
         skill: [c("#E0C24A"), c("#5FB86A"), c("#5E574E")],
         skill_bar: [[c("#FFE15A"), c("#C9A21E")], [c("#5BE04A"), c("#2E8A22")], [c("#8C8478"), c("#4A443C")]],
         quality: [c("#9D9D9D"), c("#EEE4D2"), c("#4BD461"), c("#4F9CFF"), c("#B469FF")],
