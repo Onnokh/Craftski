@@ -2,7 +2,6 @@
 //! price feeds with their ages. UI-free.
 
 use crate::prices::PriceBook;
-use crate::profit::PriceSource;
 
 /// "116 of 592 recipes shown." for `noun` "recipe".
 pub fn shown(shown: usize, total: usize, noun: &str) -> String {
@@ -44,36 +43,34 @@ pub fn ago(secs: u64) -> String {
 /// One price feed as the status bar names it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Feed {
-    /// "Realm PvP-Horde", "PvP-Horde" when short, or "Realm prices" when AppData names no scope.
+    /// "PvP-Horde", "Region Forever-EU", or "Realm prices" when AppData names no scope.
     pub name: String,
     /// "17 min ago" and how fresh that is; None when AppData records no download time.
     pub age: Option<(String, Freshness)>,
 }
 
 impl Feed {
-    pub fn new(source: PriceSource, scope: Option<&str>, age_secs: Option<u64>, short: bool) -> Feed {
-        let kind = match source {
-            PriceSource::Realm => "Realm",
-            PriceSource::Region => "Region",
-        };
-        let name = match scope {
-            Some(scope) if short => scope.to_owned(),
-            Some(scope) => format!("{kind} {scope}"),
-            None => format!("{kind} prices"),
-        };
-        Feed { name, age: age_secs.map(|s| (ago(s), Freshness::of(s))) }
+    /// A feed TSM downloaded at unix time `updated`, aged from `now`.
+    pub fn new(name: String, updated: Option<u64>, now: u64) -> Feed {
+        let age = updated.map(|t| now.saturating_sub(t));
+        Feed { name, age: age.map(|s| (ago(s), Freshness::of(s))) }
     }
 
-    /// The realm and region feeds of `book` at unix time `now`.
-    pub fn both(book: &PriceBook, now: u64, short: bool) -> [Feed; 2] {
-        let age = |updated: Option<u64>| updated.map(|t| now.saturating_sub(t));
-        [
-            Feed::new(PriceSource::Realm, book.realm().map(|(name, _)| name), age(book.realm().and_then(|(_, b)| b.updated)), short),
-            Feed::new(PriceSource::Region, book.region_scope.as_deref(), age(book.region_updated), short),
-        ]
+    /// The realm prices are read from, or "Realm prices" when AppData holds none.
+    pub fn realm(book: &PriceBook, now: u64) -> Feed {
+        match book.realm() {
+            Some((name, realm)) => Feed::new(name.to_owned(), realm.updated, now),
+            None => Feed::new("Realm prices".into(), None, now),
+        }
     }
 
-    /// "Realm PvP-Horde, 17 min ago", or the name alone when the age is unknown.
+    /// The region's sales: "Region Forever-EU", or "Region prices" when AppData names no scope.
+    pub fn region(book: &PriceBook, now: u64) -> Feed {
+        let name = book.region_scope.as_deref().map_or_else(|| "Region prices".into(), |scope| format!("Region {scope}"));
+        Feed::new(name, book.region_updated, now)
+    }
+
+    /// "PvP-Horde, 17 min ago", or the name alone when the age is unknown.
     pub fn line(&self) -> String {
         match &self.age {
             Some((ago, _)) => format!("{}, {ago}", self.name),
@@ -121,37 +118,31 @@ mod tests {
     }
 
     #[test]
-    fn a_feed_names_its_scope_and_age() {
-        let feed = Feed::new(PriceSource::Realm, Some("PvP-Horde"), Some(17 * 60), false);
-        assert_eq!(feed, Feed { name: "Realm PvP-Horde".into(), age: Some(("17 min ago".into(), Freshness::Fresh)) });
-        assert_eq!(feed.line(), "Realm PvP-Horde, 17 min ago");
-        assert_eq!(Feed::new(PriceSource::Region, Some("Forever-EU"), Some(7 * 3600), false).line(), "Region Forever-EU, 7 hours ago");
+    fn a_feed_names_its_scope_and_age_and_never_ages_below_zero() {
+        let feed = Feed::new("PvP-Horde".into(), Some(10_000), 10_000 + 17 * 60);
+        assert_eq!(feed, Feed { name: "PvP-Horde".into(), age: Some(("17 min ago".into(), Freshness::Fresh)) });
+        assert_eq!(feed.line(), "PvP-Horde, 17 min ago");
+        assert_eq!(Feed::new("PvP-Horde".into(), Some(10_120), 10_000).line(), "PvP-Horde, just now");
+        let undated = Feed::new("PvP-Horde".into(), None, 10_000);
+        assert_eq!((undated.line().as_str(), undated.age), ("PvP-Horde", None));
     }
 
     #[test]
-    fn a_short_feed_drops_its_kind_but_keeps_it_without_a_scope() {
-        assert_eq!(Feed::new(PriceSource::Realm, Some("PvP-Horde"), Some(17 * 60), true).line(), "PvP-Horde, 17 min ago");
-        assert_eq!(Feed::new(PriceSource::Region, None, Some(7 * 3600), true).line(), "Region prices, 7 hours ago");
-    }
-
-    #[test]
-    fn a_feed_drops_what_appdata_does_not_record() {
-        assert_eq!(Feed::new(PriceSource::Realm, None, Some(30), false).line(), "Realm prices, just now");
-        let undated = Feed::new(PriceSource::Region, Some("Forever-EU"), None, false);
-        assert_eq!((undated.line().as_str(), undated.age), ("Region Forever-EU", None));
-        assert_eq!(Feed::new(PriceSource::Realm, None, None, false).line(), "Realm prices");
-    }
-
-    #[test]
-    fn both_feeds_age_from_now_and_never_go_negative() {
+    fn the_status_bar_feeds_are_the_chosen_realm_and_the_region() {
         let mut book = PriceBook::default();
         (book.region_updated, book.region_scope) = (Some(10_000 + 120), Some("Forever-EU".into()));
         book.realm_prices_mut();
         book.realms.get_mut("PvP-Horde").unwrap().updated = Some(10_000);
-        let [realm, region] = Feed::both(&book, 10_000 + 26 * 3600, false);
-        assert_eq!((realm.line().as_str(), realm.age.map(|a| a.1)), ("Realm PvP-Horde, 1 day ago", Some(Freshness::Stale)));
+        let now = 10_000 + 26 * 3600;
+        let (realm, region) = (Feed::realm(&book, now), Feed::region(&book, now));
+        assert_eq!((realm.line().as_str(), realm.age.map(|a| a.1)), ("PvP-Horde, 1 day ago", Some(Freshness::Stale)));
         assert_eq!(region.line(), "Region Forever-EU, 1 day ago");
-        assert_eq!(Feed::both(&book, 10_000, false)[1].line(), "Region Forever-EU, just now");
+    }
+
+    #[test]
+    fn feeds_name_their_kind_when_appdata_names_no_scope() {
+        let book = PriceBook::default();
+        assert_eq!((Feed::realm(&book, 0).line(), Feed::region(&book, 0).line()), ("Realm prices".into(), "Region prices".into()));
     }
 
     #[test]

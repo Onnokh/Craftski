@@ -20,7 +20,7 @@ use crate::icons;
 use crate::market::{self, Market};
 use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
-use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
+use crate::profit::{self, Evaluation, PriceOrigin};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
@@ -38,7 +38,6 @@ pub struct App {
     /// The loader thread's messages, until it finishes.
     inbox: Option<Receiver<Msg>>,
     icons: Icons,
-    source: PriceSource,
     hide_unpriced: bool,
     min_sold: usize,
     sort: Sort<Column>,
@@ -137,7 +136,6 @@ impl App {
             load: Load::Loading,
             inbox: None,
             icons: Icons::default(),
-            source: PriceSource::Realm,
             hide_unpriced: true,
             min_sold: 0,
             sort: Sort { column: Column::Profit, descending: true },
@@ -191,7 +189,7 @@ impl App {
 
     fn refresh(&mut self) {
         let Load::Ready(r) = &mut self.load else { return };
-        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs(self.source))).collect();
+        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs())).collect();
         let filter = Filter {
             hide_unpriced: self.hide_unpriced,
             min_sold_per_day: SOLD_STEPS[self.min_sold].min,
@@ -498,7 +496,7 @@ pub fn scene_crafts_sold(s: &mut App) {
 pub fn scene_crafted(s: &mut App) {
     scene_loaded(s);
     let Load::Ready(r) = &s.load else { return };
-    let costs = r.market.costs(s.source);
+    let costs = r.market.costs();
     let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
     s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
 }
@@ -512,12 +510,6 @@ pub fn scene_stale(s: &mut App) {
         realm.updated = Some(s.now - 5 * 3600);
     }
     r.market.book.region_updated = Some(s.now - 30 * 3600);
-}
-
-/// `loaded` priced with the region feed, so the status bar's switch shows its other half.
-pub fn scene_region(s: &mut App) {
-    scene_loaded(s);
-    s.set_source(PriceSource::Region);
 }
 
 /// `flips` after a reload from a file that isn't there: the status bar says why and the old

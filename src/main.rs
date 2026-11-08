@@ -40,7 +40,7 @@ fn main() {
     }
     rune::run_windows(|displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("region", view::scene_region), ("reload-failed", view::scene_reload_failed)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("reload-failed", view::scene_reload_failed)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
@@ -63,22 +63,19 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
 }
 
 fn dump() -> Result<(), String> {
-    use profit::PriceSource;
     use rows::{Column, Filter, Sort};
     let m = market::load()?;
-    let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs(source))).collect::<Vec<_>>();
-    let evals = evals_for(PriceSource::Realm);
+    let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
     println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
     let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
-    for (name, source, evals) in [("realm", PriceSource::Realm, &evals), ("region", PriceSource::Region, &evals_for(PriceSource::Region))] {
-        let priced = evals.iter().filter(|e| e.profit.is_some()).count();
-        let missing = evals.iter().filter(|e| !e.unpriced.is_empty()).count();
-        let crafted = reagents.iter().filter(|&&item| m.costs(source).get(item).is_some_and(|p| matches!(p.origin, profit::PriceOrigin::Crafted { .. }))).count();
-        println!("fully priced ({name}): {priced}/{}, {missing} miss a reagent price, {crafted} reagents cheapest to craft", evals.len());
-    }
+    let realm = m.book.realm().map_or("?", |(name, _)| name);
+    let priced = evals.iter().filter(|e| e.profit.is_some()).count();
+    let missing = evals.iter().filter(|e| !e.unpriced.is_empty()).count();
+    let crafted = reagents.iter().filter(|&&item| m.costs().get(item).is_some_and(|p| matches!(p.origin, profit::PriceOrigin::Crafted { .. }))).count();
+    println!("fully priced ({realm}): {priced}/{}, {missing} miss a reagent price, {crafted} reagents cheapest to craft", evals.len());
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
     for &i in rows.iter().take(15) {
@@ -106,7 +103,7 @@ fn flips() -> Result<(), String> {
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
     let m = market::load()?;
     let c = merchants::load()?;
-    let all = flips::evaluate(&c.merchants, &c.items, &m.book, profit::PriceSource::Realm, &flips::RULES);
+    let all = flips::evaluate(&c.merchants, &c.items, &m.book, &flips::RULES);
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();

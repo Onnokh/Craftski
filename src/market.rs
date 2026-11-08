@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::prices::{self, PriceBook};
-use crate::profit::{CostBook, PriceSource};
+use crate::profit::CostBook;
 use crate::recipes::{self, LEATHERWORKING, Recipe};
 use crate::vendor;
 
@@ -10,8 +10,7 @@ pub struct Market {
     pub book: PriceBook,
     pub read: Read,
     pub recipes: Vec<Recipe>,
-    realm_costs: CostBook,
-    region_costs: CostBook,
+    costs: CostBook,
 }
 
 /// When the app last read AppData.lua, and the file's modified time as it read it.
@@ -23,16 +22,12 @@ pub struct Read {
 
 impl Market {
     pub fn new(book: PriceBook, read: Read, recipes: Vec<Recipe>) -> Market {
-        let costs = |source| CostBook::new(&recipes, &book, source);
-        let (realm_costs, region_costs) = (costs(PriceSource::Realm), costs(PriceSource::Region));
-        Market { book, read, recipes, realm_costs, region_costs }
+        let costs = CostBook::new(&recipes, &book);
+        Market { book, read, recipes, costs }
     }
 
-    pub fn costs(&self, source: PriceSource) -> &CostBook {
-        match source {
-            PriceSource::Realm => &self.realm_costs,
-            PriceSource::Region => &self.region_costs,
-        }
+    pub fn costs(&self) -> &CostBook {
+        &self.costs
     }
 }
 

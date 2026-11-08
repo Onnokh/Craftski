@@ -25,7 +25,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };
     let (recipe, e) = recipe_at(r, index);
-    let costs = r.market.costs(s.source);
+    let costs = r.market.costs();
     let b = breakdown(recipe, e, &r.market.book, costs);
     let split = b.sale.zip(e.cost).and_then(|(sale, cost)| charts::split(sale.gross.0, sale.cut.0, cost.0));
     let warning = caution(e.sold_per_day, e.auctions);
