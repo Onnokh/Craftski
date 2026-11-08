@@ -1,7 +1,7 @@
 //! Small pieces every region draws: money with coins, framed icons, segmented controls, the
 //! toggle, labels and buttons.
 
-use rune::{Color, Cursor, El, Icon, Image, Shadow, TextCase, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, El, Icon, Image, TextCase, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::copper::{Coin, Copper, Lanes};
 use crate::theme::{self, CAPS, p};

@@ -71,7 +71,7 @@ impl Icons {
     fn show_rail(&mut self, name: &'static str, image: RailImage) {
         let Some(cache) = &self.cache else { return };
         let image = match image {
-            RailImage::File(path) => cache.file(path, 30.0, 2.0),
+            RailImage::File(path) => cache.file(path, 32.0, 2.0),
             RailImage::Dimmed(w, h, rgba) => cache.rgba(w, h, rgba),
         };
         self.rail.insert(name, image);
