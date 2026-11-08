@@ -361,7 +361,7 @@ mod tests {
         let (mut book, _) = crate::market::read_book(&crate::wow::locate().unwrap().path).unwrap();
         book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
-        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::settings::load_rules());
         let filter = Filter { zone: HOME, hide_unprofitable: true, min_sold_per_day: Some(5.0), query: "patter", supply: Supply::Endless };
         let names = |filter| -> Vec<String> { visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| c.items[&flips[r.flip].item].name.clone()).collect() };
         let shown = names(filter);
@@ -381,7 +381,7 @@ mod tests {
         let (mut book, _) = crate::market::read_book(&crate::wow::locate().unwrap().path).unwrap();
         book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
-        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::settings::load_rules());
         let mut twice = Vec::new();
         for zone in zones(&flips, &c.merchants) {
             for hide_unprofitable in [false, true] {

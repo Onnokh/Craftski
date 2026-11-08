@@ -1,4 +1,5 @@
-//! The rail: the primary professions, the secondary ones, then vendor flips, ruled apart.
+//! The rail: the primary professions, the secondary ones, then vendor flips, ruled apart, and
+//! settings at the foot.
 
 use rune::{Color, Cursor, El, col, el};
 
@@ -9,6 +10,7 @@ use crate::skin::Piece;
 use crate::theme::p;
 
 pub const COIN: &str = "inv_misc_coin_01";
+const GEAR: &str = "inv_misc_gear_01";
 
 const SLOT: f32 = 48.0;
 const FRAME: f32 = 40.0;
@@ -16,7 +18,7 @@ const ICON: f32 = 34.0;
 
 /// Every icon the rail draws, by the name icon files go by.
 pub fn icons() -> impl Iterator<Item = &'static str> {
-    Profession::ALL.into_iter().map(Profession::icon).chain([COIN])
+    Profession::ALL.into_iter().map(Profession::icon).chain([COIN, GEAR])
 }
 
 pub fn rail(s: &App) -> El {
@@ -24,7 +26,7 @@ pub fn rail(s: &App) -> El {
     col()
         .w(60.0)
         .h_full()
-        .pt(16.0)
+        .py(16.0)
         .gap(6.0)
         .items_center()
         .fill(Color::BLACK.alpha(0.55))
@@ -34,6 +36,8 @@ pub fn rail(s: &App) -> El {
         .children(professions(true))
         .child(rule())
         .child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips))
+        .child(el().grow(1.0))
+        .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.tab = Tab::Settings))
 }
 
 fn profession(s: &App, profession: Profession) -> El {

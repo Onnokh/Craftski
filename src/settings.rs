@@ -1,9 +1,11 @@
 //! The player's choices that outlive a session, one small text file each under
 //! `%LOCALAPPDATA%\tsm-crafts`: the profession shown, their rank in each profession and the
-//! realm prices come from, and the AppData.lua they chose.
+//! realm prices come from, the AppData.lua they chose, and the character who buys from merchants.
 
 use std::path::{Path, PathBuf};
 
+use crate::flips::{Bartering, Rules};
+use crate::merchants::Side;
 use crate::recipes::Profession;
 
 /// The one rank saved before each profession had its own; it was always Leatherworking's.
@@ -11,14 +13,24 @@ const LEGACY_SKILL: &str = "skill.txt";
 const REALM: &str = "realm.txt";
 const PROFESSION: &str = "profession.txt";
 const APPDATA: &str = "appdata.txt";
+const FACTION: &str = "faction.txt";
+/// One faction name per line.
+const HONORED: &str = "honored.txt";
+/// Bartering's percent.
+const BARTERING: &str = "bartering.txt";
 
 fn path(file: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts").join(file))
 }
 
+/// What `file` holds, trimmed, or None when nothing is saved.
+fn saved(file: &str) -> Option<String> {
+    path(file).and_then(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string())
+}
+
 /// What `file` holds, trimmed, or blank when nothing is saved.
 fn load(file: &str) -> String {
-    path(file).and_then(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string()).unwrap_or_default()
+    saved(file).unwrap_or_default()
 }
 
 fn save(file: &str, text: &str) {
@@ -83,6 +95,32 @@ pub fn save_appdata(path: &Path) {
     save(APPDATA, &path.to_string_lossy());
 }
 
+/// The character last described, the default's choice for anything never saved.
+pub fn load_rules() -> Rules {
+    rules_from(saved)
+}
+
+pub fn save_rules(rules: &Rules) {
+    for (file, text) in rules_files(rules) {
+        save(file, &text);
+    }
+}
+
+/// An honored file saved empty means Honored with no one, unlike a missing one.
+fn rules_from(saved: impl Fn(&str) -> Option<String>) -> Rules {
+    let default = Rules::default();
+    Rules {
+        side: saved(FACTION).and_then(|s| Side::named(&s)).unwrap_or(default.side),
+        honored: saved(HONORED).map_or(default.honored, |s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()),
+        bartering: saved(BARTERING).and_then(|s| Bartering::ALL.into_iter().find(|b| b.percent().to_string() == s)).unwrap_or(default.bartering),
+        listing_hours: default.listing_hours,
+    }
+}
+
+fn rules_files(rules: &Rules) -> [(&'static str, String); 3] {
+    [(FACTION, rules.side.name().to_string()), (HONORED, rules.honored.join("\n")), (BARTERING, rules.bartering.percent().to_string())]
+}
+
 /// The rank a typed value names; anything but a whole number means no rank.
 pub fn parse_skill(text: &str) -> Option<u16> {
     text.trim().parse().ok()
@@ -100,5 +138,26 @@ mod tests {
     #[test]
     fn each_profession_keeps_its_rank_in_its_own_file() {
         assert_eq!([Profession::FirstAid, Profession::Leatherworking].map(skill_file), ["skill-first-aid.txt", "skill-leatherworking.txt"]);
+    }
+
+    fn saved_as(files: &[(&'static str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let files: Vec<(&str, String)> = files.iter().map(|&(f, t)| (f, t.to_string())).collect();
+        move |file| files.iter().find(|(f, _)| *f == file).map(|(_, t)| t.clone())
+    }
+
+    #[test]
+    fn the_character_reads_back_as_saved() {
+        let rules = Rules { side: Side::Alliance, honored: vec!["Darnassus".into(), "Stormwind".into()], bartering: Bartering::Five, listing_hours: 8 };
+        let files = rules_files(&rules);
+        assert_eq!(files, [("faction.txt", "Alliance".to_string()), ("honored.txt", "Darnassus\nStormwind".to_string()), ("bartering.txt", "5".to_string())]);
+        let pairs: Vec<(&str, &str)> = files.iter().map(|(f, t)| (*f, t.as_str())).collect();
+        assert_eq!(rules_from(saved_as(&pairs)), rules);
+    }
+
+    #[test]
+    fn nothing_saved_is_the_default_character_and_an_empty_honored_file_is_no_one() {
+        assert_eq!(rules_from(saved_as(&[])), Rules { side: Side::Horde, honored: vec!["Thunder Bluff".into()], bartering: Bartering::None, listing_hours: 8 });
+        let unknown = rules_from(saved_as(&[("faction.txt", "Scourge"), ("honored.txt", ""), ("bartering.txt", "7")]));
+        assert_eq!(unknown, Rules { side: Side::Horde, honored: vec![], bartering: Bartering::None, listing_hours: 8 });
     }
 }

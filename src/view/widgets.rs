@@ -161,7 +161,7 @@ pub fn search_box(field: El, focused: bool) -> El {
 /// A checkbox and its label in the control frame; pressing anywhere on it flips the box. The
 /// game's box and tick, or without them a brass square, sits as far from the frame's left as
 /// from its top and bottom.
-pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
+pub fn checkbox<S: 'static>(label: &str, on: bool, flip: impl Fn(&mut S) + 'static) -> El {
     let (square, left, gap) = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
         (Some(bx), Some(tick)) => {
             let square = el().w(22.0).h(22.0).pixels(bx).a11y_hidden();

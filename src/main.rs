@@ -53,7 +53,7 @@ fn main() {
     let (fonts, families) = theme::fonts();
     rune::run_windows(move |displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed), ("no-appdata", view::scene_no_appdata)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed), ("no-appdata", view::scene_no_appdata), ("settings", view::scene_settings)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
@@ -124,7 +124,7 @@ fn flips() -> Result<(), String> {
     let (mut book, _) = market::read_book(&appdata()?)?;
     book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
-    let all = flips::evaluate(&c.merchants, &c.items, &book, &flips::RULES);
+    let all = flips::evaluate(&c.merchants, &c.items, &book, &settings::load_rules());
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: None, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();

@@ -4,6 +4,7 @@ mod folder;
 mod header;
 mod menu;
 mod rail;
+mod settings_tab;
 mod skin;
 mod status;
 mod table;
@@ -19,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
+use crate::flips::Rules;
 use crate::icons;
 use crate::market::{self, Market};
 use crate::menu::{Menu, SOLD_STEPS};
@@ -38,6 +40,7 @@ use crate::wow::{self, AppData};
 pub enum Tab {
     Crafts,
     Flips,
+    Settings,
 }
 
 pub struct App {
@@ -68,6 +71,8 @@ pub struct App {
     /// The player's rank in the shown profession as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    /// The character the flips are priced for.
+    rules: Rules,
     menu: Option<Menu>,
     /// What the pointer rests on that opens a tooltip.
     tip: Option<Tip>,
@@ -210,6 +215,7 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill(profession)),
             flips: flips::State::new(),
+            rules: settings::load_rules(),
             menu: None,
             tip: None,
             sheets: None,
@@ -504,6 +510,9 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key == Key::Escape && s.close_menu() {
         return true;
     }
+    if s.tab == Tab::Settings {
+        return false;
+    }
     if s.tab == Tab::Flips {
         let f = &mut s.flips;
         if ev.is_command('k') {
@@ -539,6 +548,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
     let d = Dims { status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
     let main = match &s.load {
+        _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
         Load::Unlocated => folder::not_found(s),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
@@ -626,6 +636,12 @@ pub fn scene_flips_shared(s: &mut App) {
 pub fn scene_flips_hidden(s: &mut App) {
     scene_flips(s);
     s.flips.search_patterns_narrowly();
+}
+
+/// The settings tab over a loaded catalog, its reputations listed for the saved faction.
+pub fn scene_settings(s: &mut App) {
+    scene_flips(s);
+    s.tab = Tab::Settings;
 }
 
 /// The flips tab with the zone menu open.

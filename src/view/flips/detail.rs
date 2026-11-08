@@ -6,7 +6,7 @@ use rune::{El, ScrollSpec, Span, col, row, text};
 use super::Stocked;
 use crate::breakdown::wowhead_url;
 use crate::copper::Copper;
-use crate::flips::{Flip, ListSource, Paid, RULES};
+use crate::flips::{Bartering, Flip, ListSource, Paid, Rules};
 use crate::merchants::Merchant;
 use crate::profit::{AuctionBasis, SELLER_PERCENT};
 use crate::rows::per_day;
@@ -38,14 +38,14 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
                 .child(text(format!("{}, {}.", merchant.name, merchant.role)).font(theme::CAPTION).color(p().muted).mt(4.0).truncate()),
         );
     let mut body = breakdown(col().w_full().child(identity).child(hero(flip)).child(band("Breakdown").mt(16.0)), flip);
-    body = merchant_facts(body.child(band("Merchant")), flip, merchant);
+    body = merchant_facts(body.child(band("Merchant")), flip, merchant, &s.rules);
     if !others.is_empty() {
         body = body.child(band("Other merchants"));
         for &i in others {
             body = body.child(other_merchant(f, i));
         }
     }
-    let body = auction_facts(body.child(band("Auction house")), flip);
+    let body = auction_facts(body.child(band("Auction house")), flip, s.rules.listing_hours);
     let actions = row().w_full().pt(16.0).child(wowhead::<App>(wowhead_url(flip.item)));
     panel.px(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
@@ -81,7 +81,7 @@ fn fact(label: &str, value: String) -> El {
     ledger(label, text(value).font(theme::BODY).color(p().text).truncate().shrink().min_w(0.0)).gap(16.0)
 }
 
-fn merchant_facts(body: El, flip: &Flip, m: &Merchant) -> El {
+fn merchant_facts(body: El, flip: &Flip, m: &Merchant, rules: &Rules) -> El {
     let price = match flip.paid {
         None => "Unknown",
         Some(Paid::Tsm(_)) => "TSM, as last charged",
@@ -93,10 +93,11 @@ fn merchant_facts(body: El, flip: &Flip, m: &Merchant) -> El {
         .child(fact("Stock from", m.source.label().to_string()))
         .child(fact("Supply", flip.limit.map_or_else(|| "Endless".to_string(), |l| format!("{l} until restock"))))
         .child(fact("Price", price.to_string()));
-    match (flip.paid, &m.rep) {
-        (Some(Paid::List { discount_percent, .. }), Some(rep)) if discount_percent > 0 => body.child(fact("Discount", format!("{discount_percent}%, Honored with {rep}"))),
-        _ => body,
-    }
+    let Some(Paid::List { discount_percent: discount @ 1.., .. }) = flip.paid else { return body };
+    let honored = rules.honored_with(m).map(|rep| format!("Honored with {rep}"));
+    let bartering = (rules.bartering != Bartering::None).then(|| format!("Bartering {}", rules.bartering.label()));
+    let why: Vec<String> = honored.into_iter().chain(bartering).collect();
+    body.child(fact("Discount", format!("{discount}%, {}", why.join(" and "))))
 }
 
 /// Another merchant selling the item: name, zone, stock and price.
@@ -115,10 +116,10 @@ fn other_merchant(f: &Stocked, i: usize) -> El {
         .child(flip.paid.map_or_else(unknown, |paid| Money::new(theme::BODY, p().text).show(paid.copper())))
 }
 
-fn auction_facts(body: El, flip: &Flip) -> El {
+fn auction_facts(body: El, flip: &Flip, listing_hours: u64) -> El {
     let dep = flip.deposit;
     let number = |v: String| text(v).font(theme::BODY).color(p().text);
     body.child(ledger("Sale rate", flip.sale_rate.map_or_else(unknown, |r| number(format!("{:.0}%", r * 100.0)))))
         .child(ledger("Sold per day, region", flip.sold_per_day.map_or_else(unknown, |v| number(per_day(v)))))
-        .child(fact("Deposit", format!("{} per {}, {} hours", dep.per_listing, dep.post_stack, RULES.listing_hours)))
+        .child(fact("Deposit", format!("{} per {}, {} hours", dep.per_listing, dep.post_stack, listing_hours)))
 }
