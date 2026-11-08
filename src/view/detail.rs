@@ -18,7 +18,7 @@ const PAD: f32 = 24.0;
 const ROW: f32 = 32.0;
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
-    let panel = panel(d).children(skin::cover(Piece::BackgroundCard, (Align::End, Align::End)));
+    let panel = panel(d).children(skin::cover(Piece::BackgroundCard(s.profession), (Align::End, Align::End)));
     let Some((_, index)) = s.picked() else {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };
@@ -50,7 +50,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         .pt(16.0)
         .child(red_button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, None, 36.0, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
         .child(wowhead::<App>(wowhead_url(recipe.item_id)));
-    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions)
+    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().key("detail-body").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
 fn identity(s: &App, recipe: &Recipe) -> El {

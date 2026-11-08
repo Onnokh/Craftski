@@ -35,7 +35,7 @@ fn skill(s: &App) -> El {
         .label("Your skill")
         .on_edit(|s: &mut App| &mut s.skill)
         .on_input_change(|s: &mut App, _: &mut Tx| {
-            settings::save_skill(&s.skill.text);
+            settings::save_skill(s.profession, &s.skill.text);
             s.refresh();
         });
     field_box(skill_active(&s.skill.text), s.skill.focused)

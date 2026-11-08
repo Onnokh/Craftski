@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
 use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
-use super::{App, Dims, Ready, recipe_at};
+use super::{App, Dims, Ready, Recipes, recipe_at};
 use crate::charts;
 use crate::menu::SOLD_STEPS;
 use crate::rows::{self, Column, FilterKind, percent};
@@ -64,12 +64,16 @@ pub fn table(s: &App, r: &Ready, d: Dims) -> El {
         |s: &App, i| s.ready().map_or(Cow::Borrowed(""), |r| Cow::Owned(r.market.recipes[r.rows[i]].spell_id.to_string())),
         move |s: &App, i| s.ready().map_or_else(el, |r| table_row(s, r, r.rows[i], d, top)),
     );
-    let body = match hint(s, r, d) {
-        Some(hint) if r.rows.is_empty() => col().grow(1.0).center().child(hint),
-        None if r.rows.is_empty() => col().grow(1.0).center().child(text("No recipes match these filters.").font(theme::BODY).color(p().muted)),
-        hint => col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows).children(hint),
+    let name = s.profession.name();
+    let say = |m: String| col().grow(1.0).center().padding(24.0).child(text(m).font(theme::BODY).color(p().muted).wrap());
+    let body = match (&r.recipes, hint(s, r, d)) {
+        (Recipes::Loading, _) => say(format!("Loading {name} recipes...")),
+        (Recipes::Failed(e), _) => say(format!("Could not load {name} recipes: {e}")),
+        (Recipes::Shown, Some(hint)) if r.rows.is_empty() => col().grow(1.0).center().child(hint),
+        (Recipes::Shown, None) if r.rows.is_empty() => say("No recipes match these filters.".into()),
+        (Recipes::Shown, hint) => col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows).children(hint),
     };
-    col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label("Leatherworking recipes")
+    col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label(format!("{name} recipes"))
 }
 
 /// What the filters hide that the search finds, if anything.

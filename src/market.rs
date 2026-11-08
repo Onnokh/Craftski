@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use crate::prices::{self, PriceBook};
 use crate::profit::CostBook;
-use crate::recipes::{self, LEATHERWORKING, Recipe};
+use crate::recipes::{self, Profession, Recipe};
 use crate::vendor;
 
 pub struct Market {
@@ -30,6 +30,12 @@ impl Market {
 
     pub fn costs(&self) -> &CostBook {
         &self.costs
+    }
+
+    /// Prices `recipes` in place of the ones it held.
+    pub fn set_recipes(&mut self, recipes: Vec<Recipe>) {
+        self.costs = CostBook::new(&recipes, &self.book);
+        self.recipes = recipes;
     }
 
     /// Prices from `realm` when the book has it, saying whether that changed anything.
@@ -65,10 +71,10 @@ pub fn read_book(appdata: &Path) -> Result<(PriceBook, Read), String> {
     Ok((book, Read { at: SystemTime::now(), modified }))
 }
 
-/// Prices from `realm` as [`Market::new`] does. Blocks on file IO and, without a recipe cache,
-/// the network.
-pub fn load(realm: &str) -> Result<Market, String> {
+/// `profession`'s recipes priced from `realm` as [`Market::new`] does. Blocks on file IO and,
+/// without a recipe cache, the network.
+pub fn load(realm: &str, profession: Profession) -> Result<Market, String> {
     let (book, read) = read_book(&appdata_path())?;
-    let recipes = recipes::load(&LEATHERWORKING)?;
+    let recipes = recipes::load(profession)?;
     Ok(Market::new(book, read, recipes, realm))
 }

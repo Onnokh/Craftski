@@ -33,6 +33,10 @@ fn main() {
         "--flips" => Some(flips),
         _ => None,
     });
+    if let Err(e) = settings::start_profession() {
+        eprintln!("{e}");
+        std::process::exit(2);
+    }
     if let Some(run) = cli {
         std::process::exit(match run() {
             Ok(()) => 0,
@@ -67,13 +71,15 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
     (along(origin.0, display.0, size.0), along(origin.1, display.1, size.1))
 }
 
+/// `--dump [--profession NAME]`: the profession's 15 most profitable recipes at realm prices.
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
-    let m = market::load(&settings::load_realm())?;
+    let profession = settings::start_profession()?;
+    let m = market::load(&settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
-    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
+    println!("{}: {} recipes, {} realm-priced items, {} region-priced items", profession.name(), m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
     let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
     let realm = m.book.realm().map_or("?", |(name, _)| name);
@@ -106,9 +112,10 @@ fn flips() -> Result<(), String> {
     use flip_rows::{Column, Filter};
     let args: Vec<String> = std::env::args().collect();
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
-    let m = market::load(&settings::load_realm())?;
+    let (mut book, _) = market::read_book(&market::appdata_path())?;
+    book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
-    let all = flips::evaluate(&c.merchants, &c.items, &m.book, &flips::RULES);
+    let all = flips::evaluate(&c.merchants, &c.items, &book, &flips::RULES);
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
@@ -121,7 +128,7 @@ fn flips() -> Result<(), String> {
         merchants.len(),
         rows.len(),
         offers.len(),
-        m.book.realm().map_or("?", |(name, _)| name)
+        book.realm().map_or("?", |(name, _)| name)
     );
     let by_supply: Vec<String> = flip_rows::Supply::ALL.iter().map(|&supply| format!("{} {}", supply.label(), flip_rows::visible(&all, &c.merchants, &c.items, Filter { supply, ..filter }, rows::Sort { column: Column::Profit, descending: true }).len())).collect();
     println!("flips by supply: {}", by_supply.join(", "));
@@ -148,9 +155,10 @@ fn flips() -> Result<(), String> {
     Ok(())
 }
 
+/// Every icon every profession's recipes draw.
 fn fetch_icons() -> Result<(), String> {
-    let recipes = recipes::load(&recipes::LEATHERWORKING)?;
-    let ids = icons::referenced(&recipes);
+    let each = recipes::load_each(&recipes::Profession::ALL)?;
+    let ids: std::collections::BTreeSet<_> = each.iter().flat_map(|recipes| icons::referenced(recipes)).collect();
     let started = std::time::Instant::now();
     let report = icons::prefetch(&ids, |_, _| {})?;
     let dir = icons::dir().unwrap_or_default();
@@ -173,10 +181,11 @@ fn fetch_icons() -> Result<(), String> {
 fn fetch_skin() -> Result<(), String> {
     let started = std::time::Instant::now();
     let ready = std::sync::atomic::AtomicUsize::new(0);
-    let result = skin::fetch(|_, _| {
+    let pieces: Vec<skin::Piece> = skin::Piece::all().collect();
+    let result = skin::fetch(&pieces, |_, _| {
         ready.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });
-    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), skin::Piece::ALL.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
+    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), pieces.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
     result
 }
 
