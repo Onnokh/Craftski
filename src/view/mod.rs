@@ -15,7 +15,7 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 use crate::icons;
 use crate::market::{self, Market};
 use crate::overview::{Overview, overview};
-use crate::profit::{self, Evaluation, PriceSource};
+use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, Sort};
 use crate::theme::{self, p};
@@ -319,4 +319,13 @@ pub fn scene_loaded(s: &mut App) {
     for image in s.icons.items.values().chain(s.icons.rail.values()) {
         let _ = image.wait();
     }
+}
+
+/// `loaded` with the first listed recipe that uses a reagent cheapest to craft selected.
+pub fn scene_crafted(s: &mut App) {
+    scene_loaded(s);
+    let Load::Ready(r) = &s.load else { return };
+    let costs = r.market.costs(s.source);
+    let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
+    s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
 }
