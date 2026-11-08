@@ -323,3 +323,10 @@ pub static FOLDER_OPEN: Icon = Icon {
     view: 24.0,
     body: r#"<path d="M3 19V5h6l2 2h8v4M3 19l3-8h16l-3 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
+
+/// A cloud with a downward arrow, drawn to the Rune Icons' 24pt grid and stroke.
+pub static CLOUD_DOWNLOAD: Icon = Icon {
+    name: "tsm-cloud-download",
+    view: 24.0,
+    body: r#"<path d="M12 13v8M8 17l4 4 4-4M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};

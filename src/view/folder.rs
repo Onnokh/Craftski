@@ -1,10 +1,11 @@
 //! Where the app reads TSM's prices: the AppData.lua in use and why, or where it looked, with a
 //! button that points it at the World of Warcraft folder.
 
-use rune::{El, FileDialogOptions, FileDialogResult, Tx, col, text};
+use rune::{El, FileDialogOptions, FileDialogResult, Tx, col, row, text};
 
-use super::widgets::{FOLDER_OPEN, button};
+use super::widgets::{CLOUD_DOWNLOAD, FOLDER_OPEN, button};
 use super::{App, Load};
+use crate::market::PriceSource;
 use crate::settings;
 use crate::theme::{self, p};
 use crate::wow::{self, AppData, Source};
@@ -16,14 +17,15 @@ pub fn not_found(s: &App) -> El {
         .max_w(640.0)
         .gap(12.0)
         .child(text("Point TSM Crafts at your World of Warcraft folder").font(theme::HEADING).color(p().gold).wrap())
-        .child(text("It reads the prices the TSM desktop app saves for WoW Forever, in the TradeSkillMaster_AppHelper addon.").font(theme::BODY).color(p().muted).wrap())
-        .child(block(s).mt(8.0));
+        .child(text("It reads the prices the TSM desktop app saves for WoW Forever, in the TradeSkillMaster_AppHelper addon. Without the desktop app, it can read TSM's public auction data instead, for the realm you pick in Settings.").font(theme::BODY).color(p().muted).wrap())
+        .child(block(s, true).mt(8.0));
     col().grow(1.0).h_full().min_w(0.0).center().padding(24.0).child(panel)
 }
 
 /// The AppData.lua in use and how the app came to it, or where it looked for one; why the last
-/// pick found nothing; and the button that asks for the folder.
-pub fn block(s: &App) -> El {
+/// pick found nothing; and the button that asks for the folder, with one that switches to TSM's
+/// public data when `offer_public`.
+pub fn block(s: &App, offer_public: bool) -> El {
     let missing = matches!(s.load, Load::Unlocated);
     let mut out = col().key("appdata").w_full().gap(4.0);
     out = match &s.appdata {
@@ -40,7 +42,8 @@ pub fn block(s: &App) -> El {
         out = out.child(text(note).font(theme::CAPTION).color(p().loss).wrap().mt(4.0));
     }
     let choose = button("Choose folder...", "Choose your World of Warcraft folder", &FOLDER_OPEN, |s: &mut App, tx: &mut Tx| s.choose_folder(tx)).w(184.0);
-    out.child(col().pt(12.0).child(choose))
+    let public = offer_public.then(|| button("Use TSM public data instead", "Use TSM public data instead", &CLOUD_DOWNLOAD, |s: &mut App, _: &mut Tx| s.set_source(PriceSource::Public(settings::load_house()))));
+    out.child(row().pt(12.0).gap(12.0).flex_wrap().child(choose).children(public))
 }
 
 fn caption(words: &str, color: rune::Color) -> El {

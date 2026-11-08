@@ -722,6 +722,18 @@ pub fn scene_settings(s: &mut App) {
     s.tab = Tab::Settings;
 }
 
+/// `loaded` priced from TSM's cached public data for EU PvP, the saved faction's house.
+pub fn scene_public(s: &mut App) {
+    s.source = PriceSource::Public(PublicHouse::default());
+    scene_loaded(s);
+}
+
+/// `settings` with TSM's cached public data for EU PvP chosen.
+pub fn scene_settings_public(s: &mut App) {
+    s.source = PriceSource::Public(PublicHouse::default());
+    scene_settings(s);
+}
+
 /// The flips tab with the zone menu open.
 pub fn scene_zones(s: &mut App) {
     scene_flips(s);

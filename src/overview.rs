@@ -89,6 +89,11 @@ pub fn read_at(hour: u32, minute: u32) -> String {
     format!("TSM AppHelper, read {hour:02}:{minute:02}")
 }
 
+/// "Checked 14:02": when the app last read TSM's public data, from its cache or downloaded.
+pub fn checked_at(hour: u32, minute: u32) -> String {
+    format!("Checked {hour:02}:{minute:02}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +168,6 @@ mod tests {
     fn the_read_time_is_a_24_hour_clock() {
         assert_eq!(read_at(14, 2), "TSM AppHelper, read 14:02");
         assert_eq!(read_at(9, 0), "TSM AppHelper, read 09:00");
+        assert_eq!(checked_at(9, 0), "Checked 09:00");
     }
 }
