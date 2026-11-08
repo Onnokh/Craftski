@@ -122,6 +122,15 @@ pub fn crop(width: u32, rgba: &[u8], rect: [u32; 4]) -> Option<Vec<u8>> {
     Some((t..b).flat_map(|y| &rgba[(y * width + l) * 4..(y * width + r) * 4]).copied().collect())
 }
 
+/// The nine `[left, top, right, bottom]` rectangles, row by row, that `insets` (from each edge,
+/// in the same order) cut a `width`×`height` piece into: corners, edges and the middle.
+pub fn nine(width: u32, height: u32, insets: [u32; 4]) -> [[u32; 4]; 9] {
+    let [l, t, r, b] = insets;
+    let xs = [0, l, width.saturating_sub(r), width];
+    let ys = [0, t, height.saturating_sub(b), height];
+    std::array::from_fn(|i| [xs[i % 3], ys[i / 3], xs[i % 3 + 1], ys[i / 3 + 1]])
+}
+
 /// Puts every piece on disk, calling `on_ready` from a worker thread as each one is there,
 /// cached or freshly cut. An atlas downloads only when one of its pieces is missing, and is
 /// dropped once its pieces are written. Blocks until every atlas has landed or failed.
@@ -190,6 +199,17 @@ mod tests {
         assert_eq!(crop(4, &image, [1, 1, 3, 3]), Some([5, 6, 9, 10].into_iter().flat_map(px).collect()));
         assert_eq!(crop(4, &image, [3, 0, 5, 1]), None);
         assert_eq!(crop(4, &image, [0, 2, 1, 4]), None);
+    }
+
+    #[test]
+    fn cuts_a_piece_into_corners_edges_and_middle() {
+        let cells = nine(194, 52, [16, 16, 56, 16]);
+        assert_eq!(cells[0], [0, 0, 16, 16]);
+        assert_eq!(cells[4], [16, 16, 138, 36]);
+        assert_eq!(cells[8], [138, 36, 194, 52]);
+        let image = vec![0; 194 * 52 * 4];
+        let area: usize = cells.iter().map(|&c| crop(194, &image, c).map_or(0, |px| px.len() / 4)).sum();
+        assert_eq!(area, 194 * 52);
     }
 
     #[test]
