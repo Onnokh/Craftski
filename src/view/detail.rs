@@ -52,7 +52,7 @@ fn title(s: &App, recipe: &Recipe) -> El {
     row()
         .gap(14.0)
         .center_y()
-        .child(icon_frame(s.icons.item(recipe.icon), 56.0, 2.0, 11.0, quality))
+        .child(icon_frame(s.icons.item(recipe.icon), 48.0, quality))
         .child(
             flexible()
                 .child(text(&recipe.item_name).font(theme::display(24.0).lh(26.4)).color(quality).wrap())
@@ -131,13 +131,13 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
             }
             None => row().mt(2.0).child(text("No price on the auction house").font(theme::sans(12.0, 400.0)).color(p().loss)),
         };
-        let total = l.total.map_or_else(|| unknown("—"), |t| Money::new(theme::mono(13.0, 400.0), p().text).show(t));
+        let total = l.total.map_or_else(|| unknown(), |t| Money::new(theme::mono(13.0, 400.0), p().text).show(t));
         let mut line = row()
             .w_full()
             .gap(12.0)
             .py(10.0)
             .center_y()
-            .child(icon_frame(s.icons.item(l.reagent.icon), 34.0, 1.5, 7.0, p().quality(l.reagent.quality)))
+            .child(icon_frame(s.icons.item(l.reagent.icon), 24.0, p().quality(l.reagent.quality)))
             .child(text(format!("{}×", l.reagent.count)).font(theme::mono(13.0, 500.0)).color(p().brass).w(30.0))
             .child(flexible().child(text(&l.reagent.item_name).font(theme::sans(14.0, 500.0)).color(p().text).truncate()).child(each))
             .child(total);

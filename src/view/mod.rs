@@ -64,7 +64,7 @@ struct Icons {
 impl Icons {
     fn show(&mut self, id: FileDataId, path: &Path) {
         if let Some(cache) = &self.cache {
-            self.items.insert(id, cache.file(path, 56.0, 2.0));
+            self.items.insert(id, cache.file(path, 48.0, 2.0));
         }
     }
 

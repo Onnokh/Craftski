@@ -22,10 +22,10 @@ impl Column {
 
     pub fn title(self) -> &'static str {
         match self {
-            Column::Item => "Item",
+            Column::Item => "Recipe",
             Column::Skill => "Skill",
-            Column::Cost => "Mats cost",
-            Column::Resale => "Sells for",
+            Column::Cost => "Materials",
+            Column::Resale => "Net sale",
             Column::Profit => "Profit",
             Column::Margin => "Margin",
             Column::SoldPerDay => "Sold/day",
@@ -110,14 +110,9 @@ pub fn per_day(d: f64) -> String {
     if d >= 100.0 { format!("{d:.0}") } else { format!("{d:.1}") }
 }
 
-/// Margin as a whole percent, as in `379%`.
+/// Margin as a whole percent with a true minus, as in `379%` or `−12%`.
 pub fn percent(margin: f32) -> String {
-    format!("{:.0}%", margin * 100.0)
-}
-
-/// How much of the margin bar to fill: full at 250%, so typical margins still differ.
-pub fn margin_fill(margin: f32) -> f32 {
-    (margin.abs() / 2.5).min(1.0)
+    format!("{:.0}%", margin * 100.0).replacen('-', "\u{2212}", 1)
 }
 
 #[cfg(test)]
@@ -187,8 +182,7 @@ mod tests {
     #[test]
     fn numbers_read_as_the_table_prints_them() {
         assert_eq!((per_day(23.46), per_day(7.0), per_day(0.04), per_day(140.6)), ("23.5".into(), "7.0".into(), "0.0".into(), "141".into()));
-        assert_eq!((percent(3.79), percent(-0.124), percent(0.0)), ("379%".into(), "-12%".into(), "0%".into()));
-        assert_eq!((margin_fill(1.25), margin_fill(3.79), margin_fill(-0.5)), (0.5, 1.0, 0.2));
+        assert_eq!((percent(3.79), percent(-0.124), percent(0.0)), ("379%".into(), "\u{2212}12%".into(), "0%".into()));
     }
 
     #[test]

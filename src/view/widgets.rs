@@ -73,23 +73,15 @@ pub fn coin_dot(coin: Coin, size: f32) -> El {
     el().w(size).h(size).radius(size / 2.0).fill(p().coin(coin)).a11y_hidden()
 }
 
-/// An item icon in a frame of its quality colour. A missing or undecoded image leaves the
+/// An item icon in a 1px frame of its quality colour. A missing or undecoded image leaves the
 /// black backing.
-pub fn icon_frame(image: Option<&Image>, size: f32, border: f32, radius: f32, quality: Color) -> El {
-    let inner = el().w_full().h_full().radius(radius - border);
+pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
+    let inner = el().w_full().h_full().radius(3.0);
     let inner = match image {
         Some(i) => inner.pixels(i.pixels()),
         None => inner,
     };
-    el().w(size)
-        .h(size)
-        .radius(radius)
-        .fill(Color::BLACK)
-        .border(border, quality)
-        .box_shadow(Shadow { spread: 1.0, color: Color::BLACK, ..Shadow::default() })
-        .padding(border)
-        .child(inner)
-        .a11y_hidden()
+    el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden()
 }
 
 pub fn caps(label: &str, color: Color) -> El {
@@ -166,9 +158,9 @@ pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()
 }
 
-/// Muted text for what the data does not know.
-pub fn unknown(label: &str) -> El {
-    text(label).font(theme::mono(12.0, 400.0)).color(p().faint)
+/// A faint dash for what the data does not know.
+pub fn unknown() -> El {
+    text("\u{2014}").font(theme::BODY).color(p().faint)
 }
 
 /// A column that takes the leftover width and lets its text truncate.
