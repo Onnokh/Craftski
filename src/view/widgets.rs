@@ -187,7 +187,12 @@ pub fn button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, act
 
 /// A "Wowhead" button that opens `url` in the browser, marked as leaving the app.
 pub fn wowhead<S: 'static>(url: String) -> El {
-    button("Wowhead", "Open on Wowhead", &EXTERNAL, move |_: &mut S, tx: &mut Tx| {
+    link::<S>("Wowhead", "Open on Wowhead", url)
+}
+
+/// A button that opens `url` in the browser, marked as leaving the app.
+pub fn link<S: 'static>(label: &str, spoken: &str, url: String) -> El {
+    button(label, spoken, &EXTERNAL, move |_: &mut S, tx: &mut Tx| {
         if let Err(e) = tx.open_url(&url) {
             eprintln!("{url}: {e}");
         }
