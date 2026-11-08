@@ -68,6 +68,36 @@ pub struct Filter<'a> {
     /// Matches the item, merchant or zone by name, ignoring case, in every zone. Blank keeps
     /// to `zone`.
     pub query: &'a str,
+    pub supply: Supply,
+}
+
+/// Which merchants' stock to show by how much of it they have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Supply {
+    All,
+    Endless,
+    /// Stock that runs out until the merchant restocks.
+    Limited,
+}
+
+impl Supply {
+    pub const ALL: [Supply; 3] = [Supply::All, Supply::Endless, Supply::Limited];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Supply::All => "All",
+            Supply::Endless => "Endless",
+            Supply::Limited => "Limited",
+        }
+    }
+
+    fn admits(self, limit: Option<u32>) -> bool {
+        match self {
+            Supply::All => true,
+            Supply::Endless => limit.is_none(),
+            Supply::Limited => limit.is_some(),
+        }
+    }
 }
 
 /// One item in the table: the merchant offer that represents it and the other offers of it
@@ -90,7 +120,7 @@ pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item
             let place = if needle.is_empty() { m.zone == filter.zone } else { [item_name(f), &m.name, &m.zone].iter().any(|n| n.to_lowercase().contains(&needle)) };
             let profitable = !filter.hide_unprofitable || f.profit.is_some_and(|p| p > 0);
             let selling = filter.min_sold_per_day <= 0.0 || f.sold_per_day.is_some_and(|s| s >= filter.min_sold_per_day);
-            place && profitable && selling
+            place && profitable && selling && filter.supply.admits(f.limit)
         })
         .collect();
     let by_name = |a: usize, b: usize| {
@@ -197,7 +227,7 @@ mod tests {
         (flips, merchants, items)
     }
 
-    const TB: Filter = Filter { zone: HOME, hide_unprofitable: false, min_sold_per_day: 0.0, query: "" };
+    const TB: Filter = Filter { zone: HOME, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: Supply::All };
     const BY_PROFIT: Sort<Column> = Sort { column: Column::Profit, descending: true };
 
     /// The flip leading each row.
@@ -259,6 +289,32 @@ mod tests {
         let search = Filter { query: "shortbow", ..TB };
         assert_eq!(visible(&flips, &m, &i, search, BY_PROFIT), vec![Row { flip: 0, others: vec![2, 1] }]);
         assert_eq!(visible(&flips, &m, &i, Filter { hide_unprofitable: true, ..search }, BY_PROFIT), vec![Row { flip: 0, others: vec![2] }]);
+    }
+
+    #[test]
+    fn the_supply_filter_runs_before_the_best_merchant_is_chosen() {
+        let (_, m, i) = fixture();
+        let flips = vec![flip(0, 1, Some(90), None, Some(3)), flip(1, 1, Some(40), None, None), flip(1, 2, Some(10), None, Some(1))];
+        let rows = |supply| visible(&flips, &m, &i, Filter { supply, ..TB }, BY_PROFIT);
+        assert_eq!(rows(Supply::All), vec![Row { flip: 0, others: vec![1] }, Row { flip: 2, others: vec![] }]);
+        assert_eq!(rows(Supply::Endless), vec![Row { flip: 1, others: vec![] }]);
+        assert_eq!(rows(Supply::Limited), vec![Row { flip: 0, others: vec![] }, Row { flip: 2, others: vec![] }]);
+    }
+
+    #[test]
+    fn never_shows_an_item_twice_under_any_supply_or_search() {
+        let (mut f, m, i) = fixture();
+        f.extend([flip(0, 2, Some(5), Some(3.0), Some(4)), flip(2, 1, None, None, None), flip(0, 3, Some(1), None, None), flip(2, 3, Some(1), None, Some(2))]);
+        let mut seen = Vec::new();
+        for supply in Supply::ALL {
+            for query in ["", "a", "flux", "thunder", "zansoa"] {
+                let items: Vec<u32> = visible(&f, &m, &i, Filter { supply, query, ..TB }, BY_PROFIT).iter().map(|r| f[r.flip].item).collect();
+                seen.push((supply.label(), query, items));
+            }
+        }
+        let twice: Vec<_> = seen.iter().filter(|(_, _, items)| items.iter().collect::<BTreeSet<_>>().len() != items.len()).collect();
+        assert_eq!(twice, Vec::<&(&str, &str, Vec<u32>)>::new());
+        assert_eq!(seen[1], ("All", "a", vec![1, 2, 3]));
     }
 
     #[test]

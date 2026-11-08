@@ -3,6 +3,7 @@
 use rune::{Align, Color, Cursor, El, Icon, Key, KeyEvent, ScrollSpec, Shadow, Side, Tx, col, el, row, spacer, text, text_input};
 
 use super::Stocked;
+use crate::flip_rows::Supply;
 use crate::profit::PriceSource;
 use crate::theme::{self, p};
 use crate::view::widgets::{SEARCH, Segment, caps, glyph, segmented, toggle};
@@ -44,21 +45,20 @@ pub fn toolbar(s: &App, d: Dims) -> El {
     let picks: [fn(&mut App); 4] = [|s| s.flips.set_min_sold(0), |s| s.flips.set_min_sold(1), |s| s.flips.set_min_sold(2), |s| s.flips.set_min_sold(3)];
     let mut steps: Vec<Segment<App>> = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: f.min_sold == i, brass: false, pick: Some(pick) }).collect();
     steps.push(Segment { label: "/ day", on: false, brass: false, pick: None });
-    row()
+    let supply_picks: [fn(&mut App); 3] = [|s| s.flips.set_supply(Supply::All), |s| s.flips.set_supply(Supply::Endless), |s| s.flips.set_supply(Supply::Limited)];
+    let supply = Supply::ALL.into_iter().zip(supply_picks).map(|(supply, pick)| Segment { label: supply.label(), on: f.supply == supply, brass: false, pick: Some(pick) }).collect();
+    let label = |l: &str| caps(l, p().faint).font(theme::sans(12.0, 500.0).tracking(0.72));
+    let place = row().w_full().gap(12.0).center_y().child(zone).child(source).child(spacer()).child(search(s, d));
+    let filters = row()
         .w_full()
-        .px(d.pad)
-        .pt(14.0)
-        .pb(15.0)
         .gap(12.0)
         .center_y()
-        .border_sides([0.0, 0.0, 1.0, 0.0], p().line)
-        .child(zone)
-        .child(source)
-        .child(unprofitable.ml(8.0))
-        .child(caps("Sells", p().faint).font(theme::sans(12.0, 500.0).tracking(0.72)).ml(8.0))
+        .child(unprofitable)
+        .child(label("Sells").ml(8.0))
         .child(segmented("Minimum sold per day", steps))
-        .child(spacer())
-        .child(search(s, d))
+        .child(label("Supply").ml(8.0))
+        .child(segmented("Supply", supply));
+    col().w_full().px(d.pad).pt(14.0).pb(15.0).gap(10.0).border_sides([0.0, 0.0, 1.0, 0.0], p().line).child(place).child(filters)
 }
 
 fn search(s: &App, d: Dims) -> El {
@@ -145,6 +145,11 @@ pub fn zone_menu(s: &App, f: &Stocked) -> Vec<El> {
 impl super::State {
     fn set_min_sold(&mut self, step: usize) {
         self.min_sold = step;
+        self.refilter();
+    }
+
+    fn set_supply(&mut self, supply: Supply) {
+        self.supply = supply;
         self.refilter();
     }
 }

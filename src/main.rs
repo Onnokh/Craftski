@@ -102,7 +102,7 @@ fn flips() -> Result<(), String> {
     let m = market::load()?;
     let c = merchants::load()?;
     let all = flips::evaluate(&c.merchants, &c.items, &m.book, profit::PriceSource::Realm, &flips::RULES);
-    let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "" };
+    let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
     let merchants: std::collections::BTreeSet<usize> = offers.iter().map(|&i| all[i].merchant).collect();
@@ -116,6 +116,8 @@ fn flips() -> Result<(), String> {
         offers.len(),
         m.book.realm_scope.as_deref().unwrap_or("?")
     );
+    let by_supply: Vec<String> = flip_rows::Supply::ALL.iter().map(|&supply| format!("{} {}", supply.label(), flip_rows::visible(&all, &c.merchants, &c.items, Filter { supply, ..filter }, rows::Sort { column: Column::Profit, descending: true }).len())).collect();
+    println!("flips by supply: {}", by_supply.join(", "));
     println!("{:<34} {:<24} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} Stock", "Item", "Vendor", "Paid", "From", "Sells", "Deposit", "Profit", "Rate", "Sold/d", "Limit");
     let na = || "n/a".to_string();
     for r in rows.iter().take(20) {

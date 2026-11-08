@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::{App, Dims, Load, SOLD_STEPS, message};
-use crate::flip_rows::{self, Column, Filter, Row, Summary, Zone};
+use crate::flip_rows::{self, Column, Filter, Row, Summary, Supply, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
 use crate::merchants::{Catalog, Merchant};
@@ -23,6 +23,7 @@ pub struct State {
     sort: Sort<Column>,
     min_sold: usize,
     hide_unprofitable: bool,
+    supply: Supply,
     /// The flip the detail panel shows, by merchant npc and item. Its item's row shows while
     /// visible, whichever merchant leads it; else this flip, kept while filters hide it.
     selected: Option<(u32, u32)>,
@@ -70,6 +71,7 @@ impl State {
             // "1+": most vendor stock never sells, and with no sale rate its deposit loss is unknown.
             min_sold: 1,
             hide_unprofitable: true,
+            supply: Supply::All,
             selected: None,
             search: TextEdit::new(""),
             zone_menu: false,
@@ -85,7 +87,7 @@ impl State {
 
     fn refilter(&mut self) {
         let Shelf::Ready(f) = &mut self.shelf else { return };
-        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text };
+        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text, supply: self.supply };
         f.summary = flip_rows::summary(&f.flips, &f.catalog.merchants, &self.zone);
         f.rows = flip_rows::visible(&f.flips, &f.catalog.merchants, &f.catalog.items, filter, self.sort);
     }
