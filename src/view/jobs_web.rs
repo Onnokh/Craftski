@@ -137,7 +137,7 @@ async fn tables() -> Result<Rc<Tables>, String> {
     once(&TABLES, || {
         async {
             let names = ["SkillLineAbility", "SpellEffect", "SpellReagents", "ItemSparse", "Item", "ItemModifiedAppearance", "ItemAppearance"];
-            let [skill_line_ability, spell_effect, spell_reagents, item_sparse, item, item_modified_appearance, item_appearance] = texts(names.map(|t| format!("/data/wago/{t}.csv"))).await?;
+            let [skill_line_ability, spell_effect, spell_reagents, item_sparse, item, item_modified_appearance, item_appearance] = texts(names.map(|t| format!("/data/wago/{}/{t}.csv", recipes::BUILD))).await?;
             Ok(Tables { skill_line_ability, spell_effect, spell_reagents, item_sparse, icons: IconTables { item, item_modified_appearance, item_appearance } })
         }
         .boxed_local()
