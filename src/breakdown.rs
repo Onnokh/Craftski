@@ -32,7 +32,7 @@ pub struct ReagentLine<'a> {
 }
 
 pub fn breakdown<'a>(recipe: &'a Recipe, eval: &Evaluation, book: &PriceBook, costs: &CostBook) -> Breakdown<'a> {
-    let sale = profit::auction_price(book, recipe.item_id, costs.source()).zip(eval.resale).map(|(price, resale)| {
+    let sale = profit::auction_price(book, recipe.item_id).zip(eval.resale).map(|(price, resale)| {
         let gross = Copper((price.unit.0 as f64 * f64::from(recipe.quantity)).round() as u64);
         Sale { gross, cut: Copper(gross.0.saturating_sub(resale.0)), basis: price.basis }
     });
@@ -174,22 +174,21 @@ pub fn wowhead_url(item_id: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prices::{RealmPrice, RegionPrice};
-    use crate::profit::PriceSource;
+    use crate::prices::RealmPrice;
     use crate::recipes::{Quality, Skill, Slot};
     use crate::vendor::VendorBook;
     use std::collections::HashMap;
 
-    fn priced<'a>(recipe: &'a Recipe, book: &PriceBook, source: PriceSource) -> (Evaluation, Breakdown<'a>) {
-        let costs = CostBook::new(std::slice::from_ref(recipe), book, source);
+    fn priced<'a>(recipe: &'a Recipe, book: &PriceBook) -> (Evaluation, Breakdown<'a>) {
+        let costs = CostBook::new(std::slice::from_ref(recipe), book);
         let eval = profit::evaluate(recipe, book, &costs);
         let b = breakdown(recipe, &eval, book, &costs);
         (eval, b)
     }
 
-    fn list(recipe: &Recipe, book: &PriceBook, source: PriceSource) -> String {
+    fn list(recipe: &Recipe, book: &PriceBook) -> String {
         let recipes = std::slice::from_ref(recipe);
-        shopping_list(recipe, recipes, &CostBook::new(recipes, book, source))
+        shopping_list(recipe, recipes, &CostBook::new(recipes, book))
     }
 
     fn nightscape_cloak() -> Recipe {
@@ -210,17 +209,16 @@ mod tests {
     fn book() -> PriceBook {
         let mut b = PriceBook::default();
         let realm = |mv, n| RealmPrice { market_value: Some(Copper(mv)), num_auctions: n, ..Default::default() };
-        b.realm.insert(8195, realm(50_788, Some(3)));
-        b.realm.insert(4304, realm(647, Some(437)));
-        b.realm.insert(8343, realm(578, None));
-        b.region.insert(4304, RegionPrice { market_value: Some(Copper(700)), ..Default::default() });
+        b.realm_prices_mut().insert(8195, realm(50_788, Some(3)));
+        b.realm_prices_mut().insert(4304, realm(647, Some(437)));
+        b.realm_prices_mut().insert(8343, realm(578, None));
         b
     }
 
     #[test]
     fn breaks_a_craft_into_sale_cut_and_reagent_lines() {
         let (recipe, book) = (nightscape_cloak(), book());
-        let (eval, b) = priced(&recipe, &book, PriceSource::Realm);
+        let (eval, b) = priced(&recipe, &book);
         assert_eq!((b.sale, eval.resale, eval.cost), (Some(Sale { gross: Copper(50_788), cut: Copper(2_540), basis: AuctionBasis::MarketValue }), Some(Copper(48_248)), Some(Copper(10_076))));
         let lines: Vec<_> = b.reagents.iter().map(|l| (l.reagent.item_id, l.price.map(|p| p.unit), l.total)).collect();
         assert_eq!(lines, vec![(4304, Some(Copper(647)), Some(Copper(7_764))), (8343, Some(Copper(578)), Some(Copper(2_312)))]);
@@ -231,18 +229,19 @@ mod tests {
         let mut recipe = nightscape_cloak();
         recipe.item_id = 4252;
         let mut book = book();
-        book.realm.insert(4252, RealmPrice { min_buyout: Some(Copper(2_900)), market_value: Some(Copper(6_586)), num_auctions: Some(57), ..Default::default() });
-        let (eval, b) = priced(&recipe, &book, PriceSource::Realm);
+        book.realm_prices_mut().insert(4252, RealmPrice { min_buyout: Some(Copper(2_900)), market_value: Some(Copper(6_586)), num_auctions: Some(57), ..Default::default() });
+        let (eval, b) = priced(&recipe, &book);
         assert_eq!((b.sale, eval.resale), (Some(Sale { gross: Copper(2_900), cut: Copper(145), basis: AuctionBasis::MinBuyout }), Some(Copper(2_755))));
     }
 
     #[test]
-    fn region_prices_leave_reagents_without_a_region_price_unpriced() {
-        let (recipe, book) = (nightscape_cloak(), book());
-        let (_, b) = priced(&recipe, &book, PriceSource::Region);
-        assert_eq!(b.sale, None);
-        assert_eq!(b.reagents.iter().map(|l| l.total).collect::<Vec<_>>(), vec![Some(Copper(8_400)), None]);
-        assert_eq!(list(&recipe, &book, PriceSource::Region), "12x Thick Leather\n4x Heavy Silken Thread\nTotal: unknown, no price for Heavy Silken Thread");
+    fn a_reagent_without_a_price_leaves_its_line_and_the_total_unknown() {
+        let (recipe, mut book) = (nightscape_cloak(), book());
+        book.realm_prices_mut().remove(&8343);
+        let (eval, b) = priced(&recipe, &book);
+        assert_eq!((eval.cost, eval.unpriced), (None, vec![8343]));
+        assert_eq!(b.reagents.iter().map(|l| l.total).collect::<Vec<_>>(), vec![Some(Copper(7_764)), None]);
+        assert_eq!(list(&recipe, &book), "12x Thick Leather\n4x Heavy Silken Thread\nTotal: unknown, no price for Heavy Silken Thread");
     }
 
     #[test]
@@ -260,13 +259,13 @@ mod tests {
     fn the_shopping_list_is_one_line_per_reagent_and_marks_vendor_items() {
         let (recipe, mut book) = (nightscape_cloak(), book());
         book.vendor = VendorBook::new(HashMap::new(), HashMap::from([(4304, Copper(5_000)), (8343, Copper(500))]));
-        let (eval, b) = priced(&recipe, &book, PriceSource::Realm);
+        let (eval, b) = priced(&recipe, &book);
         let prices: Vec<_> = b.reagents.iter().map(|l| (l.reagent.item_id, l.price, l.total)).collect();
         assert_eq!(prices, vec![
             (4304, Some(ReagentPrice { unit: Copper(647), origin: PriceOrigin::Auction }), Some(Copper(7_764))),
             (8343, Some(ReagentPrice { unit: Copper(500), origin: PriceOrigin::Vendor }), Some(Copper(2_000))),
         ]);
-        assert_eq!((eval.cost, list(&recipe, &book, PriceSource::Realm).as_str()), (Some(Copper(9_764)), "12x Thick Leather\n4x Heavy Silken Thread (vendor)\nTotal: 97s 64c"));
+        assert_eq!((eval.cost, list(&recipe, &book).as_str()), (Some(Copper(9_764)), "12x Thick Leather\n4x Heavy Silken Thread (vendor)\nTotal: 97s 64c"));
     }
 
     #[test]
@@ -292,10 +291,10 @@ mod tests {
         ];
         let mut book = PriceBook::default();
         for (item, unit) in [(8171, 250), (2934, 10), (2318, 50), (2319, 200)] {
-            book.realm.insert(item, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
+            book.realm_prices_mut().insert(item, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
         }
         book.vendor = VendorBook::new(HashMap::new(), HashMap::from([(15409, Copper(200))]));
-        let costs = CostBook::new(&recipes, &book, PriceSource::Realm);
+        let costs = CostBook::new(&recipes, &book);
         assert_eq!(
             shopping_list(&recipes[3], &recipes, &costs),
             "Craft first: 2x Cured Rugged Hide (makes 4), 4x Light Leather, 1x Medium Leather\n4x Rugged Hide\n12x Ruined Leather Scraps\n2x Refined Deeprock Salt (vendor)\nTotal: 15s 20c"

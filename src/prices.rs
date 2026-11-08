@@ -1,7 +1,7 @@
 //! TSM AppHelper `AppData.lua` reader. Each line is one `LoadData(block, scope, [[return {...}]])`
 //! call whose table names its columns in `fields` and lists rows in `data`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use crate::copper::Copper;
@@ -25,19 +25,59 @@ pub struct RegionPrice {
     pub sale_rate: Option<f64>,
 }
 
+/// One auction house's listings and when TSM last downloaded them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RealmBook {
+    pub prices: HashMap<u32, RealmPrice>,
+    /// Newest `downloadTime` (unix seconds) among the blocks feeding `prices`.
+    pub updated: Option<u64>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PriceBook {
-    pub realm: HashMap<u32, RealmPrice>,
+    /// Each realm's auction house by its `LoadData` scope, such as "PvP-Horde".
+    pub realms: BTreeMap<String, RealmBook>,
+    /// Commodities trade region-wide, so their rows price an item on every realm.
+    pub commodities: RealmBook,
+    /// The realm in `realms` that prices are read from: the first by name until one is chosen.
+    realm: Option<String>,
     pub region: HashMap<u32, RegionPrice>,
-    /// Newest `downloadTime` (unix seconds) among the blocks feeding each map.
-    pub realm_updated: Option<u64>,
     pub region_updated: Option<u64>,
-    /// The `LoadData` scope feeding each map: a realm such as "PvP-Horde", a region such as
-    /// "Forever-EU".
-    pub realm_scope: Option<String>,
+    /// The region's `LoadData` scope, such as "Forever-EU".
     pub region_scope: Option<String>,
     /// Merchant prices, read from TSM's own files rather than AppData.
     pub vendor: VendorBook,
+}
+
+impl PriceBook {
+    /// The realm prices are read from, by name.
+    pub fn realm(&self) -> Option<(&str, &RealmBook)> {
+        let name = self.realm.as_deref()?;
+        Some((name, self.realms.get(name)?))
+    }
+
+    /// An item's auction figures on the chosen realm, or region-wide for a commodity.
+    pub fn realm_price(&self, item: u32) -> Option<&RealmPrice> {
+        self.realm().and_then(|(_, b)| b.prices.get(&item)).or_else(|| self.commodities.prices.get(&item))
+    }
+
+    /// Reads prices from `name`, or stays on the current realm when the file has none by that
+    /// name. Says whether the realm changed.
+    pub fn choose_realm(&mut self, name: &str) -> bool {
+        if !self.realms.contains_key(name) || self.realm.as_deref() == Some(name) {
+            return false;
+        }
+        self.realm = Some(name.to_owned());
+        true
+    }
+
+    /// The chosen realm's prices, making a "PvP-Horde" realm to hold them in a book built by
+    /// hand.
+    #[cfg(test)]
+    pub fn realm_prices_mut(&mut self) -> &mut HashMap<u32, RealmPrice> {
+        let name = self.realm.get_or_insert_with(|| "PvP-Horde".into()).clone();
+        &mut self.realms.entry(name).or_default().prices
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -75,12 +115,13 @@ impl Stat {
         matches!(self, Stat::RegionMarketValue | Stat::RegionHistorical | Stat::RegionSale | Stat::RegionSoldPerDay | Stat::RegionSalePercent)
     }
 
-    fn apply(self, book: &mut PriceBook, id: u32, raw: u64) {
+    /// Writes one value into the region's prices, or into `realm`'s for a realm-kind stat.
+    fn apply(self, region: &mut HashMap<u32, RegionPrice>, realm: Option<&mut RealmBook>, id: u32, raw: u64) {
         // TSM writes 0 where it has no data, so a zero price or sale rate is a missing one.
         let price = (raw > 0).then_some(Copper(raw));
         let thousandths = (raw > 0).then_some(raw as f64 / 1000.0);
         if self.is_region() {
-            let p = book.region.entry(id).or_default();
+            let p = region.entry(id).or_default();
             match self {
                 Stat::RegionMarketValue => p.market_value = price,
                 Stat::RegionHistorical => p.historical = price,
@@ -88,8 +129,8 @@ impl Stat {
                 Stat::RegionSoldPerDay => p.sold_per_day = thousandths,
                 _ => p.sale_rate = thousandths,
             }
-        } else {
-            let p = book.realm.entry(id).or_default();
+        } else if let Some(realm) = realm {
+            let p = realm.prices.entry(id).or_default();
             match self {
                 Stat::MinBuyout => p.min_buyout = price,
                 Stat::NumAuctions => p.num_auctions = Some(u32::try_from(raw).unwrap_or(u32::MAX)),
@@ -129,6 +170,7 @@ pub fn parse(src: &str) -> Result<PriceBook, String> {
     for (n, line) in src.lines().enumerate() {
         parse_block(line, &mut book).map_err(|e| format!("AppData line {}: {e}", n + 1))?;
     }
+    book.realm = book.realms.keys().next().cloned();
     Ok(book)
 }
 
@@ -144,6 +186,18 @@ fn parse_block(line: &str, book: &mut PriceBook) -> Result<(), String> {
     let time = between(body, "downloadTime=", ",").map(|t| t.parse::<u64>().map_err(|e| format!("downloadTime {t:?}: {e}"))).transpose()?;
     let rows = body.split_once("data={").ok_or("block has fields but no data")?.1;
 
+    let named = scope(line);
+    // Commodities trade region-wide, so their blocks carry the region's scope even though
+    // their fields are the realm kind.
+    let commodity = named.is_some_and(|(block, _)| block.contains("COMMODITY") && !block.contains("NON_COMMODITY"));
+    let region = stats.iter().flatten().any(|s| s.is_region());
+    let mut realm = match named {
+        _ if stats.iter().flatten().all(|s| s.is_region()) => None,
+        _ if commodity => Some(&mut book.commodities),
+        Some((_, scope)) => Some(book.realms.entry(scope.to_owned()).or_default()),
+        None => return Err("realm prices without a realm scope".into()),
+    };
+
     for row in rows.split('{').skip(1) {
         let row = row.split('}').next().unwrap_or_default();
         let mut cells = row.split(',');
@@ -156,22 +210,21 @@ fn parse_block(line: &str, book: &mut PriceBook) -> Result<(), String> {
         }
         for (stat, value) in stats.iter().zip(values) {
             if let Some(stat) = stat {
-                stat.apply(book, id, decode(value)?);
+                stat.apply(&mut book.region, realm.as_deref_mut(), id, decode(value)?);
             }
         }
     }
 
-    let region = stats.iter().flatten().any(|s| s.is_region());
     if let Some(time) = time {
-        let updated = if region { &mut book.region_updated } else { &mut book.realm_updated };
-        *updated = (*updated).max(Some(time));
+        if region {
+            book.region_updated = book.region_updated.max(Some(time));
+        }
+        if let Some(realm) = realm {
+            realm.updated = realm.updated.max(Some(time));
+        }
     }
-    if let Some((block, scope)) = scope(line) {
-        // Commodities trade region-wide, so their blocks carry the region's scope even though
-        // their fields are the realm kind.
-        let region_wide = region || (block.contains("COMMODITY") && !block.contains("NON_COMMODITY"));
-        let slot = if region_wide { &mut book.region_scope } else { &mut book.realm_scope };
-        slot.get_or_insert_with(|| scope.to_owned());
+    if let Some((_, scope)) = named.filter(|_| region || commodity) {
+        book.region_scope.get_or_insert_with(|| scope.to_owned());
     }
     Ok(())
 }
@@ -213,24 +266,49 @@ select(2, ...).LoadData("APP_INFO","Global",[[return {version="1.0.9",lastSync=1
     #[test]
     fn parses_blocks_by_field_name_and_skips_string_keys() {
         let book = parse(SNIPPET).unwrap();
-        let mut realm: Vec<_> = book.realm.iter().map(|(id, p)| (*id, p.clone())).collect();
-        realm.sort_by_key(|(id, _)| *id);
-        assert_eq!(realm, vec![
+        let (name, realm) = book.realm().unwrap();
+        let mut prices: Vec<_> = realm.prices.iter().map(|(id, p)| (*id, p.clone())).collect();
+        prices.sort_by_key(|(id, _)| *id);
+        assert_eq!(prices, vec![
             (2319, RealmPrice { market_value_recent: Some(Copper(104)), min_buyout: None, num_auctions: Some(271), ..Default::default() }),
             (4234, RealmPrice { market_value_recent: Some(Copper(218)), min_buyout: Some(Copper(210)), num_auctions: Some(249), ..Default::default() }),
         ]);
         assert_eq!(book.region.len(), 1);
         assert_eq!(book.region[&2318], RegionPrice { sale_avg: Some(Copper(29)), sold_per_day: Some(9130.56), sale_rate: Some(0.96), ..Default::default() });
-        assert_eq!((book.realm_updated, book.region_updated), (Some(1_794_129_134), Some(1_794_099_200)));
-        assert_eq!((book.realm_scope.as_deref(), book.region_scope.as_deref()), (Some("PvP-Horde"), Some("Forever-EU")));
+        assert_eq!((name, realm.updated, book.region_updated), ("PvP-Horde", Some(1_794_129_134), Some(1_794_099_200)));
+        assert_eq!((book.realms.len(), book.region_scope.as_deref()), (1, Some("Forever-EU")));
     }
 
     #[test]
-    fn the_realm_scope_skips_region_wide_commodity_blocks() {
+    fn each_realm_keeps_its_own_prices_and_age_and_the_first_is_read_until_another_is_chosen() {
+        let src = r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=100,fields={"itemString","minBuyout"},data={{4234,6I},{2319,38}}}]])
+x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvE-Alliance",[[return {downloadTime=200,fields={"itemString","minBuyout"},data={{4234,7P}}}]])
+x.LoadData("AUCTIONDB_NON_COMMODITY_HISTORICAL","PvP-Horde",[[return {downloadTime=50,fields={"itemString","historical"},data={{4234,T}}}]])"#;
+        let mut book = parse(src).unwrap();
+        let seen = |b: &RealmBook| (b.prices.len(), b.prices[&4234].min_buyout, b.prices[&4234].historical, b.updated);
+        assert_eq!(book.realms.keys().collect::<Vec<_>>(), ["PvE-Alliance", "PvP-Horde"]);
+        assert_eq!(seen(&book.realms["PvP-Horde"]), (2, Some(Copper(210)), Some(Copper(29)), Some(100)));
+        assert_eq!(seen(&book.realms["PvE-Alliance"]), (1, Some(Copper(249)), None, Some(200)));
+
+        let read = |b: &PriceBook| (b.realm().unwrap().0.to_owned(), b.realm_price(4234).unwrap().min_buyout, b.realm_price(2319).is_some());
+        assert_eq!(read(&book), ("PvE-Alliance".into(), Some(Copper(249)), false));
+        assert!(book.choose_realm("PvP-Horde"));
+        assert_eq!(read(&book), ("PvP-Horde".into(), Some(Copper(210)), true));
+        assert!(!book.choose_realm("PvP-Horde"));
+        assert!(!book.choose_realm("Gone-Realm"));
+        assert_eq!(read(&book).0, "PvP-Horde");
+    }
+
+    #[test]
+    fn commodity_blocks_price_every_realm_and_name_the_region() {
         let src = r#"x.LoadData("AUCTIONDB_COMMODITY_HISTORICAL","Forever-EU",[[return {downloadTime=5,fields={"itemString","historical"},data={{2318,T}}}]])
-x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=6,fields={"itemString","minBuyout"},data={{4234,6I}}}]])"#;
-        let book = parse(src).unwrap();
-        assert_eq!((book.realm_scope.as_deref(), book.region_scope.as_deref()), (Some("PvP-Horde"), Some("Forever-EU")));
+x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=6,fields={"itemString","minBuyout"},data={{4234,6I}}}]])
+x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvE-Alliance",[[return {downloadTime=7,fields={"itemString","minBuyout"},data={{4234,7P}}}]])"#;
+        let mut book = parse(src).unwrap();
+        assert_eq!((book.realms.keys().map(String::as_str).collect::<Vec<_>>(), book.region_scope.as_deref()), (vec!["PvE-Alliance", "PvP-Horde"], Some("Forever-EU")));
+        assert_eq!((book.realm_price(2318).unwrap().historical, book.realms["PvE-Alliance"].updated), (Some(Copper(29)), Some(7)));
+        book.choose_realm("PvP-Horde");
+        assert_eq!(book.realm_price(2318).unwrap().historical, Some(Copper(29)));
     }
 
     #[test]
@@ -243,7 +321,13 @@ x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=6,f
 
     #[test]
     fn a_row_with_the_wrong_width_names_its_line() {
-        let src = r#"x[[return {downloadTime=1,fields={"itemString","marketValue"},data={{1,2},{3,4,5}}}]]"#;
+        let src = r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=1,fields={"itemString","marketValue"},data={{1,2},{3,4,5}}}]])"#;
         assert_eq!(parse(src), Err("AppData line 1: item 3 has 2 values for 1 fields".into()));
+    }
+
+    #[test]
+    fn realm_prices_need_a_realm_to_belong_to() {
+        let src = r#"x[[return {downloadTime=1,fields={"itemString","marketValue"},data={{1,2}}}]]"#;
+        assert_eq!(parse(src), Err("AppData line 1: realm prices without a realm scope".into()));
     }
 }

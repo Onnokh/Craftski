@@ -1,5 +1,5 @@
-//! Small pieces every region draws: money with coins, framed icons, segmented controls, the
-//! toggle, labels and buttons.
+//! Small pieces every region draws: money with coins, framed icons, toolbar pills, labels and
+//! buttons.
 
 use std::sync::OnceLock;
 
@@ -100,33 +100,40 @@ pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
     el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden()
 }
 
-/// One choice of a segmented control.
-pub struct Segment<S> {
-    pub label: &'static str,
-    pub on: bool,
-    pub pick: fn(&mut S),
+/// Between a toolbar's search and its pills.
+pub const TOOLBAR_GAP: f32 = 12.0;
+
+/// A toolbar filter's outline: 32pt tall in the line colour, or filled with the stronger
+/// border while `active` says its filter narrows the rows. `open` strengthens the border alone,
+/// for a pill whose menu is open or whose field has focus.
+pub fn pill(active: bool, open: bool) -> El {
+    let out = row().h(32.0).pl(13.0).pr(11.0).gap(8.0).center_y().radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
+    if active { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) }
 }
 
-pub fn segmented<S: 'static>(name: &str, segments: Vec<Segment<S>>) -> El {
-    let mut out = row().h(32.0).padding(1.0).radius(4.0).border(1.0, p().line).clip_rounded(4.0).role("radiogroup").label(name);
-    for (i, s) in segments.into_iter().enumerate() {
-        if i > 0 {
-            out = out.child(el().w(1.0).h_full().fill(p().line));
-        }
-        let item = row().h_full().px(12.0).center_y().child(text(s.label).font(theme::BODY).color(if s.on { p().text } else { p().muted }));
-        let item = if s.on { item.fill(p().active) } else { item.hover(Color::WHITE.alpha(0.03)) };
-        let pick = s.pick;
-        out = out.child(item.role("radio").label(s.label).checked(s.on).cursor(Cursor::Pointer).on_press(move |st: &mut S| pick(st)));
-    }
-    out
+/// A toolbar's search: a magnifier and `field` in an outline that takes the width the pills
+/// leave.
+pub fn search_box(field: El, focused: bool) -> El {
+    row()
+        .h(32.0)
+        .grow(1.0)
+        .shrink()
+        .gap(8.0)
+        .px(13.0)
+        .center_y()
+        .radius(4.0)
+        .border(1.0, if focused { p().line2 } else { p().line })
+        .clip_rounded(4.0)
+        .cursor(Cursor::Text)
+        .child(glyph(&SEARCH, 16.0, p().faint))
+        .child(field)
 }
 
+/// A pill holding a brass checkbox and its label; pressing anywhere on it flips the box.
 pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
     let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
-    let square = if on { square.fill(p().brass).child(glyph(&CHECK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
-    row()
-        .gap(8.0)
-        .center_y()
+    let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
+    pill(false, false)
         .child(square)
         .child(text(label).font(theme::BODY).color(p().text))
         .role("checkbox")
@@ -191,6 +198,8 @@ macro_rules! rune_icon {
 
 pub static SEARCH: Icon = rune_icon!("search");
 pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
+pub static CHECK: Icon = rune_icon!("check");
+pub static MAP_PIN: Icon = rune_icon!("map-pin");
 static ARROW_DOWN: Icon = rune_icon!("arrow-down");
 static ARROW_UP: Icon = rune_icon!("arrow-up");
 pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");
@@ -265,7 +274,8 @@ pub fn flexible() -> El {
     col().grow(1.0).shrink().min_w(0.0)
 }
 
-pub static CHECK: Icon = Icon {
+/// The checkbox's tick, drawn to its 16pt square.
+static TICK: Icon = Icon {
     name: "tsm-check",
     view: 16.0,
     body: r#"<path d="m4.5 8.5 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,

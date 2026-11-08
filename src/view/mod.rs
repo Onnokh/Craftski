@@ -1,6 +1,7 @@
 mod detail;
 mod flips;
 mod header;
+mod menu;
 mod rail;
 mod status;
 mod table;
@@ -17,14 +18,14 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 
 use crate::icons;
 use crate::market::{self, Market};
+use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
-use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
+use crate::prices;
+use crate::profit::{self, Evaluation, PriceOrigin};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
 use crate::theme::{self, p};
-
-const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -38,7 +39,6 @@ pub struct App {
     /// The loader thread's messages, until it finishes.
     inbox: Option<Receiver<Msg>>,
     icons: Icons,
-    source: PriceSource,
     hide_unpriced: bool,
     min_sold: usize,
     sort: Sort<Column>,
@@ -48,6 +48,9 @@ pub struct App {
     /// The player's profession rank as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    menu: Option<Menu>,
+    /// The realm the player last chose, which prices come from whenever AppData.lua holds it.
+    realm: String,
     /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
     now: u64,
 }
@@ -136,7 +139,6 @@ impl App {
             load: Load::Loading,
             inbox: None,
             icons: Icons::default(),
-            source: PriceSource::Realm,
             hide_unpriced: true,
             min_sold: 0,
             sort: Sort { column: Column::Profit, descending: true },
@@ -144,6 +146,8 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
+            menu: None,
+            realm: settings::load_realm(),
             now: unix_secs(SystemTime::now()),
         }
     }
@@ -166,7 +170,7 @@ impl App {
         let Load::Ready(r) = &mut self.load else { return };
         match market::read_book(appdata) {
             Ok((book, read)) => {
-                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes));
+                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes), &self.realm);
                 r.reload_error = None;
             }
             Err(e) => {
@@ -189,10 +193,10 @@ impl App {
 
     fn refresh(&mut self) {
         let Load::Ready(r) = &mut self.load else { return };
-        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs(self.source))).collect();
+        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs())).collect();
         let filter = Filter {
             hide_unpriced: self.hide_unpriced,
-            min_sold_per_day: SOLD_STEPS[self.min_sold].1,
+            min_sold_per_day: SOLD_STEPS[self.min_sold].min,
             max_skill: settings::parse_skill(&self.skill.text),
             query: &self.search.text,
         };
@@ -260,12 +264,13 @@ pub fn setup(s: &mut App, wake: Waker) {
     }
     let (tx, rx) = mpsc::channel();
     s.inbox = Some(rx);
+    let realm = s.realm.clone();
     std::thread::spawn(move || {
         let send = |m: Msg| {
             let _ = tx.send(m);
             wake();
         };
-        let market = market::load();
+        let market = market::load(&realm);
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
         send(Msg::Market(Box::new(market)));
         fetch_rail(|name, image| send(Msg::Rail(name, image)));
@@ -341,9 +346,12 @@ fn drain(s: &mut App) -> bool {
     changed
 }
 
-/// Ctrl+K finds, Escape closes the zone menu or clears the search, and the arrow keys walk the
+/// Ctrl+K finds, Escape closes the open menu or clears the search, and the arrow keys walk the
 /// rows, all on the open tab.
 pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key == Key::Escape && s.close_menu() {
+        return true;
+    }
     if s.tab == Tab::Flips {
         let f = &mut s.flips;
         if ev.is_command('k') {
@@ -351,7 +359,6 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
         return match ev.key {
-            Key::Escape if f.close_menu() => true,
             Key::Escape if !f.search.text.is_empty() => {
                 f.clear_search();
                 true
@@ -401,7 +408,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             .child(detail::detail(s, r, d)),
     };
     let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
-    if s.tab == Tab::Flips { flips::overlay(s).into_iter().fold(root, |r, e| r.child(e)) } else { root }
+    menu::overlay(s).into_iter().fold(root, |r, e| r.child(e))
 }
 
 fn unix_secs(t: SystemTime) -> u64 {
@@ -418,7 +425,7 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 
 /// Fetches every icon and waits for each to decode, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
-    s.land(market::load());
+    s.land(market::load(&s.realm));
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
 }
@@ -426,7 +433,7 @@ pub fn scene_loaded(s: &mut App) {
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
     s.tab = Tab::Flips;
-    s.land(market::load());
+    s.land(market::load(&s.realm));
     let catalog = merchants::load();
     let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
     s.land_catalog(catalog);
@@ -448,7 +455,13 @@ pub fn scene_flips_hidden(s: &mut App) {
 /// The flips tab with the zone menu open.
 pub fn scene_zones(s: &mut App) {
     scene_flips(s);
-    s.flips.open_menu();
+    s.menu = Some(Menu::Zone);
+}
+
+/// The flips tab with the Sold per day menu open.
+pub fn scene_flips_sold(s: &mut App) {
+    scene_flips(s);
+    s.menu = Some(Menu::FlipsSold);
 }
 
 fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
@@ -471,18 +484,24 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     }
 }
 
-/// `loaded` with Sells 5+, so the line under the table says what it hides.
+/// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
 pub fn scene_crafts_hidden(s: &mut App) {
     scene_loaded(s);
     s.min_sold = 2;
     s.refresh();
 }
 
+/// `crafts-hidden` with the Sold per day menu open.
+pub fn scene_crafts_sold(s: &mut App) {
+    scene_crafts_hidden(s);
+    s.menu = Some(Menu::CraftsSold);
+}
+
 /// `loaded` with the first listed recipe that uses a reagent cheapest to craft selected.
 pub fn scene_crafted(s: &mut App) {
     scene_loaded(s);
     let Load::Ready(r) = &s.load else { return };
-    let costs = r.market.costs(s.source);
+    let costs = r.market.costs();
     let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
     s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
 }
@@ -492,8 +511,22 @@ pub fn scene_crafted(s: &mut App) {
 pub fn scene_stale(s: &mut App) {
     scene_loaded(s);
     let Load::Ready(r) = &mut s.load else { return };
-    r.market.book.realm_updated = Some(s.now - 5 * 3600);
+    for realm in r.market.book.realms.values_mut() {
+        realm.updated = Some(s.now - 5 * 3600);
+    }
     r.market.book.region_updated = Some(s.now - 30 * 3600);
+}
+
+/// `loaded` with the status bar's realm menu open over a second realm, PvE-Alliance, made up
+/// from the first with prices five hours older, since AppData.lua holds one realm.
+pub fn scene_realms(s: &mut App) {
+    scene_loaded(s);
+    let Load::Ready(r) = &mut s.load else { return };
+    if let Some((_, realm)) = r.market.book.realm() {
+        let older = prices::RealmBook { updated: realm.updated.map(|t| t - 5 * 3600), ..realm.clone() };
+        r.market.book.realms.insert("PvE-Alliance".into(), older);
+    }
+    s.menu = Some(Menu::Realm);
 }
 
 /// `flips` after a reload from a file that isn't there: the status bar says why and the old
@@ -507,9 +540,76 @@ pub fn scene_reload_failed(s: &mut App) {
 mod tests {
     use super::*;
     use crate::copper::Copper;
+    use crate::menu::Pick;
+    use crate::flip_rows::Supply;
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
+    }
+
+    #[test]
+    fn a_pill_toggles_its_menu_and_closing_says_whether_one_was_open() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::Zone);
+        assert_eq!(s.menu, Some(Menu::Zone));
+        s.toggle_menu(Menu::Zone);
+        assert_eq!(s.menu, None);
+        s.toggle_menu(Menu::Zone);
+        assert!(s.close_menu());
+        assert!(!s.close_menu());
+    }
+
+    #[test]
+    fn choosing_a_sold_minimum_sets_the_recipe_filter_and_closes_the_menu() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::CraftsSold);
+        s.pick(Pick::CraftsSold(2));
+        assert_eq!((s.menu, s.min_sold), (None, 2));
+    }
+
+    #[test]
+    fn the_flips_menus_set_the_flips_filters_and_leave_the_recipes_alone() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::FlipsSold);
+        s.pick(Pick::FlipsSold(3));
+        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 3, 0));
+        s.toggle_menu(Menu::Supply);
+        s.pick(Pick::Supply(Supply::Limited));
+        assert_eq!((s.menu, s.flips.supply()), (None, Supply::Limited));
+    }
+
+    #[test]
+    fn choosing_a_zone_moves_to_it_and_closes_the_menu() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::Zone);
+        s.pick(Pick::Zone("Mulgore".into()));
+        assert_eq!((s.menu, s.flips.zone()), (None, "Mulgore"));
+    }
+
+    #[test]
+    fn choosing_a_realm_reprices_from_it_and_holds_through_a_reload() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-realm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, [appdata("PvE-Alliance", 100, "6I"), appdata("PvP-Horde", 200, "7P")].join("
+")).unwrap();
+        let mut s = App::new();
+        s.realm = "Gone-Realm".into();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), &s.realm)));
+        let seen = |s: &App| {
+            let book = &s.ready().unwrap().market.book;
+            (book.realm().map(|(name, _)| name.to_owned()), book.realm_price(4234).and_then(|p| p.min_buyout))
+        };
+        assert_eq!(seen(&s), (Some("PvE-Alliance".into()), Some(Copper(210))));
+
+        let items: Vec<(String, bool)> = s.menu_items(Menu::Realm).into_iter().map(|i| (i.label, i.on)).collect();
+        assert_eq!(items, [("PvE-Alliance".into(), true), ("PvP-Horde".into(), false)]);
+
+        s.use_realm("PvP-Horde".into());
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(Copper(249))));
+        s.reload(&path);
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(Copper(249))));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -519,11 +619,11 @@ mod tests {
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let book = &r.market.book;
-            (book.realm_scope.clone(), book.realm_updated, book.realm[&4234].min_buyout, r.reload_error.clone())
+            (book.realm().map(|(name, _)| name.to_owned()), book.realm().and_then(|(_, b)| b.updated), book.realm_price(4234).and_then(|p| p.min_buyout), r.reload_error.clone())
         };
         assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(100), Some(Copper(210)), None));
 
@@ -546,7 +646,7 @@ mod tests {
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let read_at = |s: &App| s.ready().unwrap().market.read.at;
         let first = read_at(&s);
 
@@ -557,7 +657,7 @@ mod tests {
         // The clock that stamps writes can tick slower than this test runs.
         std::fs::File::options().write(true).open(&path).unwrap().set_modified(first + Duration::from_secs(5)).unwrap();
         s.reload_if_changed(&path);
-        assert_eq!(s.ready().unwrap().market.book.realm_scope.as_deref(), Some("PvE-Horde"));
+        assert_eq!(s.ready().unwrap().market.book.realm().map(|(name, _)| name), Some("PvE-Horde"));
         assert_ne!(read_at(&s), first);
         std::fs::remove_dir_all(&dir).unwrap();
     }

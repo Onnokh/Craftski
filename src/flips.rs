@@ -7,7 +7,7 @@ use crate::copper::Copper;
 use crate::items::{Facts, Item, Purchase};
 use crate::merchants::{Merchant, Price, Side};
 use crate::prices::PriceBook;
-use crate::profit::{self, AuctionPrice, PriceSource, SELLER_PERCENT};
+use crate::profit::{self, AuctionPrice, SELLER_PERCENT};
 
 /// Who buys and how they post.
 pub struct Rules {
@@ -97,8 +97,8 @@ pub struct Flip {
 }
 
 /// One flip per gold-priced good a merchant on `rules.side` sells that can go up on the auction
-/// house, priced under `source`.
-pub fn evaluate(merchants: &[Merchant], items: &HashMap<u32, Item>, book: &PriceBook, source: PriceSource, rules: &Rules) -> Vec<Flip> {
+/// house, priced on the chosen realm.
+pub fn evaluate(merchants: &[Merchant], items: &HashMap<u32, Item>, book: &PriceBook, rules: &Rules) -> Vec<Flip> {
     let mut flips = Vec::new();
     for (index, merchant) in merchants.iter().enumerate() {
         if merchant.side.is_some_and(|s| s != rules.side) {
@@ -112,7 +112,7 @@ pub fn evaluate(merchants: &[Merchant], items: &HashMap<u32, Item>, book: &Price
                 continue;
             }
             let paid = paid(book, stock.item, facts, listed, discount);
-            let sale = profit::auction_price(book, stock.item, source);
+            let sale = profit::auction_price(book, stock.item);
             let resale = sale.map(|s| Copper((s.unit.0 as f64 * SELLER_PERCENT / 100.0).floor() as u64));
             let region = book.region.get(&stock.item);
             let sale_rate = region.and_then(|r| r.sale_rate);
@@ -178,7 +178,7 @@ mod tests {
         ]);
         let mut book = PriceBook::default();
         for (id, min_buyout) in [(6365, 3000), (11303, 5000), (3371, 400), (5956, 900)] {
-            book.realm.insert(id, RealmPrice { min_buyout: Some(Copper(min_buyout)), ..Default::default() });
+            book.realm_prices_mut().insert(id, RealmPrice { min_buyout: Some(Copper(min_buyout)), ..Default::default() });
         }
         book.region.insert(6365, RegionPrice { sale_rate: Some(0.5), sold_per_day: Some(2.0), ..Default::default() });
         book.region.insert(11303, RegionPrice { sale_rate: Some(0.25), ..Default::default() });
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn a_tsm_price_is_paid_as_it_stands_without_another_discount() {
         let (items, book) = world();
-        let flips = evaluate(&[merchant(3027, Some(Side::Horde), "Thunder Bluff", vec![gold(6365, 906)])], &items, &book, PriceSource::Realm, &RULES);
+        let flips = evaluate(&[merchant(3027, Some(Side::Horde), "Thunder Bluff", vec![gold(6365, 906)])], &items, &book, &RULES);
         assert_eq!(flips, vec![Flip {
             merchant: 0,
             item: 6365,
@@ -213,7 +213,7 @@ mod tests {
         let (items, book) = world();
         let stock = || vec![gold(11303, 1900)];
         let merchants = [merchant(3015, Some(Side::Horde), "Thunder Bluff", stock()), merchant(3322, Some(Side::Horde), "Orgrimmar", stock())];
-        let flips = evaluate(&merchants, &items, &book, PriceSource::Realm, &RULES);
+        let flips = evaluate(&merchants, &items, &book, &RULES);
         let paid: Vec<_> = flips.iter().map(|f| (f.paid, f.paid.map(Paid::unit), f.profit)).collect();
         assert_eq!(paid, vec![
             (Some(Paid::List { list: 2000.0, from: ListSource::Client, discount_percent: 10 }), Some(1800.0), Some(4750 - 1800 - 300)),
@@ -226,7 +226,7 @@ mod tests {
         let (mut items, book) = world();
         items.remove(&11303);
         let bundle = Stock { item: 11303, price: Price::Gold(Some(Purchase { copper: 30, count: 5 })), limit: Some(2) };
-        let flips = evaluate(&[merchant(3015, Some(Side::Horde), "Thunder Bluff", vec![bundle])], &items, &book, PriceSource::Realm, &RULES);
+        let flips = evaluate(&[merchant(3015, Some(Side::Horde), "Thunder Bluff", vec![bundle])], &items, &book, &RULES);
         assert_eq!((flips[0].paid, flips[0].limit), (Some(Paid::List { list: 6.0, from: ListSource::ForeverDb, discount_percent: 10 }), Some(2)));
         assert_eq!(flips[0].deposit, Deposit { per_listing: Copper(100), post_stack: 1, loss: Some(300.0) });
     }
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn an_unknown_sale_rate_costs_no_deposit_but_says_so() {
         let (items, book) = world();
-        let flips = evaluate(&[merchant(3015, None, "", vec![gold(3371, 20)])], &items, &book, PriceSource::Realm, &RULES);
+        let flips = evaluate(&[merchant(3015, None, "", vec![gold(3371, 20)])], &items, &book, &RULES);
         assert_eq!((flips[0].deposit.loss, flips[0].paid.map(Paid::unit), flips[0].profit), (None, Some(20.0), Some(380 - 20)));
     }
 
@@ -254,15 +254,7 @@ mod tests {
             merchant(2, Some(Side::Alliance), "", vec![gold(6365, 906)]),
             merchant(3, None, "", vec![gold(11303, 2000)]),
         ];
-        let kept: Vec<(usize, u32)> = evaluate(&merchants, &items, &book, PriceSource::Realm, &RULES).iter().map(|f| (f.merchant, f.item)).collect();
+        let kept: Vec<(usize, u32)> = evaluate(&merchants, &items, &book, &RULES).iter().map(|f| (f.merchant, f.item)).collect();
         assert_eq!(kept, vec![(0, 3371), (2, 11303)]);
-    }
-
-    #[test]
-    fn region_prices_follow_the_price_source() {
-        let (items, mut book) = world();
-        book.region.get_mut(&6365).unwrap().market_value = Some(Copper(2000));
-        let flips = evaluate(&[merchant(3027, Some(Side::Horde), "Thunder Bluff", vec![gold(6365, 906)])], &items, &book, PriceSource::Region, &RULES);
-        assert_eq!((flips[0].sale, flips[0].profit), (Some(AuctionPrice { unit: Copper(2000), basis: AuctionBasis::Region }), Some(1900 - 815 - 100)));
     }
 }

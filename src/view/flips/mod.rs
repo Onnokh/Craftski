@@ -10,10 +10,11 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::status::status;
-use super::{App, Dims, Load, SOLD_STEPS, message};
+use super::{App, Dims, Load, message};
 use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
+use crate::menu::SOLD_STEPS;
 use crate::merchants::{Catalog, Merchant};
 use crate::recipes::FileDataId;
 use crate::rows::{Hidden, Sort};
@@ -29,7 +30,6 @@ pub struct State {
     /// visible, whichever merchant leads it; else this flip, kept while filters hide it.
     selected: Option<(u32, u32)>,
     pub search: TextEdit,
-    zone_menu: bool,
 }
 
 enum Shelf {
@@ -75,7 +75,6 @@ impl State {
             supply: Supply::All,
             selected: None,
             search: TextEdit::new(""),
-            zone_menu: false,
         }
     }
 
@@ -88,7 +87,7 @@ impl State {
 
     fn refilter(&mut self) {
         let Shelf::Ready(f) = &mut self.shelf else { return };
-        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text, supply: self.supply };
+        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].min, query: &self.search.text, supply: self.supply };
         f.rows = flip_rows::visible(&f.flips, &f.catalog.merchants, &f.catalog.items, filter, self.sort);
         f.hidden = flip_rows::hidden(&f.flips, &f.catalog.merchants, &f.catalog.items, filter);
     }
@@ -110,9 +109,9 @@ impl State {
     /// The filters as the toolbar shows them, for the line that names what they hide.
     fn filter_name(&self, k: FilterKind) -> String {
         match k {
-            FilterKind::Sells => format!("Sells {}", SOLD_STEPS[self.min_sold].0),
+            FilterKind::Sells => SOLD_STEPS[self.min_sold].named(),
             FilterKind::Supply => format!("Supply {}", self.supply.label()),
-            FilterKind::HideUnprofitable => "Hide unprofitable".to_string(),
+            FilterKind::HideUnprofitable => "Profitable only".to_string(),
         }
     }
 
@@ -125,8 +124,8 @@ impl State {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.iter().find(|r| !r.others.is_empty())?.flip)));
     }
 
-    /// The state a user reported missing patterns in: "patter" searched at Sells 5+, an
-    /// endless supply and only profitable flips, for a snapshot scene.
+    /// The state a user reported missing patterns in: "patter" searched at Sold 5+ a day,
+    /// an endless supply and only profitable flips, for a snapshot scene.
     pub fn search_patterns_narrowly(&mut self) {
         self.search = TextEdit::new("patter");
         self.min_sold = 2;
@@ -173,20 +172,37 @@ impl State {
         self.refilter();
     }
 
-    fn pick_zone(&mut self, zone: String) {
+    pub fn pick_zone(&mut self, zone: String) {
         self.zone = zone;
-        self.zone_menu = false;
         self.refilter();
         self.select_first();
     }
 
-    pub fn open_menu(&mut self) {
-        self.zone_menu = true;
+    pub fn min_sold(&self) -> usize {
+        self.min_sold
     }
 
-    /// Closes the zone menu, saying whether it was open.
-    pub fn close_menu(&mut self) -> bool {
-        std::mem::replace(&mut self.zone_menu, false)
+    pub fn set_min_sold(&mut self, step: usize) {
+        self.min_sold = step;
+        self.refilter();
+    }
+
+    pub fn supply(&self) -> Supply {
+        self.supply
+    }
+
+    pub fn set_supply(&mut self, supply: Supply) {
+        self.supply = supply;
+        self.refilter();
+    }
+
+    pub fn zone(&self) -> &str {
+        &self.zone
+    }
+
+    /// Every zone with something to flip, once the merchants are priced.
+    pub fn zones(&self) -> Option<&[Zone]> {
+        self.stocked().map(|f| f.zones.as_slice())
     }
 }
 
@@ -205,10 +221,10 @@ impl App {
         self.flips.select_first();
     }
 
-    /// Prices every flip under the current source. Needs the market loaded.
+    /// Prices every flip on the chosen realm. Needs the market loaded.
     pub(super) fn reprice_flips(&mut self) {
         let (Load::Ready(r), Shelf::Ready(f)) = (&self.load, &mut self.flips.shelf) else { return };
-        f.flips = flips::evaluate(&f.catalog.merchants, &f.catalog.items, &r.market.book, self.source, &flips::RULES);
+        f.flips = flips::evaluate(&f.catalog.merchants, &f.catalog.items, &r.market.book, &flips::RULES);
         f.zones = flip_rows::zones(&f.flips, &f.catalog.merchants);
         self.flips.refilter();
     }
@@ -239,10 +255,3 @@ pub fn main(s: &App, d: Dims) -> El {
         .child(detail::detail(s, f, d))
 }
 
-/// The open zone menu, drawn over the whole window.
-pub fn overlay(s: &App) -> Vec<El> {
-    match s.flips.stocked() {
-        Some(f) if s.flips.zone_menu => toolbar::zone_menu(s, f),
-        _ => Vec::new(),
-    }
-}
