@@ -1,7 +1,7 @@
 //! The selected recipe: its market at a glance, then one craft as a ledger from the sale price
 //! down to the profit, and the skill range.
 
-use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Span, Tx, col, el, row, text};
+use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Shadow, Span, Tx, col, el, row, text};
 
 use super::skin;
 use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, red_button, unknown, wowhead};
@@ -50,7 +50,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         .pt(16.0)
         .child(red_button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, None, 36.0, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
         .child(wowhead::<App>(wowhead_url(recipe.item_id)));
-    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
+    panel.px(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
 fn identity(s: &App, recipe: &Recipe) -> El {
@@ -129,9 +129,16 @@ fn total(e: &Evaluation) -> El {
     out
 }
 
-/// The detail panel's box, ruled off from the table.
+/// The detail panel's box: a drawer over the table, edged in bronze and casting its shadow
+/// onto the rows beside it. The edge takes room, so the body and the art lie inside it.
 pub(super) fn panel(d: Dims) -> El {
-    col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], Color::BLACK)
+    col()
+        .w(d.detail)
+        .h_full()
+        .fill(p().surface)
+        .border_sides([0.0, 0.0, 0.0, 2.0], p().bronze)
+        .border_layout()
+        .box_shadow(Shadow { x: -8.0, y: 0.0, blur: 40.0, spread: 0.0, color: Color::BLACK.alpha(0.9), inset: false })
 }
 
 /// A gold section label over its rows, ruled in bronze.

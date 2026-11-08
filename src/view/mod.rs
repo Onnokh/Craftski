@@ -142,6 +142,9 @@ enum Recipes {
 struct Dims {
     compact: bool,
     pad: f32,
+    /// The table's margin from the rail and the detail panel. Its cells pad by the rest of
+    /// `pad`, so their text lines up with the title and toolbar above.
+    inset: f32,
     detail: f32,
     gap: f32,
     /// The status bar's width at the last layout, which decides what it leaves out.
@@ -151,10 +154,15 @@ struct Dims {
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, status: None }
+            Dims { compact, pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, status: None }
         } else {
-            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, status: None }
+            Dims { compact, pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, status: None }
         }
+    }
+
+    /// A table cell's side padding, inside the table's inset.
+    fn cell_pad(self) -> f32 {
+        self.pad - self.inset
     }
 }
 
