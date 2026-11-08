@@ -5,8 +5,9 @@ use std::f32::consts::FRAC_PI_2;
 use rune::{Color, El, col, el, text};
 
 use super::skin;
-use super::{Dims, Ready};
+use super::{Dims, Ready, Recipes};
 use crate::overview::shown;
+use crate::recipes::Profession;
 use crate::skin::Piece;
 use crate::theme::{self, p};
 
@@ -15,8 +16,13 @@ const BANNER: f32 = 128.0;
 /// The overview art's drawn height, which overhangs the banner top and bottom.
 const ART: f32 = 300.0;
 
-pub fn header(r: &Ready, d: Dims) -> El {
-    page("Leatherworking", shown(r.rows.len(), r.market.recipes.len(), "recipe"), d)
+pub fn header(profession: Profession, r: &Ready, d: Dims) -> El {
+    let meta = match r.recipes {
+        Recipes::Shown => shown(r.rows.len(), r.market.recipes.len(), "recipe"),
+        Recipes::Loading => "Loading recipes...".into(),
+        Recipes::Failed(_) => "No recipes loaded.".into(),
+    };
+    page(profession.name(), meta, d)
 }
 
 pub(super) fn page(title: &str, meta: String, d: Dims) -> El {

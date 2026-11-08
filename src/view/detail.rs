@@ -18,7 +18,7 @@ const PAD: f32 = 24.0;
 const ROW: f32 = 32.0;
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
-    let panel = panel(d).children(skin::cover(Piece::BackgroundCard, (Align::End, Align::End)));
+    let panel = panel(d).children(skin::cover(Piece::BackgroundCard(s.profession), (Align::End, Align::End)));
     let Some((_, index)) = s.picked() else {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };

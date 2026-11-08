@@ -182,26 +182,6 @@ fn named_path(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{name}.jpg"))
 }
 
-/// Decodes an icon to RGBA as CSS `grayscale(1) brightness(.55)` draws it, for professions the
-/// app does not cover yet.
-pub fn decode_dimmed(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let image = image::load_from_memory(&bytes).map_err(|e| format!("{}: {e}", path.display()))?.to_rgba8();
-    let (w, h) = image.dimensions();
-    let mut rgba = image.into_raw();
-    grey_and_dim(&mut rgba, 0.55);
-    Ok((w, h, rgba))
-}
-
-/// Rec. 709 luma on the encoded values, as CSS `grayscale` computes it, scaled by `brightness`.
-fn grey_and_dim(rgba: &mut [u8], brightness: f32) {
-    for px in rgba.as_chunks_mut::<4>().0 {
-        let luma = 0.2126 * f32::from(px[0]) + 0.7152 * f32::from(px[1]) + 0.0722 * f32::from(px[2]);
-        let v = (luma * brightness).round().clamp(0.0, 255.0) as u8;
-        px[..3].fill(v);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,13 +203,6 @@ mod tests {
         assert_eq!(names_path(Path::new("cache/icons")), Path::new("cache/icons/names.json"));
         assert_eq!(named_path(Path::new("cache/icons"), "trade_tailoring"), Path::new("cache/icons/trade_tailoring.jpg"));
         assert_eq!(image_url("inv_misc_leatherscrap_07"), "https://wow.zamimg.com/images/wow/icons/large/inv_misc_leatherscrap_07.jpg");
-    }
-
-    #[test]
-    fn greys_and_dims_each_pixel_keeping_alpha() {
-        let mut rgba = vec![200, 100, 50, 255, 255, 255, 255, 128, 0, 0, 0, 0];
-        grey_and_dim(&mut rgba, 0.55);
-        assert_eq!(rgba, vec![65, 65, 65, 255, 140, 140, 140, 128, 0, 0, 0, 0]);
     }
 
     #[test]

@@ -12,7 +12,7 @@ mod widgets;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
@@ -23,7 +23,7 @@ use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
 use crate::prices;
 use crate::profit::{self, Evaluation, PriceOrigin};
-use crate::recipes::{FileDataId, Profession, Recipe};
+use crate::recipes::{self, FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
 use crate::skin::Piece;
@@ -38,8 +38,14 @@ pub enum Tab {
 pub struct App {
     tab: Tab,
     load: Load,
-    /// The loader threads' messages, until they finish.
+    /// The loader threads' messages.
     inbox: Option<Receiver<Msg>>,
+    /// Where loader threads post, once the window is set up.
+    outbox: Option<Outbox>,
+    /// Asks the art thread for a profession's cards ahead of the rest.
+    art_asks: Option<Sender<Profession>>,
+    /// The profession the crafts tab shows.
+    profession: Profession,
     icons: Icons,
     hide_unpriced: bool,
     min_sold: usize,
@@ -47,7 +53,7 @@ pub struct App {
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,
-    /// The player's profession rank as typed; blank shows every rank.
+    /// The player's rank in the shown profession as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
     menu: Option<Menu>,
@@ -64,16 +70,26 @@ enum Load {
 }
 
 enum Msg {
-    Market(Box<Result<Market, String>>),
+    /// Prices with the recipes of the profession named, which the player may have left since.
+    Market(Profession, Box<Result<Market, String>>),
+    Recipes(Profession, Box<Result<Vec<Recipe>, String>>),
     Catalog(Box<Result<Catalog, String>>),
     Icon(FileDataId, PathBuf),
-    Rail(&'static str, RailImage),
+    Rail(&'static str, PathBuf),
     Skin(Piece, PathBuf),
 }
 
-enum RailImage {
-    File(PathBuf),
-    Dimmed(u32, u32, Vec<u8>),
+#[derive(Clone)]
+struct Outbox {
+    tx: Sender<Msg>,
+    wake: Waker,
+}
+
+impl Outbox {
+    fn send(&self, m: Msg) {
+        let _ = self.tx.send(m);
+        (self.wake)();
+    }
 }
 
 /// Decoded icons. An icon without an image, or still decoding, draws as its empty frame.
@@ -91,13 +107,10 @@ impl Icons {
         }
     }
 
-    fn show_rail(&mut self, name: &'static str, image: RailImage) {
-        let Some(cache) = &self.cache else { return };
-        let image = match image {
-            RailImage::File(path) => cache.file(path, 32.0, 2.0),
-            RailImage::Dimmed(w, h, rgba) => cache.rgba(w, h, rgba),
-        };
-        self.rail.insert(name, image);
+    fn show_rail(&mut self, name: &'static str, path: &Path) {
+        if let Some(cache) = &self.cache {
+            self.rail.insert(name, cache.file(path, 32.0, 2.0));
+        }
     }
 
     fn item(&self, id: Option<FileDataId>) -> Option<&Image> {
@@ -107,11 +120,21 @@ impl Icons {
 
 struct Ready {
     market: Market,
+    recipes: Recipes,
     evals: Vec<Evaluation>,
     rows: Vec<usize>,
     hidden: Option<Hidden<FilterKind>>,
     /// Why the last reload failed; the prices before it stay.
     reload_error: Option<String>,
+}
+
+/// Whether the market holds the shown profession's recipes.
+#[derive(Debug, PartialEq)]
+enum Recipes {
+    Shown,
+    /// Loading on a background thread; the market holds none meanwhile.
+    Loading,
+    Failed(String),
 }
 
 /// Sizes that change between a roomy window and a narrow one.
@@ -137,17 +160,21 @@ impl Dims {
 
 impl App {
     pub fn new() -> App {
+        let profession = settings::start_profession().unwrap_or(Profession::Leatherworking);
         App {
             tab: Tab::Crafts,
             load: Load::Loading,
             inbox: None,
+            outbox: None,
+            art_asks: None,
+            profession,
             icons: Icons::default(),
             hide_unpriced: true,
             min_sold: 0,
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
             search: TextEdit::new(""),
-            skill: TextEdit::new(settings::load_skill()),
+            skill: TextEdit::new(settings::load_skill(profession)),
             flips: flips::State::new(),
             menu: None,
             realm: settings::load_realm(),
@@ -155,15 +182,74 @@ impl App {
         }
     }
 
-    fn land(&mut self, result: Result<Market, String>) {
+    /// Lands the first load, made for `profession`.
+    fn land(&mut self, profession: Profession, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, recipes: Recipes::Shown, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
             Err(e) => Load::Failed(e),
         };
-        self.refresh();
-        if let Load::Ready(r) = &self.load {
-            self.selected = r.rows.first().map(|&i| r.market.recipes[i].spell_id);
+        if profession != self.profession {
+            self.show_profession(self.profession);
+            return;
         }
+        self.refresh();
+        self.select_first();
+    }
+
+    fn select_first(&mut self) {
+        self.selected = self.ready().and_then(|r| r.rows.first().map(|&i| r.market.recipes[i].spell_id));
+    }
+
+    /// The rail's press: the crafts tab with `profession`'s recipes, remembered for next time.
+    /// Pressing the shown profession again retries recipes that failed to load.
+    pub(super) fn choose_profession(&mut self, profession: Profession) {
+        self.tab = Tab::Crafts;
+        let failed = self.ready().is_some_and(|r| matches!(r.recipes, Recipes::Failed(_)));
+        if profession == self.profession && !failed {
+            return;
+        }
+        settings::save_profession(profession);
+        self.skill = TextEdit::new(settings::load_skill(profession));
+        self.show_profession(profession);
+    }
+
+    /// Drops the shown recipes and loads `profession`'s in the background, keeping the search
+    /// and filters. The selection moves to the first row once they land.
+    fn show_profession(&mut self, profession: Profession) {
+        self.profession = profession;
+        self.selected = None;
+        if let Some(ask) = &self.art_asks {
+            let _ = ask.send(profession);
+        }
+        let Load::Ready(r) = &mut self.load else { return };
+        r.market.set_recipes(Vec::new());
+        r.recipes = Recipes::Loading;
+        self.refresh();
+        let Some(out) = self.outbox.clone() else { return };
+        std::thread::spawn(move || {
+            let recipes = settled(|| recipes::load(profession));
+            let ids = recipes.as_deref().map(icons::referenced).unwrap_or_default();
+            out.send(Msg::Recipes(profession, Box::new(recipes)));
+            prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
+        });
+    }
+
+    /// Lands recipes loaded for `profession`, unless the player has moved on from it or they
+    /// already landed.
+    fn land_recipes(&mut self, profession: Profession, result: Result<Vec<Recipe>, String>) {
+        let Load::Ready(r) = &mut self.load else { return };
+        if profession != self.profession || r.recipes != Recipes::Loading {
+            return;
+        }
+        match result {
+            Ok(recipes) => {
+                r.market.set_recipes(recipes);
+                r.recipes = Recipes::Shown;
+            }
+            Err(e) => r.recipes = Recipes::Failed(e),
+        }
+        self.refresh();
+        self.select_first();
     }
 
     /// Reads TSM's prices again and reprices every recipe and flip. The selection, filters,
@@ -216,7 +302,7 @@ impl App {
                 FilterKind::HideUnpriced => self.hide_unpriced = false,
                 FilterKind::Skill => {
                     self.skill.clear();
-                    settings::save_skill("");
+                    settings::save_skill(self.profession, "");
                 }
             }
         }
@@ -267,32 +353,29 @@ pub fn setup(s: &mut App, wake: Waker) {
     }
     let (tx, rx) = mpsc::channel();
     s.inbox = Some(rx);
-    let (art, wake_art) = (tx.clone(), wake.clone());
+    let out = Outbox { tx, wake };
+    s.outbox = Some(out.clone());
+    let (ask, asked) = mpsc::channel();
+    s.art_asks = Some(ask);
+    let (art, first) = (out.clone(), s.profession);
+    std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, path)))));
+    let (realm, profession) = (s.realm.clone(), s.profession);
     std::thread::spawn(move || {
-        let shown = crate::skin::fetch(|piece, path| {
-            let _ = art.send(Msg::Skin(piece, path));
-            wake_art();
-        });
-        if let Err(e) = shown {
-            eprintln!("interface art not fetched: {e}");
-        }
-    });
-    let realm = s.realm.clone();
-    std::thread::spawn(move || {
-        let send = |m: Msg| {
-            let _ = tx.send(m);
-            wake();
-        };
-        let market = market::load(&realm, Profession::Leatherworking);
+        let market = settled(|| market::load(&realm, profession));
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
-        send(Msg::Market(Box::new(market)));
-        fetch_rail(|name, image| send(Msg::Rail(name, image)));
-        prefetch(&ids, |id, path| send(Msg::Icon(id, path)));
+        out.send(Msg::Market(profession, Box::new(market)));
+        fetch_rail(|name, path| out.send(Msg::Rail(name, path)));
+        prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
         let catalog = merchants::load();
         let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
-        send(Msg::Catalog(Box::new(catalog)));
-        prefetch(&ids, |id, path| send(Msg::Icon(id, path)));
+        out.send(Msg::Catalog(Box::new(catalog)));
+        prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
     });
+}
+
+/// `load`'s result, or an error should it panic, so a loading state always ends.
+fn settled<T>(load: impl FnOnce() -> Result<T, String> + std::panic::UnwindSafe) -> Result<T, String> {
+    std::panic::catch_unwind(load).unwrap_or_else(|_| Err("the loader stopped without a result".into()))
 }
 
 fn prefetch(ids: &BTreeSet<FileDataId>, on_ready: impl Fn(FileDataId, PathBuf) + Sync) {
@@ -303,19 +386,11 @@ fn prefetch(ids: &BTreeSet<FileDataId>, on_ready: impl Fn(FileDataId, PathBuf) +
     }
 }
 
-/// The rail's icons: the covered profession and the flips coin as they are, the rest greyed.
-fn fetch_rail(on_ready: impl Fn(&'static str, RailImage)) {
-    let names: Vec<&'static str> = rail::ICONS.iter().map(|(_, name)| *name).chain([rail::COIN]).collect();
+fn fetch_rail(on_ready: impl Fn(&'static str, PathBuf)) {
+    let names: Vec<&'static str> = rail::icons().collect();
     for ((name, result), icon) in icons::fetch_named(&names).into_iter().zip(names.iter().copied()) {
-        let image = result.and_then(|path| {
-            if icon == rail::ACTIVE || icon == rail::COIN {
-                Ok(RailImage::File(path))
-            } else {
-                icons::decode_dimmed(&path).map(|(w, h, rgba)| RailImage::Dimmed(w, h, rgba))
-            }
-        });
-        match image {
-            Ok(image) => on_ready(icon, image),
+        match result {
+            Ok(path) => on_ready(icon, path),
             Err(e) => eprintln!("rail icon {name}: {e}"),
         }
     }
@@ -335,30 +410,24 @@ pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
     landed || ticked
 }
 
-/// Takes the loader thread's messages; true when any arrived or the thread finished.
+/// Takes the loader threads' messages; true when any arrived.
 fn drain(s: &mut App) -> bool {
     let Some(rx) = s.inbox.take() else { return false };
     let mut changed = false;
-    loop {
-        match rx.try_recv() {
-            Ok(Msg::Market(result)) => s.land(*result),
-            Ok(Msg::Catalog(result)) => s.land_catalog(*result),
-            Ok(Msg::Icon(id, path)) => s.icons.show(id, &path),
-            Ok(Msg::Rail(name, image)) => s.icons.show_rail(name, image),
-            Ok(Msg::Skin(piece, path)) => {
+    for m in rx.try_iter() {
+        changed = true;
+        match m {
+            Msg::Market(profession, result) => s.land(profession, *result),
+            Msg::Recipes(profession, result) => s.land_recipes(profession, *result),
+            Msg::Catalog(result) => s.land_catalog(*result),
+            Msg::Icon(id, path) => s.icons.show(id, &path),
+            Msg::Rail(name, path) => s.icons.show_rail(name, &path),
+            Msg::Skin(piece, path) => {
                 if let Some(cache) = &s.icons.cache {
                     skin::show(cache, piece, &path);
                 }
             }
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => {
-                if matches!(s.load, Load::Loading) {
-                    s.land(Err("the loader stopped without a result".into()));
-                }
-                return true;
-            }
         }
-        changed = true;
     }
     s.inbox = Some(rx);
     changed
@@ -418,7 +487,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::banner(Some(Piece::OverviewCard), header::header(r, d), toolbar::toolbar(s, d)))
+                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, d), toolbar::toolbar(s, d)))
                     .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
@@ -446,9 +515,10 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
     (&r.market.recipes[i], &r.evals[i])
 }
 
-/// Fetches every icon and piece of art and waits for each to decode, so the snapshot shows them.
+/// The profession `--profession` names, else the one last shown, with every icon and piece of
+/// art it draws fetched and decoded, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
-    s.land(market::load(&s.realm, Profession::Leatherworking));
+    s.land(s.profession, market::load(&s.realm, s.profession));
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
 }
@@ -456,7 +526,7 @@ pub fn scene_loaded(s: &mut App) {
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
     s.tab = Tab::Flips;
-    s.land(market::load(&s.realm, Profession::Leatherworking));
+    s.land(s.profession, market::load(&s.realm, s.profession));
     let catalog = merchants::load();
     let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
     s.land_catalog(catalog);
@@ -498,12 +568,13 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
         s.icons.show(id, &path);
     }
     let rail = std::cell::RefCell::new(Vec::new());
-    fetch_rail(|name, image| rail.borrow_mut().push((name, image)));
-    for (name, image) in rail.into_inner() {
-        s.icons.show_rail(name, image);
+    fetch_rail(|name, path| rail.borrow_mut().push((name, path)));
+    for (name, path) in rail.into_inner() {
+        s.icons.show_rail(name, &path);
     }
     let (tx, rx) = mpsc::channel();
-    if let Err(e) = crate::skin::fetch(|piece, path| {
+    let pieces: Vec<Piece> = Piece::SHARED.into_iter().chain(Piece::cards(s.profession)).collect();
+    if let Err(e) = crate::skin::fetch(&pieces, |piece, path| {
         let _ = tx.send((piece, path));
     }) {
         eprintln!("interface art not fetched: {e}");
@@ -577,6 +648,7 @@ pub fn scene_reload_failed(s: &mut App) {
 mod tests {
     use super::*;
     use crate::copper::Copper;
+    use crate::recipes::Quality;
     use crate::menu::Pick;
     use crate::flip_rows::Supply;
 
@@ -632,7 +704,7 @@ mod tests {
 ")).unwrap();
         let mut s = App::new();
         s.realm = "Gone-Realm".into();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), &s.realm)));
+        s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), &s.realm)));
         let seen = |s: &App| {
             let book = &s.ready().unwrap().market.book;
             (book.realm().map(|(name, _)| name.to_owned()), book.realm_price(4234).and_then(|p| p.min_buyout))
@@ -650,13 +722,53 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_drops_the_old_recipes_lands_only_the_new_professions_and_keeps_the_search() {
+        let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
+        let market = |recipes| Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, recipes, "");
+        let seen = |s: &App| {
+            let r = s.ready().unwrap();
+            let rows: Vec<&str> = r.rows.iter().map(|&i| r.market.recipes[i].item_name.as_str()).collect();
+            (s.profession, format!("{:?}", r.recipes), rows.join(", "), s.selected, s.search.text.clone())
+        };
+        let mut s = App::new();
+        (s.profession, s.hide_unpriced) = (Profession::Leatherworking, false);
+        s.land(Profession::Leatherworking, Ok(market(vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")])));
+        s.search = TextEdit::new("bag");
+        s.refresh();
+        assert_eq!(seen(&s), (Profession::Leatherworking, "Shown".into(), "Linen Bag".into(), Some(1), "bag".into()));
+
+        s.show_profession(Profession::Tailoring);
+        assert_eq!(seen(&s), (Profession::Tailoring, "Loading".into(), "".into(), None, "bag".into()));
+        s.land_recipes(Profession::Leatherworking, Ok(vec![recipe(1, "Light Armor Kit")]));
+        assert_eq!(seen(&s), (Profession::Tailoring, "Loading".into(), "".into(), None, "bag".into()));
+        s.land_recipes(Profession::Tailoring, Ok(vec![recipe(3, "Bolt of Linen Cloth"), recipe(4, "Red Linen Bag")]));
+        assert_eq!(seen(&s), (Profession::Tailoring, "Shown".into(), "Red Linen Bag".into(), Some(4), "bag".into()));
+        s.land_recipes(Profession::Tailoring, Ok(vec![]));
+        assert_eq!(seen(&s).2, "Red Linen Bag");
+
+        s.show_profession(Profession::Cooking);
+        s.land_recipes(Profession::Cooking, Err("offline".into()));
+        assert_eq!(seen(&s), (Profession::Cooking, "Failed(\"offline\")".into(), "".into(), None, "bag".into()));
+    }
+
+    #[test]
+    fn a_first_load_for_a_profession_since_left_keeps_its_prices_and_loads_the_new_one() {
+        let mut s = App::new();
+        s.profession = Profession::Mining;
+        let recipe = Recipe { spell_id: 1, item_id: 1, item_name: "Light Armor Kit".into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
+        s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, vec![recipe], "")));
+        let r = s.ready().unwrap();
+        assert_eq!((r.recipes == Recipes::Loading, r.market.recipes.len(), s.selected), (true, 0, None));
+    }
+
+    #[test]
     fn reload_takes_the_new_prices_and_keeps_the_old_ones_when_the_read_fails() {
         let dir = std::env::temp_dir().join(format!("tsm-crafts-reload-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
+        s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let book = &r.market.book;
@@ -683,7 +795,7 @@ mod tests {
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
+        s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let read_at = |s: &App| s.ready().unwrap().market.read.at;
         let first = read_at(&s);
 

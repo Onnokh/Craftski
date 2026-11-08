@@ -2,16 +2,16 @@
 //! wago.tools once and cached as PNGs. Nothing of it ships with the app.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use crate::blp;
 use crate::cache::{self, write_atomic};
+use crate::recipes::Profession;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Piece {
     Background,
-    OverviewCard,
-    BackgroundCard,
     SlotFrame,
     ProgressBg,
     ProgressFrame,
@@ -29,6 +29,10 @@ pub enum Piece {
     TabSelected,
     Checkbox,
     Checkmark,
+    /// The profession's banner, behind a tab's title.
+    OverviewCard(Profession),
+    /// The profession's tall card, behind the detail panel.
+    BackgroundCard(Profession),
 }
 
 /// Where a piece lies: its name in the game's atlas tables, the atlas BLP's CASC file id, and
@@ -43,11 +47,10 @@ const fn cut(name: &'static str, atlas: u32, rect: [u32; 4]) -> Cut {
     Cut { name, atlas, rect }
 }
 
-/// Indexed by `Piece as usize`. From the UiTextureAtlas tables of Forever build 1.60.1.70862.
-const CUTS: [Cut; Piece::ALL.len()] = [
+/// The shared pieces' cuts, indexed by [`Piece::index`]. These and [`CARDS`] are from the
+/// UiTextureAtlas tables of Forever build 1.60.1.70862.
+const SHARED_CUTS: [Cut; Piece::SHARED.len()] = [
     cut("heavybronze-frame-background-c60", 8216846, [0, 0, 1024, 1024]),
-    cut("profession-overview-card-leatherworking-c60-2x", 8166364, [1, 1, 1329, 285]),
-    cut("profession-background-card-leatherworking-c60-2x", 8166364, [1, 287, 721, 1255]),
     cut("profession-square-frame-c60-2x", 8164397, [131, 39, 211, 119]),
     cut("profession-progressbar-bg-c60-2x", 8164397, [219, 1, 967, 47]),
     cut("profession-progressbar-frame-c60-2x", 8164397, [219, 49, 967, 95]),
@@ -67,11 +70,41 @@ const CUTS: [Cut; Piece::ALL.len()] = [
     cut("checkmark-minimal", 4614134, [1, 32, 31, 61]),
 ];
 
+macro_rules! cards {
+    ($name:literal, $atlas:literal) => {
+        [
+            cut(concat!("profession-overview-card-", $name, "-c60-2x"), $atlas, OVERVIEW),
+            cut(concat!("profession-background-card-", $name, "-c60-2x"), $atlas, [1, 287, 721, 1255]),
+        ]
+    };
+}
+
+/// Each profession's overview card then background card, indexed by `Profession as usize`.
+/// Each profession's 2048x2048 atlas holds its banner over its background card, but Cooking and
+/// First Aid have no banner of their own and keep their card alone in a smaller atlas.
+const CARDS: [[Cut; 2]; Profession::ALL.len()] = [
+    cards!("alchemy", 8166382),
+    cards!("blacksmithing", 8166380),
+    [GENERIC_OVERVIEW, cut("profession-background-card-cooking-c60-2x", 8166378, LONE_BACKGROUND)],
+    cards!("enchanting", 8166376),
+    cards!("engineering", 8166374),
+    [GENERIC_OVERVIEW, cut("profession-background-card-firstaid-c60-2x", 8166372, LONE_BACKGROUND)],
+    cards!("leatherworking", 8166364),
+    cards!("mining", 8166360),
+    cards!("tailoring", 8166352),
+];
+
+const OVERVIEW: [u32; 4] = [1, 1, 1329, 285];
+const GENERIC_OVERVIEW: Cut = cut("profession-overview-card-c60-2x", 8166368, OVERVIEW);
+const LONE_BACKGROUND: [u32; 4] = [1, 1, 721, 969];
+
+/// How many pieces there are, shared and per profession: the bound of [`Piece::index`].
+pub const COUNT: usize = Piece::SHARED.len() + 2 * Profession::ALL.len();
+
 impl Piece {
-    pub const ALL: [Piece; 20] = [
+    /// The pieces every profession draws alike.
+    pub const SHARED: [Piece; 18] = [
         Piece::Background,
-        Piece::OverviewCard,
-        Piece::BackgroundCard,
         Piece::SlotFrame,
         Piece::ProgressBg,
         Piece::ProgressFrame,
@@ -91,8 +124,30 @@ impl Piece {
         Piece::Checkmark,
     ];
 
+    pub fn cards(profession: Profession) -> [Piece; 2] {
+        [Piece::OverviewCard(profession), Piece::BackgroundCard(profession)]
+    }
+
+    /// The shared pieces, then each profession's cards.
+    pub fn all() -> impl Iterator<Item = Piece> {
+        Piece::SHARED.into_iter().chain(Profession::ALL.into_iter().flat_map(Piece::cards))
+    }
+
+    /// Its place in [`Piece::all`], below [`COUNT`].
+    pub fn index(self) -> usize {
+        match self {
+            Piece::OverviewCard(p) => Piece::SHARED.len() + 2 * p as usize,
+            Piece::BackgroundCard(p) => Piece::SHARED.len() + 2 * p as usize + 1,
+            shared => Piece::SHARED.iter().position(|&s| s == shared).expect("every other piece is shared"),
+        }
+    }
+
     pub fn cut(self) -> &'static Cut {
-        &CUTS[self as usize]
+        match self {
+            Piece::OverviewCard(p) => &CARDS[p as usize][0],
+            Piece::BackgroundCard(p) => &CARDS[p as usize][1],
+            shared => &SHARED_CUTS[shared.index()],
+        }
     }
 
     /// Its size in points: `-2x` art draws at half its pixel size.
@@ -107,8 +162,9 @@ pub fn dir() -> Option<PathBuf> {
     cache::dir("ui-v1")
 }
 
+/// Named after its cut, so pieces that show the same art share one file.
 pub fn path(dir: &Path, piece: Piece) -> PathBuf {
-    dir.join(format!("{piece:?}.png"))
+    dir.join(format!("{}.png", piece.cut().name))
 }
 
 /// The `[left, top, right, bottom]` rectangle of an RGBA image `width` pixels wide, as its own
@@ -131,27 +187,44 @@ pub fn nine(width: u32, height: u32, insets: [u32; 4]) -> [[u32; 4]; 9] {
     std::array::from_fn(|i| [xs[i % 3], ys[i / 3], xs[i % 3 + 1], ys[i / 3 + 1]])
 }
 
-/// Puts every piece on disk, calling `on_ready` from a worker thread as each one is there,
-/// cached or freshly cut. An atlas downloads only when one of its pieces is missing, and is
-/// dropped once its pieces are written. Blocks until every atlas has landed or failed.
-pub fn fetch(on_ready: impl Fn(Piece, PathBuf) + Sync) -> Result<(), String> {
+/// Puts `pieces` on disk, calling `on_ready` from a worker thread as each one is there, cached
+/// or freshly cut. An atlas downloads only when one of its pieces is missing, and is dropped
+/// once its pieces are written. Blocks until every atlas has landed or failed.
+pub fn fetch(pieces: &[Piece], on_ready: impl Fn(Piece, PathBuf) + Sync) -> Result<(), String> {
     let dir = dir().ok_or("LOCALAPPDATA is not set")?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut atlases: Vec<u32> = CUTS.iter().map(|c| c.atlas).collect();
+    let mut atlases: Vec<u32> = pieces.iter().map(|p| p.cut().atlas).collect();
     atlases.sort_unstable();
     atlases.dedup();
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(60))).build().into();
     let failed: Vec<String> = std::thread::scope(|scope| {
         let (dir, agent, on_ready) = (&dir, &agent, &on_ready);
-        let workers: Vec<_> = atlases.into_iter().map(|atlas| scope.spawn(move || fetch_atlas(agent, dir, atlas, on_ready))).collect();
+        let workers: Vec<_> = atlases.into_iter().map(|atlas| scope.spawn(move || fetch_atlas(agent, dir, atlas, pieces, on_ready))).collect();
         workers.into_iter().filter_map(|w| w.join().unwrap_or_else(|_| Err("panicked".into())).err()).collect()
     });
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
-fn fetch_atlas(agent: &ureq::Agent, dir: &Path, atlas: u32, on_ready: &(impl Fn(Piece, PathBuf) + Sync)) -> Result<(), String> {
-    let pieces: Vec<Piece> = Piece::ALL.into_iter().filter(|p| p.cut().atlas == atlas).collect();
-    let (cached, missing): (Vec<Piece>, Vec<Piece>) = pieces.into_iter().partition(|&p| path(dir, p).exists());
+/// Hands `fetch` the shared pieces with `first`'s cards, then each other profession's cards:
+/// the one last asked for on `asked` ahead of the rest, the rest in turn. Then serves asks for
+/// any that failed until `asked` closes. A profession whose cards landed is never fetched again.
+pub fn fetch_in_order(first: Profession, asked: &Receiver<Profession>, mut fetch: impl FnMut(&[Piece]) -> Result<(), String>) {
+    let mut done = Vec::new();
+    let mut rest = Profession::ALL.into_iter().filter(|&p| p != first);
+    let (mut profession, mut pieces) = (first, Piece::SHARED.into_iter().chain(Piece::cards(first)).collect::<Vec<_>>());
+    loop {
+        match fetch(&pieces) {
+            Ok(()) => done.push(profession),
+            Err(e) => eprintln!("{} art not fetched: {e}", profession.name()),
+        }
+        let pending = |p: &Profession| !done.contains(p);
+        let Some(next) = asked.try_iter().filter(pending).last().or_else(|| rest.find(pending)).or_else(|| asked.iter().find(pending)) else { return };
+        (profession, pieces) = (next, Piece::cards(next).to_vec());
+    }
+}
+
+fn fetch_atlas(agent: &ureq::Agent, dir: &Path, atlas: u32, pieces: &[Piece], on_ready: &(impl Fn(Piece, PathBuf) + Sync)) -> Result<(), String> {
+    let (cached, missing): (Vec<Piece>, Vec<Piece>) = pieces.iter().filter(|p| p.cut().atlas == atlas).partition(|&&p| path(dir, p).exists());
     for p in cached {
         on_ready(p, path(dir, p));
     }
@@ -186,10 +259,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_table_holds_one_cut_per_piece_in_order() {
-        for (i, p) in Piece::ALL.into_iter().enumerate() {
-            assert_eq!(p as usize, i, "{p:?}");
+    fn every_piece_has_its_own_index_and_a_cut_named_for_it() {
+        let all: Vec<Piece> = Piece::all().collect();
+        assert_eq!(all.len(), COUNT);
+        for (i, p) in all.into_iter().enumerate() {
+            assert_eq!(p.index(), i, "{p:?}");
         }
+        for p in Profession::ALL {
+            let name = p.slug().replace('-', "");
+            let [overview, background] = Piece::cards(p).map(|c| c.cut().name);
+            assert_eq!(background, format!("profession-background-card-{name}-c60-2x"));
+            let own = format!("profession-overview-card-{name}-c60-2x");
+            assert!(overview == own || matches!(p, Profession::Cooking | Profession::FirstAid) && overview == GENERIC_OVERVIEW.name, "{p:?}: {overview}");
+        }
+    }
+
+    /// What `fetch_in_order` hands its fetch, as the profession each batch's cards belong to,
+    /// after `asks` were made; a profession in `failing` fails its first fetch.
+    fn fetch_order(first: Profession, asks: &[Profession], failing: Option<Profession>) -> Vec<Profession> {
+        let (ask, asked) = std::sync::mpsc::channel();
+        for &p in asks {
+            ask.send(p).unwrap();
+        }
+        drop(ask);
+        let mut fetched = Vec::new();
+        fetch_in_order(first, &asked, |pieces| {
+            let Some(&Piece::OverviewCard(p)) = pieces.iter().find(|p| matches!(p, Piece::OverviewCard(_))) else { return Err("no cards".into()) };
+            let shared = pieces.len() == Piece::SHARED.len() + 2;
+            assert_eq!(shared, fetched.is_empty(), "only the first batch carries the shared pieces");
+            fetched.push(p);
+            if failing == Some(p) && fetched.iter().filter(|&&f| f == p).count() == 1 { Err("offline".into()) } else { Ok(()) }
+        });
+        fetched
+    }
+
+    #[test]
+    fn fetches_the_first_professions_art_then_the_last_one_asked_for_then_the_rest_once_each() {
+        use Profession::*;
+        assert_eq!(fetch_order(Leatherworking, &[Mining, Tailoring, Leatherworking], None), [Leatherworking, Tailoring, Alchemy, Blacksmithing, Cooking, Enchanting, Engineering, FirstAid, Mining]);
+    }
+
+    #[test]
+    fn an_ask_retries_cards_that_failed() {
+        use Profession::*;
+        assert_eq!(fetch_order(Cooking, &[], Some(Cooking)), [Cooking, Alchemy, Blacksmithing, Enchanting, Engineering, FirstAid, Leatherworking, Mining, Tailoring]);
+        assert_eq!(fetch_order(Cooking, &[Cooking], Some(Cooking)), [Cooking, Cooking, Alchemy, Blacksmithing, Enchanting, Engineering, FirstAid, Leatherworking, Mining, Tailoring]);
     }
 
     #[test]
@@ -219,7 +333,10 @@ mod tests {
     }
 
     #[test]
-    fn caches_each_piece_by_name() {
-        assert_eq!(path(Path::new("cache/ui-v1"), Piece::RedMid), Path::new("cache/ui-v1/RedMid.png"));
+    fn caches_each_piece_by_its_cut_name() {
+        let dir = Path::new("cache/ui-v1");
+        assert_eq!(path(dir, Piece::RedMid), Path::new("cache/ui-v1/_128-redbutton-center-c60.png"));
+        assert_eq!(path(dir, Piece::BackgroundCard(Profession::Mining)), Path::new("cache/ui-v1/profession-background-card-mining-c60-2x.png"));
+        assert_ne!(path(dir, Piece::BackgroundCard(Profession::Mining)), path(dir, Piece::BackgroundCard(Profession::Alchemy)));
     }
 }

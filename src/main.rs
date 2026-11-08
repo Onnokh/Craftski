@@ -33,6 +33,10 @@ fn main() {
         "--flips" => Some(flips),
         _ => None,
     });
+    if let Err(e) = settings::start_profession() {
+        eprintln!("{e}");
+        std::process::exit(2);
+    }
     if let Some(run) = cli {
         std::process::exit(match run() {
             Ok(()) => 0,
@@ -67,13 +71,15 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
     (along(origin.0, display.0, size.0), along(origin.1, display.1, size.1))
 }
 
+/// `--dump [--profession NAME]`: the profession's 15 most profitable recipes at realm prices.
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
-    let m = market::load(&settings::load_realm(), recipes::Profession::Leatherworking)?;
+    let profession = settings::start_profession()?;
+    let m = market::load(&settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
-    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
+    println!("{}: {} recipes, {} realm-priced items, {} region-priced items", profession.name(), m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
     let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
     let realm = m.book.realm().map_or("?", |(name, _)| name);
@@ -149,9 +155,10 @@ fn flips() -> Result<(), String> {
     Ok(())
 }
 
+/// Every icon every profession's recipes draw.
 fn fetch_icons() -> Result<(), String> {
-    let recipes = recipes::load(recipes::Profession::Leatherworking)?;
-    let ids = icons::referenced(&recipes);
+    let each = recipes::load_each(&recipes::Profession::ALL)?;
+    let ids: std::collections::BTreeSet<_> = each.iter().flat_map(|recipes| icons::referenced(recipes)).collect();
     let started = std::time::Instant::now();
     let report = icons::prefetch(&ids, |_, _| {})?;
     let dir = icons::dir().unwrap_or_default();
@@ -174,10 +181,11 @@ fn fetch_icons() -> Result<(), String> {
 fn fetch_skin() -> Result<(), String> {
     let started = std::time::Instant::now();
     let ready = std::sync::atomic::AtomicUsize::new(0);
-    let result = skin::fetch(|_, _| {
+    let pieces: Vec<skin::Piece> = skin::Piece::all().collect();
+    let result = skin::fetch(&pieces, |_, _| {
         ready.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });
-    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), skin::Piece::ALL.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
+    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), pieces.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
     result
 }
 

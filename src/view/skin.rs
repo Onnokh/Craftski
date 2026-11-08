@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rune::{Align, El, Image, ImageCache, Pixels, SurfaceFit, el};
 
@@ -16,8 +16,9 @@ struct Art {
     cells: Option<[Option<Image>; 9]>,
 }
 
-static ART: [OnceLock<Art>; Piece::ALL.len()] = [const { OnceLock::new() }; Piece::ALL.len()];
-static SHOWN: AtomicU32 = AtomicU32::new(0);
+static ART: [OnceLock<Art>; skin::COUNT] = [const { OnceLock::new() }; skin::COUNT];
+static SHOWN: AtomicU64 = AtomicU64::new(0);
+const _: () = assert!(skin::COUNT <= u64::BITS as usize);
 
 /// How far in from each edge, in the piece's pixels, its corners and edges reach, for the
 /// pieces that stretch by nine-slice.
@@ -31,7 +32,7 @@ fn insets(piece: Piece) -> Option<[u32; 4]> {
 
 /// Decodes the piece cached at `path`, once per process.
 pub fn show(cache: &ImageCache, piece: Piece, path: &Path) {
-    ART[piece as usize].get_or_init(|| {
+    ART[piece.index()].get_or_init(|| {
         let cells = insets(piece).and_then(|insets| match slice(cache, path, insets) {
             Ok(cells) => Some(cells),
             Err(e) => {
@@ -67,20 +68,20 @@ fn ready(image: &Image) -> bool {
 
 /// True when pieces have finished decoding since the last call, so the view redraws them.
 pub fn newly_ready() -> bool {
-    let mask = Piece::ALL.into_iter().filter(|&p| art(p).is_some()).fold(0, |m, p| m | 1 << p as u32);
+    let mask = Piece::all().filter(|&p| art(p).is_some()).fold(0, |m, p| m | 1 << p.index());
     SHOWN.swap(mask, Ordering::Relaxed) != mask
 }
 
 /// The piece as one image, once it has decoded.
 pub fn art(piece: Piece) -> Option<&'static Pixels> {
-    let a = ART[piece as usize].get()?;
+    let a = ART[piece.index()].get()?;
     let cells_ready = a.cells.iter().flatten().flatten().all(ready);
     (ready(&a.whole) && cells_ready).then(|| a.whole.pixels())
 }
 
 fn cells(piece: Piece) -> Option<[Option<&'static Pixels>; 9]> {
     art(piece)?;
-    let cells = ART[piece as usize].get()?.cells.as_ref()?;
+    let cells = ART[piece.index()].get()?.cells.as_ref()?;
     Some(std::array::from_fn(|i| cells[i].as_ref().map(Image::pixels)))
 }
 
