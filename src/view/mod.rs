@@ -101,6 +101,8 @@ struct Ready {
     evals: Vec<Evaluation>,
     rows: Vec<usize>,
     hidden: Option<Hidden<FilterKind>>,
+    /// Why the last reload failed; the prices before it stay.
+    reload_error: Option<String>,
 }
 
 /// Sizes that change between a roomy window and a narrow one.
@@ -144,13 +146,31 @@ impl App {
 
     fn land(&mut self, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
             Err(e) => Load::Failed(e),
         };
         self.refresh();
         if let Load::Ready(r) = &self.load {
             self.selected = r.rows.first().map(|&i| r.market.recipes[i].spell_id);
         }
+    }
+
+    /// Reads TSM's prices again and reprices every recipe and flip. The selection, filters,
+    /// tab and scroll stay; a failed read keeps the old prices and says why in the status bar.
+    pub(super) fn reload(&mut self, appdata: &Path) {
+        let Load::Ready(r) = &mut self.load else { return };
+        match market::read_book(appdata) {
+            Ok((book, read)) => {
+                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes));
+                r.reload_error = None;
+            }
+            Err(e) => {
+                r.reload_error = Some(e);
+                return;
+            }
+        }
+        self.refresh();
+        self.reprice_flips();
     }
 
     fn refresh(&mut self) {
@@ -442,4 +462,48 @@ pub fn scene_stale(s: &mut App) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     r.market.book.realm_updated = Some(now - 5 * 3600);
     r.market.book.region_updated = Some(now - 30 * 3600);
+}
+
+/// `flips` after a reload from a file that isn't there: the status bar says why and the old
+/// prices stay.
+pub fn scene_reload_failed(s: &mut App) {
+    scene_flips(s);
+    s.reload(Path::new(r"C:\no-such-wow\AppData.lua"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::copper::Copper;
+
+    fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
+        format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
+    }
+
+    #[test]
+    fn reload_takes_the_new_prices_and_keeps_the_old_ones_when_the_read_fails() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
+        let mut s = App::new();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        let seen = |s: &App| {
+            let r = s.ready().unwrap();
+            let book = &r.market.book;
+            (book.realm_scope.clone(), book.realm_updated, book.realm[&4234].min_buyout, r.reload_error.clone())
+        };
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(100), Some(Copper(210)), None));
+
+        std::fs::write(&path, appdata("PvE-Horde", 200, "7P")).unwrap();
+        s.reload(&path);
+        assert_eq!(seen(&s), (Some("PvE-Horde".into()), Some(200), Some(Copper(249)), None));
+
+        let missing = dir.join("missing.lua");
+        s.reload(&missing);
+        let (scope, updated, price, error) = seen(&s);
+        assert_eq!((scope, updated, price), (Some("PvE-Horde".into()), Some(200), Some(Copper(249))));
+        assert!(error.is_some_and(|e| e.starts_with(&format!("reading {}: ", missing.display()))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

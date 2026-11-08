@@ -196,6 +196,7 @@ static ARROW_UP: Icon = rune_icon!("arrow-up");
 pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");
 pub static SHOPPING_BAG: Icon = rune_icon!("shopping-bag");
 pub static TRIANGLE_ALERT: Icon = rune_icon!("triangle-alert");
+pub static REFRESH: Icon = rune_icon!("refresh-cw");
 static EXTERNAL: Icon = rune_icon!("square-arrow-out-up-right");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
