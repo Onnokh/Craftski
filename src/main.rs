@@ -102,16 +102,20 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
     (along(origin.0, display.0, size.0), along(origin.1, display.1, size.1))
 }
 
-/// The AppData.lua the CLI reads, Err naming `--appdata` when none is found.
-fn appdata() -> Result<std::path::PathBuf, String> {
-    wow::locate().map(|a| a.path).ok_or_else(|| "No TSM AppData.lua found under a WoW Forever install; pass --appdata PATH (the TradeSkillMaster_AppHelper addon's AppData.lua) or choose the folder in the app.".into())
+/// Where the CLI reads prices, the source chosen in the app's settings. Err naming `--appdata`
+/// when that is the desktop app's AppData.lua and none is found.
+fn origin() -> Result<market::Origin, String> {
+    match settings::load_source() {
+        market::PriceSource::Public(house) => Ok(market::Origin::Public(house, settings::load_rules().side)),
+        market::PriceSource::App => wow::locate().map(|a| market::Origin::AppData(a.path)).ok_or_else(|| "No TSM AppData.lua found under a WoW Forever install; pass --appdata PATH (the TradeSkillMaster_AppHelper addon's AppData.lua) or choose the folder in the app.".into()),
+    }
 }
 
 /// `--dump [--profession NAME]`: the profession's 15 most profitable recipes at realm prices.
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
     let profession = settings::start_profession()?;
-    let m = market::load(&market::Origin::AppData(appdata()?), public_data::Refresh::IfDue, &settings::load_realm(), profession)?;
+    let m = market::load(&origin()?, public_data::Refresh::IfDue, &settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: None, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
@@ -148,7 +152,7 @@ fn flips() -> Result<(), String> {
     use flip_rows::{Column, Filter};
     let args: Vec<String> = std::env::args().collect();
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
-    let (mut book, _) = market::read_book(&appdata()?)?;
+    let (mut book, _) = market::read_prices(&origin()?, public_data::Refresh::IfDue)?;
     book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
     let all = flips::evaluate(&c.merchants, &c.items, &book, &settings::load_rules());
