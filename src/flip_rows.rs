@@ -1,5 +1,6 @@
 //! Which flips the table shows, and in what order, and the zones to choose from. UI-free.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::flips::{Flip, Paid};
@@ -69,11 +70,21 @@ pub struct Filter<'a> {
     pub query: &'a str,
 }
 
-/// Indices into `flips` to show, in order.
-pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, filter: Filter, sort: Sort<Column>) -> Vec<usize> {
+/// One item in the table: the merchant offer that represents it and the other offers of it
+/// that pass the filter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    /// Index into the flips: the best offer for this character.
+    pub flip: usize,
+    /// Indices into the flips, best first.
+    pub others: Vec<usize>,
+}
+
+/// One row per item that passes `filter`, in order.
+pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, filter: Filter, sort: Sort<Column>) -> Vec<Row> {
     let needle = filter.query.trim().to_lowercase();
     let item_name = |f: &Flip| items.get(&f.item).map_or("", |i| i.name.as_str());
-    let mut rows: Vec<usize> = (0..flips.len())
+    let kept: Vec<usize> = (0..flips.len())
         .filter(|&i| {
             let (f, m) = (&flips[i], &merchants[flips[i].merchant]);
             let place = if needle.is_empty() { m.zone == filter.zone } else { [item_name(f), &m.name, &m.zone].iter().any(|n| n.to_lowercase().contains(&needle)) };
@@ -89,8 +100,32 @@ pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item
         let names = if sort.column == Column::Vendor { vendor.then(item) } else { item.then(vendor) };
         names.then(fa.merchant.cmp(&fb.merchant)).then(fa.item.cmp(&fb.item))
     };
-    order(&mut rows, sort, |i| sort.column.number(&flips[i]), by_name);
-    rows
+    let groups = dedupe(flips, merchants, kept);
+    let mut at: Vec<usize> = (0..groups.len()).collect();
+    order(&mut at, sort, |g| sort.column.number(&flips[groups[g].flip]), |a, b| by_name(groups[a].flip, groups[b].flip));
+    at.into_iter().map(|g| groups[g].clone()).collect()
+}
+
+/// Groups the `kept` flips by item, each group led by its best offer.
+pub fn dedupe(flips: &[Flip], merchants: &[Merchant], mut kept: Vec<usize>) -> Vec<Row> {
+    kept.sort_by(|&a, &b| flips[a].item.cmp(&flips[b].item).then_with(|| best_first(flips, merchants, a, b)));
+    kept.chunk_by(|&a, &b| flips[a].item == flips[b].item).map(|g| Row { flip: g[0], others: g[1..].to_vec() }).collect()
+}
+
+/// The better of two offers of one item for this character: the higher profit, else the lower
+/// price, unknowns last either way; then an endless supply, then the merchant's name.
+fn best_first(flips: &[Flip], merchants: &[Merchant], a: usize, b: usize) -> Ordering {
+    let (fa, fb) = (&flips[a], &flips[b]);
+    let paid = match (fa.paid.map(Paid::unit), fb.paid.map(Paid::unit)) {
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (x, y) => y.is_some().cmp(&x.is_some()),
+    };
+    fb.profit
+        .cmp(&fa.profit)
+        .then(paid)
+        .then(fa.limit.is_some().cmp(&fb.limit.is_some()))
+        .then_with(|| merchants[fa.merchant].name.cmp(&merchants[fb.merchant].name))
+        .then(fa.merchant.cmp(&fb.merchant))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,7 +144,7 @@ pub fn zones(flips: &[Flip], merchants: &[Merchant]) -> Vec<Zone> {
     by_zone.into_iter().filter(|(name, _)| !name.is_empty()).map(|(name, m)| Zone { name: name.to_owned(), merchants: m.len() }).collect()
 }
 
-/// The header's summary of one zone.
+/// The header's summary of one zone, counting each item once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Summary {
     /// Indices into the flips.
@@ -118,14 +153,15 @@ pub struct Summary {
     pub best_selling: Option<usize>,
     pub profitable: usize,
     pub total: usize,
-    /// Flips the region has no sale rate for, so their deposit loss is unknown.
+    /// Items the region has no sale rate for, so their deposit loss is unknown.
     pub no_rate: usize,
 }
 
 pub fn summary(flips: &[Flip], merchants: &[Merchant], zone: &str) -> Summary {
-    let here: Vec<usize> = (0..flips.len()).filter(|&i| merchants[flips[i].merchant].zone == zone).collect();
+    let offers: Vec<usize> = (0..flips.len()).filter(|&i| merchants[flips[i].merchant].zone == zone).collect();
+    let here: Vec<usize> = dedupe(flips, merchants, offers).into_iter().map(|r| r.flip).collect();
     let earning = || here.iter().copied().filter(|&i| flips[i].profit.is_some_and(|p| p > 0));
-    // The first of equal profits wins, so ties resolve by merchant order rather than at random.
+    // The first of equal profits wins, so ties resolve by item id rather than at random.
     let best = |a: Option<usize>, i: usize| if a.is_some_and(|a| flips[a].profit >= flips[i].profit) { a } else { Some(i) };
     Summary {
         top: earning().fold(None, best),
@@ -162,31 +198,67 @@ mod tests {
     }
 
     const TB: Filter = Filter { zone: HOME, hide_unprofitable: false, min_sold_per_day: 0.0, query: "" };
+    const BY_PROFIT: Sort<Column> = Sort { column: Column::Profit, descending: true };
+
+    /// The flip leading each row.
+    fn leads(rows: Vec<Row>) -> Vec<usize> {
+        rows.into_iter().map(|r| r.flip).collect()
+    }
+
+    fn paying(copper: u64, f: Flip) -> Flip {
+        Flip { paid: Some(Paid::Tsm(Copper(copper))), ..f }
+    }
 
     #[test]
     fn keeps_to_the_zone_until_a_search_looks_everywhere() {
         let (f, m, i) = fixture();
         let by_item = Sort { column: Column::Item, descending: false };
-        assert_eq!(visible(&f, &m, &i, TB, by_item), vec![2, 0, 1]);
-        assert_eq!(visible(&f, &m, &i, Filter { query: "FLUX", ..TB }, by_item), vec![1, 3]);
-        assert_eq!(visible(&f, &m, &i, Filter { query: "durotar", ..TB }, by_item), vec![3]);
-        assert_eq!(visible(&f, &m, &i, Filter { query: " kuna ", ..TB }, by_item), vec![0]);
+        assert_eq!(leads(visible(&f, &m, &i, TB, by_item)), vec![2, 0, 1]);
+        assert_eq!(visible(&f, &m, &i, Filter { query: "FLUX", ..TB }, by_item), vec![Row { flip: 3, others: vec![1] }]);
+        assert_eq!(leads(visible(&f, &m, &i, Filter { query: "durotar", ..TB }, by_item)), vec![3]);
+        assert_eq!(leads(visible(&f, &m, &i, Filter { query: " kuna ", ..TB }, by_item)), vec![0]);
     }
 
     #[test]
     fn hides_losses_unpriced_flips_and_slow_sellers() {
         let (f, m, i) = fixture();
-        let by_profit = Sort { column: Column::Profit, descending: true };
-        assert_eq!(visible(&f, &m, &i, Filter { hide_unprofitable: true, ..TB }, by_profit), vec![0]);
-        assert_eq!(visible(&f, &m, &i, Filter { min_sold_per_day: 1.0, ..TB }, by_profit), vec![1]);
-        assert_eq!(visible(&f, &m, &i, TB, by_profit), vec![0, 1, 2]);
+        assert_eq!(leads(visible(&f, &m, &i, Filter { hide_unprofitable: true, ..TB }, BY_PROFIT)), vec![0]);
+        assert_eq!(leads(visible(&f, &m, &i, Filter { min_sold_per_day: 1.0, ..TB }, BY_PROFIT)), vec![1]);
+        assert_eq!(leads(visible(&f, &m, &i, TB, BY_PROFIT)), vec![0, 1, 2]);
     }
 
     #[test]
     fn sorts_by_vendor_name_and_counts_an_endless_supply_as_the_most() {
         let (f, m, i) = fixture();
-        assert_eq!(visible(&f, &m, &i, TB, Sort { column: Column::Vendor, descending: false }), vec![2, 1, 0]);
-        assert_eq!(visible(&f, &m, &i, TB, Sort { column: Column::Limit, descending: true }), vec![2, 1, 0]);
+        assert_eq!(leads(visible(&f, &m, &i, TB, Sort { column: Column::Vendor, descending: false })), vec![2, 1, 0]);
+        assert_eq!(leads(visible(&f, &m, &i, TB, Sort { column: Column::Limit, descending: true })), vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn of_two_merchants_the_more_profitable_or_else_the_cheaper_one_shows() {
+        let (_, m, i) = fixture();
+        let profits = vec![flip(0, 1, Some(40), None, None), flip(1, 1, Some(90), None, None)];
+        assert_eq!(visible(&profits, &m, &i, TB, BY_PROFIT), vec![Row { flip: 1, others: vec![0] }]);
+        let unsold = vec![paying(300, flip(0, 1, None, None, None)), paying(250, flip(1, 1, None, None, None)), Flip { paid: None, ..flip(2, 1, None, None, None) }];
+        assert_eq!(visible(&unsold, &m, &i, Filter { query: "shortbow", ..TB }, BY_PROFIT), vec![Row { flip: 1, others: vec![0, 2] }]);
+    }
+
+    #[test]
+    fn on_a_tie_an_endless_supply_beats_a_limited_one_then_the_name_decides() {
+        let (_, m, i) = fixture();
+        let tied = vec![flip(1, 1, Some(70), None, Some(5)), flip(0, 1, Some(70), None, None)];
+        assert_eq!(visible(&tied, &m, &i, TB, BY_PROFIT), vec![Row { flip: 1, others: vec![0] }]);
+        let endless = vec![flip(0, 1, Some(70), None, None), flip(1, 1, Some(70), None, None)];
+        assert_eq!(visible(&endless, &m, &i, TB, BY_PROFIT), vec![Row { flip: 1, others: vec![0] }]);
+    }
+
+    #[test]
+    fn counts_only_the_other_merchants_that_pass_the_filter() {
+        let (_, m, i) = fixture();
+        let flips = vec![flip(0, 1, Some(70), None, None), flip(1, 1, Some(-5), None, None), flip(2, 1, Some(30), None, None)];
+        let search = Filter { query: "shortbow", ..TB };
+        assert_eq!(visible(&flips, &m, &i, search, BY_PROFIT), vec![Row { flip: 0, others: vec![2, 1] }]);
+        assert_eq!(visible(&flips, &m, &i, Filter { hide_unprofitable: true, ..search }, BY_PROFIT), vec![Row { flip: 0, others: vec![2] }]);
     }
 
     #[test]
@@ -200,5 +272,12 @@ mod tests {
         let (f, m, _) = fixture();
         assert_eq!(summary(&f, &m, HOME), Summary { top: Some(0), best_selling: None, profitable: 1, total: 3, no_rate: 3 });
         assert_eq!(summary(&f, &m, "Durotar"), Summary { top: Some(3), best_selling: Some(3), profitable: 1, total: 1, no_rate: 1 });
+    }
+
+    #[test]
+    fn a_zone_counts_an_item_two_merchants_sell_once() {
+        let (mut f, m, _) = fixture();
+        f.push(flip(1, 1, Some(650), Some(2.0), None));
+        assert_eq!(summary(&f, &m, HOME), Summary { top: Some(4), best_selling: Some(4), profitable: 1, total: 3, no_rate: 3 });
     }
 }

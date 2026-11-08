@@ -104,18 +104,27 @@ fn flips() -> Result<(), String> {
     let all = flips::evaluate(&c.merchants, &c.items, &m.book, profit::PriceSource::Realm, &flips::RULES);
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "" };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
-    let merchants = c.merchants.iter().filter(|v| v.zone == zone && rows.iter().any(|&i| c.merchants[all[i].merchant].npc == v.npc)).count();
-    let profitable = rows.iter().filter(|&&i| all[i].profit.is_some_and(|p| p > 0)).count();
-    let from_tsm = rows.iter().filter(|&&i| matches!(all[i].paid, Some(flips::Paid::Tsm(_)))).count();
-    println!("{zone}: {merchants} merchants, {} flips, {profitable} profitable, {from_tsm} paid at TSM's price; realm {}", rows.len(), m.book.realm_scope.as_deref().unwrap_or("?"));
-    println!("{:<34} {:<20} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} Stock", "Item", "Vendor", "Paid", "From", "Sells", "Deposit", "Profit", "Rate", "Sold/d", "Limit");
+    let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
+    let merchants: std::collections::BTreeSet<usize> = offers.iter().map(|&i| all[i].merchant).collect();
+    let profitable = rows.iter().filter(|r| all[r.flip].profit.is_some_and(|p| p > 0)).count();
+    let from_tsm = rows.iter().filter(|r| matches!(all[r.flip].paid, Some(flips::Paid::Tsm(_)))).count();
+    let shared = rows.iter().filter(|r| !r.others.is_empty()).count();
+    println!(
+        "{zone}: {} merchants, {} flips from {} offers ({shared} items sold by more than one merchant), {profitable} profitable, {from_tsm} paid at TSM's price; realm {}",
+        merchants.len(),
+        rows.len(),
+        offers.len(),
+        m.book.realm_scope.as_deref().unwrap_or("?")
+    );
+    println!("{:<34} {:<24} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} Stock", "Item", "Vendor", "Paid", "From", "Sells", "Deposit", "Profit", "Rate", "Sold/d", "Limit");
     let na = || "n/a".to_string();
-    for &i in rows.iter().take(20) {
-        let (f, v) = (&all[i], &c.merchants[all[i].merchant]);
+    for r in rows.iter().take(20) {
+        let (f, v) = (&all[r.flip], &c.merchants[all[r.flip].merchant]);
+        let vendor: String = v.name.chars().take(20).collect();
         println!(
-            "{:<34} {:<20} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} {}",
+            "{:<34} {:<24} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} {}",
             c.items.get(&f.item).map_or_else(|| format!("Item #{}", f.item), |it| it.name.chars().take(34).collect()),
-            v.name.chars().take(20).collect::<String>(),
+            if r.others.is_empty() { vendor } else { format!("{vendor} +{}", r.others.len()) },
             f.paid.map_or_else(na, |p| p.copper().to_string()),
             f.paid.map_or_else(na, flips::Paid::origin),
             f.sale.map_or_else(na, |s| s.unit.to_string()),

@@ -17,7 +17,7 @@ const PAD: f32 = 26.0;
 
 pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
     let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
-    let Some((_, index)) = s.flips.picked() else {
+    let Some((_, index, _)) = s.flips.picked() else {
         return panel.padding(PAD).child(text("Select a flip to see where its money goes.").font(theme::sans(13.0, 400.0)).color(p().muted).wrap());
     };
     let (flip, merchant, item) = f.at(index);

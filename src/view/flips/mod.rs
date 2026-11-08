@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::{App, Dims, Load, SOLD_STEPS, message};
-use crate::flip_rows::{self, Column, Filter, Summary, Zone};
+use crate::flip_rows::{self, Column, Filter, Row, Summary, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
 use crate::merchants::{Catalog, Merchant};
@@ -23,7 +23,8 @@ pub struct State {
     sort: Sort<Column>,
     min_sold: usize,
     hide_unprofitable: bool,
-    /// The flip the detail panel shows, by merchant npc and item, kept while filters hide it.
+    /// The flip the detail panel shows, by merchant npc and item. Its item's row shows while
+    /// visible, whichever merchant leads it; else this flip, kept while filters hide it.
     selected: Option<(u32, u32)>,
     pub search: TextEdit,
     zone_menu: bool,
@@ -40,7 +41,7 @@ struct Stocked {
     flips: Vec<Flip>,
     zones: Vec<Zone>,
     summary: Summary,
-    rows: Vec<usize>,
+    rows: Vec<Row>,
 }
 
 impl Stocked {
@@ -90,14 +91,24 @@ impl State {
     }
 
     fn select_first(&mut self) {
-        self.selected = self.stocked().and_then(|f| Some(f.key(*f.rows.first()?)));
+        self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.first()?.flip)));
     }
 
-    /// The selected flip's index into the flips.
-    fn picked(&self) -> Option<(&Stocked, usize)> {
+    /// The selected item's position in the rows.
+    fn selected_row(&self) -> Option<usize> {
+        let (f, (_, item)) = (self.stocked()?, self.selected?);
+        f.rows.iter().position(|r| f.flips[r.flip].item == item)
+    }
+
+    /// The flip the detail panel shows, as an index into the flips, and the other merchants'
+    /// offers of its item that pass the filters.
+    fn picked(&self) -> Option<(&Stocked, usize, &[usize])> {
         let f = self.stocked()?;
+        if let Some(at) = self.selected_row() {
+            return Some((f, f.rows[at].flip, &f.rows[at].others));
+        }
         let key = self.selected?;
-        Some((f, (0..f.flips.len()).find(|&i| f.key(i) == key)?))
+        Some((f, (0..f.flips.len()).find(|&i| f.key(i) == key)?, &[]))
     }
 
     pub fn step(&mut self, by: isize, tx: &mut Tx) -> bool {
@@ -105,14 +116,13 @@ impl State {
         if f.rows.is_empty() {
             return false;
         }
-        let at = self.selected.and_then(|key| f.rows.iter().position(|&i| f.key(i) == key));
-        let next = match at {
+        let next = match self.selected_row() {
             Some(at) => at.saturating_add_signed(by).min(f.rows.len() - 1),
             None => 0,
         };
-        let key = f.key(f.rows[next]);
+        let key = f.key(f.rows[next].flip);
         self.selected = Some(key);
-        tx.scroll_into_view(row_key(key));
+        tx.scroll_into_view(row_key(key.1));
         true
     }
 
@@ -138,8 +148,9 @@ impl State {
     }
 }
 
-fn row_key((npc, item): (u32, u32)) -> String {
-    format!("{npc}-{item}")
+/// A row's key: its item, which no other row shows.
+fn row_key(item: u32) -> String {
+    format!("item-{item}")
 }
 
 impl App {

@@ -6,7 +6,7 @@ use rune::{Color, Cursor, El, GrowthSpec, ScrollFade, ScrollSpec, col, el, row, 
 
 use super::{Stocked, row_key};
 use crate::copper::Copper;
-use crate::flip_rows::Column;
+use crate::flip_rows::{Column, Row};
 use crate::rows::per_day;
 use crate::theme::{self, CAPS, p};
 use crate::view::widgets::{Money, flexible, icon_frame, unknown};
@@ -23,8 +23,8 @@ pub fn table(s: &App, f: &Stocked, d: Dims) -> El {
     let rows = col().key("flip-rows").w_full().growth(GrowthSpec::default()).virtual_rows(
         f.rows.len(),
         ROW,
-        |s: &App, i| s.flips.stocked().map_or(Cow::Borrowed(""), |f| Cow::Owned(row_key(f.key(f.rows[i])))),
-        move |s: &App, i| s.flips.stocked().map_or_else(el, |f| table_row(s, f, f.rows[i], d)),
+        |s: &App, i| s.flips.stocked().map_or(Cow::Borrowed(""), |f| Cow::Owned(row_key(f.flips[f.rows[i].flip].item))),
+        move |s: &App, i| s.flips.stocked().map_or_else(el, |f| table_row(s, f, &f.rows[i], d)),
     );
     let body = if f.rows.is_empty() {
         col().grow(1.0).center().child(text("No flips match these filters.").font(theme::sans(13.0, 400.0)).color(p().muted))
@@ -60,10 +60,10 @@ fn cell(d: Dims, i: usize) -> El {
     }
 }
 
-fn table_row(s: &App, f: &Stocked, index: usize, d: Dims) -> El {
-    let (flip, merchant, item) = f.at(index);
-    let key = f.key(index);
-    let selected = s.flips.selected == Some(key);
+fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
+    let (flip, merchant, item) = f.at(entry.flip);
+    let key = f.key(entry.flip);
+    let selected = s.flips.selected.is_some_and(|(_, item)| item == flip.item);
     let name = item.map_or_else(|| format!("Item #{}", flip.item), |i| i.name.clone());
     let quality = item.map_or(p().text, |i| p().quality(i.quality));
     let n = Money::new(theme::mono(13.0, 400.0), p().text);
