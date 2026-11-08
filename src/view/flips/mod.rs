@@ -234,7 +234,7 @@ pub fn main(s: &App, d: Dims) -> El {
                 .child(header::header(s, f, d))
                 .child(toolbar::toolbar(s, d))
                 .child(table::table(s, f, d))
-                .child(status(r, d)),
+                .child(status(s, r, d)),
         )
         .child(detail::detail(s, f, d))
 }

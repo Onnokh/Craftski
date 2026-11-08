@@ -11,6 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
@@ -47,6 +48,8 @@ pub struct App {
     /// The player's profession rank as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
+    now: u64,
 }
 
 enum Load {
@@ -141,6 +144,7 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
+            now: unix_secs(SystemTime::now()),
         }
     }
 
@@ -171,6 +175,15 @@ impl App {
         }
         self.refresh();
         self.reprice_flips();
+    }
+
+    /// Reloads when AppData.lua's modified time differs from the one last read, as it does
+    /// after each TSM desktop app sync. A failed read retries on the next check.
+    fn reload_if_changed(&mut self, appdata: &Path) {
+        let Some(r) = self.ready() else { return };
+        if market::modified(appdata) != r.market.read.modified {
+            self.reload(appdata);
+        }
     }
 
     fn refresh(&mut self) {
@@ -289,7 +302,22 @@ fn fetch_rail(on_ready: impl Fn(&'static str, RailImage)) {
     }
 }
 
-pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
+/// Lands the loader's messages, and on each new minute moves the clock the ages read from and
+/// reloads when TSM has rewritten AppData.lua.
+pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
+    let landed = drain(s);
+    let now = unix_secs(SystemTime::now());
+    tx.wake_after(Duration::from_secs(60 - now % 60));
+    let ticked = now / 60 != s.now / 60;
+    if ticked {
+        s.now = now;
+        s.reload_if_changed(&market::appdata_path());
+    }
+    landed || ticked
+}
+
+/// Takes the loader thread's messages; true when any arrived or the thread finished.
+fn drain(s: &mut App) -> bool {
     let Some(rx) = s.inbox.take() else { return false };
     let mut changed = false;
     loop {
@@ -367,12 +395,16 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .child(header::header(r, d))
                     .child(toolbar::toolbar(s, d))
                     .child(table::table(s, r, d))
-                    .child(status::status(r, d)),
+                    .child(status::status(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
     };
     let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
     if s.tab == Tab::Flips { flips::overlay(s).into_iter().fold(root, |r, e| r.child(e)) } else { root }
+}
+
+fn unix_secs(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn message(m: &str) -> El {
@@ -459,9 +491,8 @@ pub fn scene_crafted(s: &mut App) {
 pub fn scene_stale(s: &mut App) {
     scene_loaded(s);
     let Load::Ready(r) = &mut s.load else { return };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    r.market.book.realm_updated = Some(now - 5 * 3600);
-    r.market.book.region_updated = Some(now - 30 * 3600);
+    r.market.book.realm_updated = Some(s.now - 5 * 3600);
+    r.market.book.region_updated = Some(s.now - 30 * 3600);
 }
 
 /// `flips` after a reload from a file that isn't there: the status bar says why and the old
@@ -504,6 +535,29 @@ mod tests {
         let (scope, updated, price, error) = seen(&s);
         assert_eq!((scope, updated, price), (Some("PvE-Horde".into()), Some(200), Some(Copper(249))));
         assert!(error.is_some_and(|e| e.starts_with(&format!("reading {}: ", missing.display()))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_minute_check_reloads_only_after_appdata_is_rewritten() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-watch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
+        let mut s = App::new();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        let read_at = |s: &App| s.ready().unwrap().market.read.at;
+        let first = read_at(&s);
+
+        s.reload_if_changed(&path);
+        assert_eq!(read_at(&s), first);
+
+        std::fs::write(&path, appdata("PvE-Horde", 200, "7P")).unwrap();
+        // The clock that stamps writes can tick slower than this test runs.
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(first + Duration::from_secs(5)).unwrap();
+        s.reload_if_changed(&path);
+        assert_eq!(s.ready().unwrap().market.book.realm_scope.as_deref(), Some("PvE-Horde"));
+        assert_ne!(read_at(&s), first);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

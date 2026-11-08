@@ -1,7 +1,7 @@
 //! The strip under a tab's table: the game, each price feed with its age, when the app read
 //! TSM's file, and a Reload.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use rune::time::LocalTime;
 use rune::{Color, Cursor, El, Span, el, rich, row, text};
@@ -27,14 +27,13 @@ const DOT_GAP: f32 = 6.0;
 /// truncated.
 const FITS: [(bool, bool); 3] = [(false, true), (false, false), (true, false)];
 
-pub fn status(r: &Ready, d: Dims) -> El {
-    let now = unix_secs(SystemTime::now());
+pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let read = r.market.read.at.duration_since(UNIX_EPOCH).map_or(0, |t| t.as_millis() as i64);
     let read = LocalTime::at(read);
     let read = read_at(read.hour, read.minute);
     let error = r.reload_error.as_ref().map(|e| format!("Reload failed: {e}"));
     let room = d.status.unwrap_or(f32::INFINITY) - 2.0 * d.pad;
-    let fits = FITS.map(|(short, with_read)| (Feed::both(&r.market.book, now, short), error.as_deref().or(with_read.then_some(read.as_str()))));
+    let fits = FITS.map(|(short, with_read)| (Feed::both(&r.market.book, s.now, short), error.as_deref().or(with_read.then_some(read.as_str()))));
     let fit = fits.iter().find(|(feeds, note)| needed(feeds, *note, d.gap) <= room);
     let (feeds, note) = fit.unwrap_or(&fits[2]);
 
@@ -112,8 +111,4 @@ fn needed(feeds: &[Feed; 2], note: Option<&str>, gap: f32) -> f32 {
     parts.extend(note.map(|n| w(n).min(NOTE_KEPT)));
     parts.push(RELOAD_ICON + DOT_GAP + w(RELOAD));
     parts.iter().sum::<f32>() + gap * (parts.len() - 1) as f32
-}
-
-fn unix_secs(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
