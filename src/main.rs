@@ -42,14 +42,15 @@ fn main() {
             }
         });
     }
-    rune::run_windows(|displays: &[Display]| {
+    let (fonts, families) = theme::fonts();
+    rune::run_windows(move |displays: &[Display]| {
         let spec = AppSpec::<view::App> {
             scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
-            fonts: theme::FONTS,
-            families: theme::FAMILIES,
+            fonts,
+            families,
             ..AppSpec::new("TSM Crafts", SIZE, view::App::new, view::view)
         };
         let window = WindowSpec::new("main", spec);
