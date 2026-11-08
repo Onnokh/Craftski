@@ -121,9 +121,9 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
     let mut out = col().w_full().child(section("Reagents"));
     let last = lines.len().saturating_sub(1);
     for (i, l) in lines.iter().enumerate() {
-        let each = match l.unit {
-            Some(unit) => {
-                let mut r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
+        let each = match l.price {
+            Some(price) => {
+                let mut r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(price.unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
                 if let Some(n) = l.listed {
                     r = r.child(text(format!(" · {n} listed")).font(theme::sans(12.0, 400.0)).color(p().muted));
                 }

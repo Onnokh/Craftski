@@ -43,7 +43,7 @@ enum Load {
 }
 
 enum Msg {
-    Market(Result<Market, String>),
+    Market(Box<Result<Market, String>>),
     Icon(FileDataId, PathBuf),
     Rail(&'static str, RailImage),
 }
@@ -197,7 +197,7 @@ pub fn setup(s: &mut App, wake: Waker) {
         };
         let market = market::load();
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
-        send(Msg::Market(market));
+        send(Msg::Market(Box::new(market)));
         fetch_rail(|name, image| send(Msg::Rail(name, image)));
         match icons::prefetch(&ids, |id, path| send(Msg::Icon(id, path))) {
             Ok(report) if !report.failed.is_empty() => eprintln!("{} of {} icons failed, first: {}", report.failed.len(), report.icons, report.failed[0].1),
@@ -230,7 +230,7 @@ pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
     let mut changed = false;
     loop {
         match rx.try_recv() {
-            Ok(Msg::Market(result)) => s.land(result),
+            Ok(Msg::Market(result)) => s.land(*result),
             Ok(Msg::Icon(id, path)) => s.icons.show(id, &path),
             Ok(Msg::Rail(name, image)) => s.icons.show_rail(name, image),
             Err(TryRecvError::Empty) => break,

@@ -25,10 +25,35 @@ pub struct Evaluation {
     pub auctions: Option<u32>,
 }
 
-pub fn unit_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<Copper> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PriceOrigin {
+    Vendor,
+    Auction,
+}
+
+/// What one unit of a reagent costs, and where to buy it at that price.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReagentPrice {
+    pub unit: Copper,
+    pub origin: PriceOrigin,
+}
+
+/// The auction house price, the only one a crafted item sells at.
+pub fn auction_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<Copper> {
     match source {
         PriceSource::Realm => book.realm.get(&item).and_then(|p| p.market_value.or(p.min_buyout)),
         PriceSource::Region => book.region.get(&item).and_then(|p| p.market_value),
+    }
+}
+
+/// The cheaper of the vendor and auction prices, like TSM's default material price
+/// `min(dbmarket, vendorbuy, ...)`. A tie goes to the vendor, which never runs out.
+pub fn reagent_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<ReagentPrice> {
+    let vendor = book.vendor.get(item).map(|unit| ReagentPrice { unit, origin: PriceOrigin::Vendor });
+    let auction = auction_price(book, item, source).map(|unit| ReagentPrice { unit, origin: PriceOrigin::Auction });
+    match (vendor, auction) {
+        (Some(v), Some(a)) => Some(if a.unit < v.unit { a } else { v }),
+        (v, a) => v.or(a),
     }
 }
 
@@ -36,13 +61,13 @@ pub fn evaluate(recipe: &Recipe, book: &PriceBook, source: PriceSource) -> Evalu
     let mut total = 0u64;
     let mut unpriced = Vec::new();
     for r in &recipe.reagents {
-        match unit_price(book, r.item_id, source) {
-            Some(Copper(c)) => total += c * u64::from(r.count),
+        match reagent_price(book, r.item_id, source) {
+            Some(p) => total += p.unit.0 * u64::from(r.count),
             None => unpriced.push(r.item_id),
         }
     }
     let cost = unpriced.is_empty().then_some(Copper(total));
-    let resale = unit_price(book, recipe.item_id, source).map(|Copper(c)| Copper((c as f64 * f64::from(recipe.quantity) * SELLER_PERCENT / 100.0).floor() as u64));
+    let resale = auction_price(book, recipe.item_id, source).map(|Copper(c)| Copper((c as f64 * f64::from(recipe.quantity) * SELLER_PERCENT / 100.0).floor() as u64));
     let profit = cost.zip(resale).map(|(c, r)| r.0 as i64 - c.0 as i64);
     let margin = profit.zip(cost).filter(|(_, c)| c.0 > 0).map(|(p, c)| p as f32 / c.0 as f32);
     Evaluation {
@@ -61,6 +86,8 @@ mod tests {
     use super::*;
     use crate::prices::{RealmPrice, RegionPrice};
     use crate::recipes::{Quality, Reagent};
+    use crate::vendor::VendorBook;
+    use std::collections::HashMap;
 
     fn book() -> PriceBook {
         let mut b = PriceBook::default();
@@ -102,6 +129,26 @@ mod tests {
             sold_per_day: Some(3.5),
             auctions: Some(12),
         });
+    }
+
+    #[test]
+    fn reagents_cost_the_cheaper_of_vendor_and_auction_but_the_craft_sells_at_auction() {
+        let mut b = book();
+        b.vendor = VendorBook::new(HashMap::from([(8171, Copper(350)), (15409, Copper(150)), (15407, Copper(10))]), HashMap::new());
+        let realm = evaluate(&cured_rugged_hide(), &b, PriceSource::Realm);
+        assert_eq!((realm.cost, realm.resale, realm.profit), (Some(Copper(750)), Some(Copper(1900)), Some(1150)));
+        let region = evaluate(&cured_rugged_hide(), &b, PriceSource::Region);
+        assert_eq!((region.cost, region.unpriced, region.resale, region.profit), (Some(Copper(850)), vec![], Some(Copper(3800)), Some(2950)));
+        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(300), origin: PriceOrigin::Auction }));
+        assert_eq!(reagent_price(&b, 8171, PriceSource::Region), Some(ReagentPrice { unit: Copper(350), origin: PriceOrigin::Vendor }));
+        assert_eq!(reagent_price(&b, 2321, PriceSource::Realm), None);
+    }
+
+    #[test]
+    fn a_tie_goes_to_the_vendor() {
+        let mut b = book();
+        b.vendor = VendorBook::new(HashMap::new(), HashMap::from([(8171, Copper(300))]));
+        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(300), origin: PriceOrigin::Vendor }));
     }
 
     #[test]

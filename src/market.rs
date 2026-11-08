@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::prices::{self, PriceBook};
 use crate::recipes::{self, LEATHERWORKING, Recipe};
+use crate::vendor;
 
 pub struct Market {
     pub book: PriceBook,
@@ -19,7 +20,9 @@ pub fn appdata_path() -> PathBuf {
 
 /// Blocks on file IO and, without a recipe cache, the network.
 pub fn load() -> Result<Market, String> {
-    let book = prices::load(&appdata_path())?;
+    let appdata = appdata_path();
+    let mut book = prices::load(&appdata)?;
+    book.vendor = vendor::load(&appdata);
     let recipes = recipes::load(&LEATHERWORKING)?;
     Ok(Market { book, recipes })
 }

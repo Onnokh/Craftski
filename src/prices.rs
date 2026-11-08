@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::copper::Copper;
+use crate::vendor::VendorBook;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RealmPrice {
@@ -35,6 +36,8 @@ pub struct PriceBook {
     /// "Forever-EU".
     pub realm_scope: Option<String>,
     pub region_scope: Option<String>,
+    /// Merchant prices, read from TSM's own files rather than AppData.
+    pub vendor: VendorBook,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

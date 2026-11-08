@@ -8,6 +8,7 @@ mod profit;
 mod recipes;
 mod rows;
 mod theme;
+mod vendor;
 mod view;
 
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
@@ -58,11 +59,14 @@ fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
     let m = market::load()?;
     let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, source)).collect::<Vec<_>>();
-    let (evals, region) = (evals_for(PriceSource::Realm), evals_for(PriceSource::Region));
-    let priced = |evals: &[profit::Evaluation]| evals.iter().filter(|e| e.profit.is_some()).count();
+    let evals = evals_for(PriceSource::Realm);
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, Sort { column: Column::Profit, descending: true });
+    let v = &m.book.vendor;
     println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
-    println!("fully priced: {}/{} realm, {}/{} region", priced(&evals), m.recipes.len(), priced(&region), m.recipes.len());
+    println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
+    for (name, o) in [("realm", overview::overview(&evals)), ("region", overview::overview(&evals_for(PriceSource::Region)))] {
+        println!("fully priced ({name}): {}/{}, {} miss a reagent price", o.priced, o.total, o.missing_reagent);
+    }
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
     for &i in rows.iter().take(15) {
