@@ -19,7 +19,8 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::sans(13.0, 400.0)).color(p().muted).wrap());
     };
     let (recipe, e) = recipe_at(r, index);
-    let b = breakdown(recipe, e, &r.market.book, r.market.costs(s.source));
+    let costs = r.market.costs(s.source);
+    let b = breakdown(recipe, e, &r.market.book, costs);
     let inner = d.detail - 2.0 * PAD;
     let mut body = col().w_full().gap(20.0).child(title(s, recipe)).child(profit_card(e, s.source)).child(money_flow(e, b.sale, inner)).child(reagents(s, &b.reagents));
     if let Some(skill) = recipe.skill {
@@ -28,7 +29,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     if let Some(warning) = caution(e.sold_per_day, e.auctions) {
         body = body.child(warn(&warning));
     }
-    let list = shopping_list(&b.reagents, e.cost);
+    let list = shopping_list(recipe, &r.market.recipes, costs);
     let url = wowhead_url(recipe.item_id);
     let actions = row()
         .w_full()
