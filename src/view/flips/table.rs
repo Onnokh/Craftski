@@ -76,7 +76,12 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
         .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 32.0, 1.5, 7.0, quality))
         .child(text(&name).font(theme::sans(14.0, 500.0)).color(quality).truncate().shrink().min_w(0.0));
     let place = if s.flips.search.text.trim().is_empty() || merchant.zone == s.flips.zone { merchant.role.clone() } else { format!("{} · {}", merchant.role, merchant.zone) };
-    let vendor = col().w_full().child(text(&merchant.name).font(theme::sans(13.0, 500.0)).color(p().text).truncate()).child(small(&place));
+    let mut who = row().w_full().gap(6.0).center_y().child(text(&merchant.name).font(theme::sans(13.0, 500.0)).color(p().text).truncate().shrink().min_w(0.0));
+    if !entry.others.is_empty() {
+        let more = entry.others.len();
+        who = who.child(text(format!("+{more}")).font(theme::mono(11.5, 500.0)).color(p().faint).label(format!("and {more} more {}", if more == 1 { "merchant" } else { "merchants" })));
+    }
+    let vendor = col().w_full().child(who).child(small(&place));
     let paid = flip.paid.map_or_else(|| unknown("no price"), |paid| col().items_end().child(n.show(paid.copper())).child(small(&paid.origin())));
     let cells = [
         item_cell,
