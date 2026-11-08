@@ -496,6 +496,12 @@ pub fn scene_stale(s: &mut App) {
     r.market.book.region_updated = Some(s.now - 30 * 3600);
 }
 
+/// `loaded` priced with the region feed, so the status bar's switch shows its other half.
+pub fn scene_region(s: &mut App) {
+    scene_loaded(s);
+    s.set_source(PriceSource::Region);
+}
+
 /// `flips` after a reload from a file that isn't there: the status bar says why and the old
 /// prices stay.
 pub fn scene_reload_failed(s: &mut App) {

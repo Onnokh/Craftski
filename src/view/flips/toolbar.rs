@@ -1,10 +1,9 @@
-//! The zone, price source, filters and search, and the zone menu.
+//! The zone, filters and search, and the zone menu.
 
 use rune::{Align, Color, Cursor, El, Key, KeyEvent, ScrollSpec, Shadow, Side, Tx, col, row, spacer, text, text_input};
 
 use super::Stocked;
 use crate::flip_rows::Supply;
-use crate::profit::PriceSource;
 use crate::theme::{self, p};
 use crate::view::widgets::{CHEVRON_DOWN, SEARCH, Segment, checkbox, glyph, segmented};
 use crate::view::{App, Dims, SOLD_STEPS};
@@ -28,13 +27,6 @@ pub fn toolbar(s: &App, d: Dims) -> El {
         .role("button")
         .label(format!("Zone: {}", f.zone))
         .on_press(|s: &mut App| s.flips.zone_menu = !s.flips.zone_menu);
-    let source = segmented(
-        "Price source",
-        vec![
-            Segment { label: "Realm", on: s.source == PriceSource::Realm, pick: |s: &mut App| s.set_source(PriceSource::Realm) },
-            Segment { label: "Region", on: s.source == PriceSource::Region, pick: |s: &mut App| s.set_source(PriceSource::Region) },
-        ],
-    );
     let unprofitable = checkbox("Hide unprofitable", f.hide_unprofitable, |s: &mut App| {
         s.flips.hide_unprofitable = !s.flips.hide_unprofitable;
         s.flips.refilter();
@@ -44,7 +36,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
     let supply_picks: [fn(&mut App); 3] = [|s| s.flips.set_supply(Supply::All), |s| s.flips.set_supply(Supply::Endless), |s| s.flips.set_supply(Supply::Limited)];
     let supply = Supply::ALL.into_iter().zip(supply_picks).map(|(supply, pick)| Segment { label: supply.label(), on: f.supply == supply, pick }).collect();
     let labelled = |label: &str, control: El| row().gap(8.0).center_y().child(text(label).font(theme::BODY).color(p().muted)).child(control);
-    let place = row().w_full().h(32.0).gap(d.gap).center_y().child(zone).child(source).child(spacer()).child(search(s, d));
+    let place = row().w_full().h(32.0).gap(d.gap).center_y().child(zone).child(spacer()).child(search(s, d));
     let filters = row()
         .w_full()
         .h(32.0)

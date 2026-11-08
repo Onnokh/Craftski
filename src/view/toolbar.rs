@@ -1,21 +1,13 @@
-//! Price source, filters, the player's skill and search.
+//! Filters, the player's skill and search.
 
 use rune::{Cursor, El, Key, KeyEvent, Tx, row, spacer, text, text_input};
 
 use super::widgets::{SEARCH, Segment, checkbox, glyph, segmented};
 use super::{App, Dims, SOLD_STEPS};
-use crate::profit::PriceSource;
 use crate::settings;
 use crate::theme::{self, p};
 
 pub fn toolbar(s: &App, d: Dims) -> El {
-    let source = segmented(
-        "Price source",
-        vec![
-            Segment { label: "Realm", on: s.source == PriceSource::Realm, pick: |s: &mut App| s.set_source(PriceSource::Realm) },
-            Segment { label: "Region", on: s.source == PriceSource::Region, pick: |s: &mut App| s.set_source(PriceSource::Region) },
-        ],
-    );
     let unpriced = checkbox("Hide unpriced", s.hide_unpriced, |s: &mut App| {
         s.hide_unpriced = !s.hide_unpriced;
         s.refresh();
@@ -23,7 +15,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
     let picks: [fn(&mut App); 4] = [|s| s.set_min_sold(0), |s| s.set_min_sold(1), |s| s.set_min_sold(2), |s| s.set_min_sold(3)];
     let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: s.min_sold == i, pick }).collect();
     let sold = row().gap(8.0).center_y().child(text("Sold per day").font(theme::BODY).color(p().muted)).child(segmented("Minimum sold per day", steps));
-    row().w_full().h(64.0).px(d.pad).gap(d.gap).center_y().child(source).child(unpriced).child(sold).child(skill(s, d)).child(spacer()).child(search(s, d))
+    row().w_full().h(64.0).px(d.pad).gap(d.gap).center_y().child(unpriced).child(sold).child(skill(s, d)).child(spacer()).child(search(s, d))
 }
 
 fn skill(s: &App, d: Dims) -> El {
@@ -82,12 +74,6 @@ fn search(s: &App, d: Dims) -> El {
 }
 
 impl App {
-    pub(super) fn set_source(&mut self, source: PriceSource) {
-        self.source = source;
-        self.refresh();
-        self.reprice_flips();
-    }
-
     fn set_min_sold(&mut self, step: usize) {
         self.min_sold = step;
         self.refresh();
