@@ -3,7 +3,7 @@
 
 use crate::copper::Copper;
 use crate::prices::PriceBook;
-use crate::profit::{self, Evaluation, PriceSource, ReagentPrice};
+use crate::profit::{self, Evaluation, PriceOrigin, PriceSource, ReagentPrice};
 use crate::recipes::{Reagent, Recipe};
 
 /// Realm listings at or below this count make a price easy to move.
@@ -87,9 +87,15 @@ pub fn caution(sold_per_day: Option<f64>, listed: Option<u32>) -> Option<String>
 }
 
 /// The reagents for one craft as plain text for the clipboard, one `12x Thick Leather` line
-/// each, then the total.
+/// each with `(vendor)` after those cheapest at a merchant, then the total.
 pub fn shopping_list(lines: &[ReagentLine], cost: Option<Copper>) -> String {
-    let mut out: String = lines.iter().map(|l| format!("{}x {}\n", l.reagent.count, l.reagent.item_name)).collect();
+    let mut out: String = lines
+        .iter()
+        .map(|l| {
+            let vendor = if l.price.is_some_and(|p| p.origin == PriceOrigin::Vendor) { " (vendor)" } else { "" };
+            format!("{}x {}{vendor}\n", l.reagent.count, l.reagent.item_name)
+        })
+        .collect();
     match cost {
         Some(c) => out.push_str(&format!("Total: {c}")),
         None => {
@@ -122,7 +128,6 @@ pub fn wowhead_url(item_id: u32) -> String {
 mod tests {
     use super::*;
     use crate::prices::{RealmPrice, RegionPrice};
-    use crate::profit::PriceOrigin;
     use crate::recipes::{Quality, Skill, Slot};
     use crate::vendor::VendorBook;
     use std::collections::HashMap;
@@ -206,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn reagent_lines_name_where_each_price_comes_from() {
+    fn the_shopping_list_is_one_line_per_reagent_and_marks_vendor_items() {
         let (recipe, mut book) = (nightscape_cloak(), book());
         book.vendor = VendorBook::new(HashMap::new(), HashMap::from([(4304, Copper(5_000)), (8343, Copper(500))]));
         let eval = profit::evaluate(&recipe, &book, PriceSource::Realm);
@@ -216,7 +221,7 @@ mod tests {
             (4304, Some(ReagentPrice { unit: Copper(647), origin: PriceOrigin::Auction }), Some(Copper(7_764))),
             (8343, Some(ReagentPrice { unit: Copper(500), origin: PriceOrigin::Vendor }), Some(Copper(2_000))),
         ]);
-        assert_eq!(shopping_list(&b.reagents, eval.cost), "12x Thick Leather\n4x Heavy Silken Thread\nTotal: 97s 64c");
+        assert_eq!(shopping_list(&b.reagents, eval.cost), "12x Thick Leather\n4x Heavy Silken Thread (vendor)\nTotal: 97s 64c");
     }
 
     #[test]

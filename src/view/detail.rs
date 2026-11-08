@@ -6,12 +6,14 @@ use super::widgets::{ButtonKind, Money, WARNING, button, caps, flexible, glyph, 
 use super::{App, Dims, Ready, recipe_at};
 use crate::breakdown::{Bar, ReagentLine, breakdown, caution, shopping_list, subtitle, waterfall, wowhead_url};
 use crate::copper::{Copper, signed};
-use crate::profit::{Evaluation, PriceSource};
+use crate::profit::{Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{Recipe, Skill};
 use crate::rows::percent;
 use crate::theme::{self, p};
 
 const PAD: f32 = 26.0;
+/// Stands where a reagent bought at auction shows how many are listed.
+const VENDOR: &str = " · vendor";
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
@@ -123,13 +125,17 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
     for (i, l) in lines.iter().enumerate() {
         let each = match l.price {
             Some(price) => {
-                let mut r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(price.unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
-                if let Some(n) = l.listed {
-                    r = r.child(text(format!(" · {n} listed")).font(theme::sans(12.0, 400.0)).color(p().muted));
+                let r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(price.unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
+                let note = match price.origin {
+                    PriceOrigin::Vendor => Some(text(VENDOR).spans(vec![Span::new(VENDOR.len() - "vendor".len(), VENDOR.len()).color(p().sells_bar)])),
+                    PriceOrigin::Auction => l.listed.map(|n| text(format!(" · {n} listed"))),
+                };
+                match note {
+                    Some(note) => r.child(note.font(theme::sans(12.0, 400.0)).color(p().muted)),
+                    None => r,
                 }
-                r
             }
-            None => row().mt(2.0).child(text("No price on the auction house").font(theme::sans(12.0, 400.0)).color(p().loss)),
+            None => row().mt(2.0).child(text("No auction or vendor price").font(theme::sans(12.0, 400.0)).color(p().loss)),
         };
         let total = l.total.map_or_else(|| unknown("—"), |t| Money::new(theme::mono(13.0, 400.0), p().text).show(t));
         let mut line = row()
