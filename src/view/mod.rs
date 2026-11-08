@@ -30,7 +30,7 @@ pub struct App {
     source: PriceSource,
     hide_unpriced: bool,
     min_sold: usize,
-    sort: Sort,
+    sort: Sort<Column>,
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,

@@ -55,22 +55,50 @@ pub struct Filter<'a> {
     pub query: &'a str,
 }
 
+/// A column a table sorts by: by name, or by a number.
+pub trait SortColumn: Copy + PartialEq {
+    fn by_name(self) -> bool;
+}
+
+impl SortColumn for Column {
+    fn by_name(self) -> bool {
+        self == Column::Item
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sort {
-    pub column: Column,
+pub struct Sort<C> {
+    pub column: C,
     pub descending: bool,
 }
 
-impl Sort {
+impl<C: SortColumn> Sort<C> {
     /// The sort after a click on `column`'s header: the same column flips, a new one starts
     /// with names A to Z and numbers largest first.
-    pub fn clicked(self, column: Column) -> Sort {
+    pub fn clicked(self, column: C) -> Sort<C> {
         if column == self.column {
             Sort { column, descending: !self.descending }
         } else {
-            Sort { column, descending: column != Column::Item }
+            Sort { column, descending: !column.by_name() }
         }
     }
+}
+
+/// Orders `rows` under `sort`: a name column by `by_name`, a number column by `number` with
+/// unknown values last whichever way it sorts and ties by `by_name`.
+pub fn order<C: SortColumn>(rows: &mut [usize], sort: Sort<C>, number: impl Fn(usize) -> Option<f64>, by_name: impl Fn(usize, usize) -> Ordering) {
+    let directed = |o: Ordering| if sort.descending { o.reverse() } else { o };
+    rows.sort_by(|&a, &b| {
+        if sort.column.by_name() {
+            return directed(by_name(a, b));
+        }
+        match (number(a), number(b)) {
+            (Some(x), Some(y)) => directed(x.total_cmp(&y)).then_with(|| by_name(a, b)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => by_name(a, b),
+        }
+    });
 }
 
 fn matches(recipe: &Recipe, needle: &str) -> bool {
@@ -79,7 +107,7 @@ fn matches(recipe: &Recipe, needle: &str) -> bool {
 
 /// Indices into `recipes` (and the parallel `evals`) to show, in order. Unknown values sort
 /// last whichever way the column sorts.
-pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: Sort) -> Vec<usize> {
+pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: Sort<Column>) -> Vec<usize> {
     let needle = filter.query.trim().to_lowercase();
     let mut rows: Vec<usize> = (0..recipes.len())
         .filter(|&i| {
@@ -89,19 +117,8 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
             priced && selling && matches(&recipes[i], &needle)
         })
         .collect();
-    let directed = |o: Ordering| if sort.descending { o.reverse() } else { o };
-    rows.sort_by(|&a, &b| {
-        let by_name = || recipes[a].item_name.cmp(&recipes[b].item_name).then(recipes[a].spell_id.cmp(&recipes[b].spell_id));
-        if sort.column == Column::Item {
-            return directed(by_name());
-        }
-        match (sort.column.number(&recipes[a], &evals[a]), sort.column.number(&recipes[b], &evals[b])) {
-            (Some(x), Some(y)) => directed(x.total_cmp(&y)).then_with(by_name),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => by_name(),
-        }
-    });
+    let by_name = |a: usize, b: usize| recipes[a].item_name.cmp(&recipes[b].item_name).then(recipes[a].spell_id.cmp(&recipes[b].spell_id));
+    order(&mut rows, sort, |i| sort.column.number(&recipes[i], &evals[i]), by_name);
     rows
 }
 
