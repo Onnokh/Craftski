@@ -1,12 +1,12 @@
-//! The rail: the primary professions, the secondary ones, then vendor flips, each under its name.
+//! The rail: the primary professions, the secondary ones, then vendor flips, ruled apart.
 
-use rune::{Color, Cursor, El, col, el, text};
+use rune::{Color, Cursor, El, col, el};
 
 use super::skin;
 use super::{App, Tab};
 use crate::recipes::Profession;
 use crate::skin::Piece;
-use crate::theme::{self, p};
+use crate::theme::p;
 
 pub const COIN: &str = "inv_misc_coin_01";
 
@@ -24,15 +24,16 @@ pub fn rail(s: &App) -> El {
     col()
         .w(60.0)
         .h_full()
-        .pt(12.0)
+        .pt(16.0)
+        .gap(6.0)
         .items_center()
         .fill(Color::BLACK.alpha(0.55))
         .border_sides([0.0, 1.0, 0.0, 0.0], Color::BLACK)
-        .child(section("Primary", professions(false)))
+        .children(professions(false))
         .child(rule())
-        .child(section("Secondary", professions(true)))
+        .children(professions(true))
         .child(rule())
-        .child(section("Vendor", [tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips)]))
+        .child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips))
 }
 
 fn profession(s: &App, profession: Profession) -> El {
@@ -40,13 +41,8 @@ fn profession(s: &App, profession: Profession) -> El {
     tab(s, profession.name(), profession.icon(), on, move |s: &mut App| s.choose_profession(profession))
 }
 
-fn section(title: &str, tabs: impl IntoIterator<Item = El>) -> El {
-    let heading = text(title).font(theme::RAIL).color(p().gold);
-    col().items_center().gap(6.0).child(heading).children(tabs)
-}
-
 fn rule() -> El {
-    el().w(32.0).h(1.0).my(12.0).fill(p().bronze)
+    el().w(32.0).h(1.0).my(6.0).fill(p().bronze)
 }
 
 fn tab(s: &App, label: &str, icon: &str, on: bool, press: impl Fn(&mut App) + 'static) -> El {
