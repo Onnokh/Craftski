@@ -77,6 +77,8 @@ pub struct Palette {
     pub warn: Color,
     /// Skill-up bands: still yellow, green, then grey.
     pub skill: [Color; 3],
+    /// The game tooltip's ground, TOOLTIP_DEFAULT_BACKGROUND_COLOR.
+    pub tooltip: Color,
     /// The game bar's skill-up segments, each top to bottom.
     pub skill_bar: [[Color; 2]; 3],
     quality: [Color; 5],
@@ -105,6 +107,7 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         loss: c("#E57560"),
         warn: c("#FFB733"),
         skill: [c("#E0C24A"), c("#5FB86A"), c("#5E574E")],
+        tooltip: c("#171730"),
         skill_bar: [[c("#FFE15A"), c("#C9A21E")], [c("#5BE04A"), c("#2E8A22")], [c("#8C8478"), c("#4A443C")]],
         quality: [c("#9D9D9D"), c("#FFFFFF"), c("#1EFF00"), c("#0070DD"), c("#A335EE")],
     }

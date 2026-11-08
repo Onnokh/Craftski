@@ -5,6 +5,7 @@ mod charts;
 mod copper;
 mod flip_rows;
 mod flips;
+mod foreverdb;
 mod icons;
 mod items;
 mod market;
@@ -16,8 +17,10 @@ mod profit;
 mod recipes;
 mod rows;
 mod settings;
+mod sheets;
 mod skin;
 mod theme;
+mod tooltip;
 mod vendor;
 mod view;
 

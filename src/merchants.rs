@@ -2,17 +2,12 @@
 //! it was crawled for. `vendor.rs` is something else: TSM's vendor prices.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
-use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::items::{self, Item, Purchase};
-use crate::recipes::{self, FileDataId, Quality};
+use crate::recipes::{FileDataId, Quality};
 
-const FOREVERDB_URL: &str = "https://foreverdb.net/data/vendors.json";
-/// foreverdb grows as players open merchants, so an older copy is fetched again.
-const MAX_AGE: Duration = Duration::from_secs(7 * 86_400);
 /// Wowhead's stock for every Thunder Bluff merchant. foreverdb misses limited supply and new
 /// Forever items, and lists the wrong stock at about a third of them.
 const WOWHEAD: &str = include_str!("../assets/vendors/wowhead-thunder-bluff.json");
@@ -188,39 +183,13 @@ pub fn parse(db: &str, crawled: &str) -> Result<(Vec<Merchant>, HashMap<u32, Ite
 
 /// Blocks on file IO and, when the copies are missing or old, the network.
 pub fn load() -> Result<Catalog, String> {
-    let (merchants, mut items) = parse(&foreverdb()?, WOWHEAD)?;
+    let (merchants, mut items) = parse(&crate::foreverdb::fetch("vendors.json")?, WOWHEAD)?;
     let wanted: BTreeSet<u32> = merchants.iter().flat_map(|m| m.stock.iter().map(|s| s.item)).collect();
     for (id, item) in items::load(&wanted)? {
         let icon = item.icon.or_else(|| items.get(&id).and_then(|i| i.icon));
         items.insert(id, Item { icon, ..item });
     }
     Ok(Catalog { merchants, items })
-}
-
-/// foreverdb's `vendors.json`, kept for a week. A failed download falls back to an older copy.
-fn foreverdb() -> Result<String, String> {
-    let path = recipes::cache_dir().map(|d| d.join("foreverdb-vendors.json"));
-    let fresh = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < MAX_AGE);
-    if let Some(p) = path.as_deref().filter(|p| fresh(p))
-        && let Ok(text) = std::fs::read_to_string(p)
-    {
-        return Ok(text);
-    }
-    let fetched = ureq::get(FOREVERDB_URL)
-        .call()
-        .map_err(|e| format!("{FOREVERDB_URL}: {e}"))
-        .and_then(|mut r| r.body_mut().with_config().limit(16 << 20).read_to_string().map_err(|e| format!("{FOREVERDB_URL}: {e}")));
-    match (fetched, path) {
-        (Ok(text), Some(p)) => {
-            if let Err(e) = std::fs::create_dir_all(p.parent().expect("cache path has a parent")).and_then(|()| std::fs::write(&p, &text)) {
-                eprintln!("vendors not cached at {}: {e}", p.display());
-            }
-            Ok(text)
-        }
-        (Ok(text), None) => Ok(text),
-        (Err(e), Some(p)) => std::fs::read_to_string(&p).map_err(|_| e.clone()).inspect(|_| eprintln!("{e}; using the older copy at {}", p.display())),
-        (Err(e), None) => Err(e),
-    }
 }
 
 #[cfg(test)]
