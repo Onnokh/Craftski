@@ -115,7 +115,7 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         warn: c("#FFB733"),
         skill: [c("#E0C24A"), c("#5FB86A"), c("#5E574E")],
         skill_bar: [[c("#FFE15A"), c("#C9A21E")], [c("#5BE04A"), c("#2E8A22")], [c("#8C8478"), c("#4A443C")]],
-        quality: [c("#9D9D9D"), c("#EEE4D2"), c("#4BD461"), c("#4F9CFF"), c("#B469FF")],
+        quality: [c("#9D9D9D"), c("#FFFFFF"), c("#1EFF00"), c("#0070DD"), c("#A335EE")],
     }
 });
 
