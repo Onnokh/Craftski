@@ -11,7 +11,7 @@ use crate::merchants::Merchant;
 use crate::profit::{AuctionBasis, SELLER_PERCENT};
 use crate::rows::per_day;
 use crate::theme::{self, p};
-use crate::view::detail::{band, ledger, note};
+use crate::view::detail::{band, ledger, note, panel};
 use crate::view::widgets::{Money, flexible, icon_frame, unknown, wowhead};
 use crate::view::{App, Dims};
 
@@ -19,7 +19,7 @@ const PAD: f32 = 24.0;
 const ROW: f32 = 32.0;
 
 pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
-    let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
+    let panel = panel(d);
     let Some((_, index, others)) = s.flips.picked() else {
         return panel.padding(PAD).child(text("Select a flip to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };
@@ -29,8 +29,9 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
     let identity = row()
         .w_full()
         .pt(20.0)
-        .gap(16.0)
-        .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 48.0, quality))
+        .gap(12.0)
+        .center_y()
+        .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 52.0, quality))
         .child(
             flexible()
                 .child(text(&name).font(theme::HEADING).color(quality).truncate())

@@ -3,6 +3,7 @@ mod flips;
 mod header;
 mod menu;
 mod rail;
+mod skin;
 mod status;
 mod table;
 mod toolbar;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
+use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
 use crate::icons;
 use crate::market::{self, Market};
@@ -25,6 +26,7 @@ use crate::profit::{self, Evaluation, PriceOrigin};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
+use crate::skin::Piece;
 use crate::theme::{self, p};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,7 +38,7 @@ pub enum Tab {
 pub struct App {
     tab: Tab,
     load: Load,
-    /// The loader thread's messages, until it finishes.
+    /// The loader threads' messages, until they finish.
     inbox: Option<Receiver<Msg>>,
     icons: Icons,
     hide_unpriced: bool,
@@ -66,6 +68,7 @@ enum Msg {
     Catalog(Box<Result<Catalog, String>>),
     Icon(FileDataId, PathBuf),
     Rail(&'static str, RailImage),
+    Skin(Piece, PathBuf),
 }
 
 enum RailImage {
@@ -264,6 +267,16 @@ pub fn setup(s: &mut App, wake: Waker) {
     }
     let (tx, rx) = mpsc::channel();
     s.inbox = Some(rx);
+    let (art, wake_art) = (tx.clone(), wake.clone());
+    std::thread::spawn(move || {
+        let shown = crate::skin::fetch(|piece, path| {
+            let _ = art.send(Msg::Skin(piece, path));
+            wake_art();
+        });
+        if let Err(e) = shown {
+            eprintln!("interface art not fetched: {e}");
+        }
+    });
     let realm = s.realm.clone();
     std::thread::spawn(move || {
         let send = |m: Msg| {
@@ -311,7 +324,7 @@ fn fetch_rail(on_ready: impl Fn(&'static str, RailImage)) {
 /// Lands the loader's messages, and on each new minute moves the clock the ages read from and
 /// reloads when TSM has rewritten AppData.lua.
 pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
-    let landed = drain(s);
+    let landed = drain(s) | skin::newly_ready();
     let now = unix_secs(SystemTime::now());
     tx.wake_after(Duration::from_secs(60 - now % 60));
     let ticked = now / 60 != s.now / 60;
@@ -332,6 +345,11 @@ fn drain(s: &mut App) -> bool {
             Ok(Msg::Catalog(result)) => s.land_catalog(*result),
             Ok(Msg::Icon(id, path)) => s.icons.show(id, &path),
             Ok(Msg::Rail(name, image)) => s.icons.show_rail(name, image),
+            Ok(Msg::Skin(piece, path)) => {
+                if let Some(cache) = &s.icons.cache {
+                    skin::show(cache, piece, &path);
+                }
+            }
             Err(TryRecvError::Empty) => break,
             Err(TryRecvError::Disconnected) => {
                 if matches!(s.load, Load::Loading) {
@@ -400,14 +418,19 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::header(r, d))
-                    .child(toolbar::toolbar(s, d))
-                    .child(table::table(s, r, d))
-                    .child(status::status(s, r, d)),
+                    .child(header::banner(Some(Piece::OverviewCard), header::header(r, d), toolbar::toolbar(s, d)))
+                    .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
     };
-    let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
+    let root = col()
+        .key("root")
+        .w_full()
+        .h_full()
+        .fill(p().ground)
+        .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
+        .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s)).child(main))
+        .children(s.ready().map(|r| status::status(s, r, d)));
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e))
 }
 
@@ -423,7 +446,7 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
     (&r.market.recipes[i], &r.evals[i])
 }
 
-/// Fetches every icon and waits for each to decode, so the snapshot shows them.
+/// Fetches every icon and piece of art and waits for each to decode, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
     s.land(market::load(&s.realm));
     let Load::Ready(r) = &s.load else { return };
@@ -479,9 +502,23 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     for (name, image) in rail.into_inner() {
         s.icons.show_rail(name, image);
     }
+    let (tx, rx) = mpsc::channel();
+    if let Err(e) = crate::skin::fetch(|piece, path| {
+        let _ = tx.send((piece, path));
+    }) {
+        eprintln!("interface art not fetched: {e}");
+    }
+    drop(tx);
+    if let Some(cache) = &s.icons.cache {
+        for (piece, path) in rx {
+            skin::show(cache, piece, &path);
+        }
+    }
     for image in s.icons.items.values().chain(s.icons.rail.values()).chain(coins) {
         let _ = image.wait();
     }
+    skin::wait();
+    skin::newly_ready();
 }
 
 /// `loaded` with Sold 5+ a day, so the line under the table says what it hides.

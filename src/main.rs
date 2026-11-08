@@ -1,4 +1,6 @@
+mod blp;
 mod breakdown;
+mod cache;
 mod charts;
 mod copper;
 mod flip_rows;
@@ -14,6 +16,7 @@ mod profit;
 mod recipes;
 mod rows;
 mod settings;
+mod skin;
 mod theme;
 mod vendor;
 mod view;
@@ -26,6 +29,7 @@ fn main() {
     let cli = std::env::args().find_map(|a| match a.as_str() {
         "--dump" => Some(dump as fn() -> Result<(), String>),
         "--fetch-icons" => Some(fetch_icons),
+        "--fetch-skin" => Some(fetch_skin),
         "--flips" => Some(flips),
         _ => None,
     });
@@ -38,14 +42,15 @@ fn main() {
             }
         });
     }
-    rune::run_windows(|displays: &[Display]| {
+    let (fonts, families) = theme::fonts();
+    rune::run_windows(move |displays: &[Display]| {
         let spec = AppSpec::<view::App> {
             scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
-            fonts: theme::FONTS,
-            families: theme::FAMILIES,
+            fonts,
+            families,
             ..AppSpec::new("TSM Crafts", SIZE, view::App::new, view::view)
         };
         let window = WindowSpec::new("main", spec);
@@ -163,6 +168,16 @@ fn fetch_icons() -> Result<(), String> {
         println!("  {}: {e}", id.0);
     }
     Ok(())
+}
+
+fn fetch_skin() -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let ready = std::sync::atomic::AtomicUsize::new(0);
+    let result = skin::fetch(|_, _| {
+        ready.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), skin::Piece::ALL.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
+    result
 }
 
 #[cfg(test)]

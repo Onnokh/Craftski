@@ -1,6 +1,6 @@
 //! The zone's pill, search, then one pill per filter: sold per day, supply and profitable only.
 
-use rune::{El, Key, KeyEvent, Tx, row, text, text_input};
+use rune::{El, Key, KeyEvent, Tx, el, row, text, text_input};
 
 use crate::menu::{Menu, SOLD_STEPS, sold_active, supply_active};
 use crate::theme::{self, p};
@@ -41,7 +41,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
         s.flips.hide_unprofitable = !s.flips.hide_unprofitable;
         s.flips.refilter();
     });
-    row().w_full().h(64.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(zone).child(search(s, d)).child(sold).child(supply).child(profitable)
+    row().w_full().h(56.0).pt(16.0).pb(8.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(zone).child(search(s, d)).child(el().grow(1.0)).child(sold).child(supply).child(profitable)
 }
 
 fn search(s: &App, d: Dims) -> El {

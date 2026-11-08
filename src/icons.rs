@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use crate::cache::{self, write_atomic};
 use crate::recipes::{FileDataId, Recipe};
 
 const WORKERS: usize = 6;
@@ -25,7 +26,7 @@ pub fn referenced(recipes: &[Recipe]) -> BTreeSet<FileDataId> {
 }
 
 pub fn dir() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts").join("icons"))
+    cache::dir("icons")
 }
 
 pub fn image_path(dir: &Path, id: FileDataId) -> PathBuf {
@@ -199,13 +200,6 @@ fn grey_and_dim(rgba: &mut [u8], brightness: f32) {
         let v = (luma * brightness).round().clamp(0.0, 255.0) as u8;
         px[..3].fill(v);
     }
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(tmp, path)
 }
 
 #[cfg(test)]
