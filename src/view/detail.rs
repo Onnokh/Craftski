@@ -1,12 +1,12 @@
 //! The selected recipe: profit, where the sale price goes, reagents, skill range and cautions.
 
-use rune::{El, ScrollSpec, Span, Tx, col, el, row, text};
+use rune::{Color, Cursor, El, ScrollSpec, Span, Tx, col, el, row, text};
 
 use super::widgets::{ButtonKind, Money, WARNING, button, caps, flexible, glyph, icon_frame, section, unknown};
 use super::{App, Dims, Ready, recipe_at};
 use crate::breakdown::{Bar, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, waterfall, wowhead_url};
 use crate::copper::{Copper, signed};
-use crate::profit::{AuctionBasis, Evaluation, PriceOrigin, PriceSource};
+use crate::profit::{AuctionBasis, Evaluation, PriceOrigin, PriceSource, ReagentPrice};
 use crate::recipes::{Recipe, Skill};
 use crate::rows::percent;
 use crate::theme::{self, p};
@@ -157,6 +157,12 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
             .child(total);
         if i != last {
             line = line.pb(11.0).border_sides([0.0, 0.0, 1.0, 0.0], p().line);
+        }
+        if let Some(ReagentPrice { origin: PriceOrigin::Crafted { spell_id }, .. }) = l.price {
+            line = line.cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.025)).label(format!("Show the {} recipe", l.reagent.item_name)).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                s.selected = Some(spell_id);
+                tx.scroll_into_view(spell_id.to_string());
+            });
         }
         out = out.child(line);
     }
