@@ -153,12 +153,13 @@ struct Hold {
 }
 
 impl Hold {
-    /// The hold after a download failed at `now`: the host's `Retry-After` for a 429, else
-    /// [`FLOOR`].
-    fn after(failure: &Failure, now: u64) -> Hold {
+    /// The hold after a download failed at `now`: the host's `Retry-After` for a 429, none for
+    /// a 404, which says only that one house has no file, else [`FLOOR`].
+    fn after(failure: &Failure, now: u64) -> Option<Hold> {
         match failure {
-            Failure::RateLimited { retry_after } => Hold { until: now + retry_after.unwrap_or(DEFAULT_RETRY_AFTER), why: Why::RateLimited },
-            Failure::Other(_) => Hold { until: now + FLOOR, why: Why::Unreachable },
+            Failure::RateLimited { retry_after } => Some(Hold { until: now + retry_after.unwrap_or(DEFAULT_RETRY_AFTER), why: Why::RateLimited }),
+            Failure::NotFound => None,
+            Failure::Other(_) => Some(Hold { until: now + FLOOR, why: Why::Unreachable }),
         }
     }
 
@@ -234,6 +235,7 @@ struct File {
 pub enum Failure {
     /// HTTP 429, with its `Retry-After` in seconds when it gave one.
     RateLimited { retry_after: Option<u64> },
+    NotFound,
     Other(String),
 }
 
@@ -248,6 +250,7 @@ fn download(url: &str) -> Result<String, Failure> {
         .map_err(|e| Failure::Other(format!("{url}: {e}")))?;
     match response.status().as_u16() {
         429 => Err(Failure::RateLimited { retry_after: response.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()) }),
+        404 => Err(Failure::NotFound),
         200 => response.body_mut().with_config().limit(64 << 20).read_to_string().map_err(|e| Failure::Other(format!("{url}: {e}"))),
         status => Err(Failure::Other(format!("{url}: HTTP {status}"))),
     }
@@ -303,7 +306,9 @@ fn fetch(dir: &Path, file: &File, refresh: Refresh, now: u64, hold: &mut Option<
             }
             Err(failure) => {
                 eprintln!("TSM public data: {failure:?}");
-                let h = Hold::after(&failure, now);
+                let Some(h) = Hold::after(&failure, now) else {
+                    return Err(format!("TSM publishes no public data for this auction house ({})", file.url));
+                };
                 if let Err(e) = std::fs::write(dir.join(HOLD), h.text()) {
                     eprintln!("download hold not saved: {e}");
                 }
@@ -507,11 +512,12 @@ mod tests {
     }
 
     #[test]
-    fn a_429_holds_for_its_retry_after_and_another_failure_for_five_minutes() {
+    fn a_429_holds_for_its_retry_after_a_404_not_at_all_and_another_failure_for_five_minutes() {
         let now = 1_000_000;
-        assert_eq!(Hold::after(&Failure::RateLimited { retry_after: Some(3540) }, now), Hold { until: now + 3540, why: Why::RateLimited });
-        assert_eq!(Hold::after(&Failure::RateLimited { retry_after: None }, now), Hold { until: now + 3600, why: Why::RateLimited });
-        assert_eq!(Hold::after(&Failure::Other("offline".into()), now), Hold { until: now + 300, why: Why::Unreachable });
+        assert_eq!(Hold::after(&Failure::RateLimited { retry_after: Some(3540) }, now), Some(Hold { until: now + 3540, why: Why::RateLimited }));
+        assert_eq!(Hold::after(&Failure::RateLimited { retry_after: None }, now), Some(Hold { until: now + 3600, why: Why::RateLimited }));
+        assert_eq!(Hold::after(&Failure::Other("offline".into()), now), Some(Hold { until: now + 300, why: Why::Unreachable }));
+        assert_eq!(Hold::after(&Failure::NotFound, now), None);
         let hold = Hold { until: now + 3540, why: Why::RateLimited };
         assert_eq!((hold.text(), Hold::parse(&hold.text())), ("1003540 rate-limited".to_string(), Some(hold)));
         assert_eq!(Hold::parse("soon"), None);
