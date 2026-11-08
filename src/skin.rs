@@ -64,7 +64,7 @@ const SHARED_CUTS: [Cut; Piece::SHARED.len()] = [
     cut("128-redbutton-left-c60", 8063723, [391, 781, 505, 909]),
     cut("_128-redbutton-center-c60", 8063723, [0, 1, 64, 129]),
     cut("128-redbutton-right-c60", 8063723, [1, 391, 293, 519]),
-    cut("common-button-list-small-selected-c60-2x", 8124219, [681, 321, 1019, 387]),
+    cut("auctionhouse-ui-row-select", 3046538, [827, 215, 943, 233]),
     cut("common-sidetab-selected-c60-2x", 8124215, [113, 1, 223, 121]),
     cut("checkbox-minimal-c60", 8086474, [1, 1, 31, 30]),
     cut("checkmark-minimal", 4614134, [1, 32, 31, 61]),

@@ -240,7 +240,7 @@ pub fn selectable_row(selected: bool) -> El {
         return out.child(edge());
     }
     match skin::stretch(Piece::RowSelected) {
-        Some(glow) => out.fill(p().gold.alpha(0.05)).child(glow.dim(0.4)),
+        Some(glow) => out.fill(p().gold.alpha(0.05)).child(glow.dim(0.5)),
         None => out.fill(p().selected).child(edge().fill(p().brass)),
     }
 }
