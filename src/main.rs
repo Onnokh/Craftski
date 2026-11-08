@@ -64,8 +64,10 @@ fn dump() -> Result<(), String> {
     let v = &m.book.vendor;
     println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
-    for (name, o) in [("realm", overview::overview(&evals)), ("region", overview::overview(&evals_for(PriceSource::Region)))] {
-        println!("fully priced ({name}): {}/{}, {} miss a reagent price", o.priced, o.total, o.missing_reagent);
+    let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
+    for (name, source, o) in [("realm", PriceSource::Realm, overview::overview(&evals)), ("region", PriceSource::Region, overview::overview(&evals_for(PriceSource::Region)))] {
+        let crafted = reagents.iter().filter(|&&item| m.costs(source).get(item).is_some_and(|p| matches!(p.origin, profit::PriceOrigin::Crafted { .. }))).count();
+        println!("fully priced ({name}): {}/{}, {} miss a reagent price, {crafted} reagents cheapest to craft", o.priced, o.total, o.missing_reagent);
     }
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
