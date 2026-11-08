@@ -603,7 +603,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
 /// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
 pub fn scene_crafts_hidden(s: &mut App) {
     scene_loaded(s);
-    s.min_sold = 2;
+    s.min_sold = 3;
     s.refresh();
 }
 
@@ -680,16 +680,16 @@ mod tests {
     fn choosing_a_sold_minimum_sets_the_recipe_filter_and_closes_the_menu() {
         let mut s = App::new();
         s.toggle_menu(Menu::CraftsSold);
-        s.pick(Pick::CraftsSold(2));
-        assert_eq!((s.menu, s.min_sold), (None, 2));
+        s.pick(Pick::CraftsSold(3));
+        assert_eq!((s.menu, s.min_sold), (None, 3));
     }
 
     #[test]
     fn the_flips_menus_set_the_flips_filters_and_leave_the_recipes_alone() {
         let mut s = App::new();
         s.toggle_menu(Menu::FlipsSold);
-        s.pick(Pick::FlipsSold(3));
-        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 3, 0));
+        s.pick(Pick::FlipsSold(4));
+        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 4, 0));
         s.toggle_menu(Menu::Supply);
         s.pick(Pick::Supply(Supply::Limited));
         assert_eq!((s.menu, s.flips.supply()), (None, Supply::Limited));
