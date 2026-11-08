@@ -9,6 +9,5 @@
   "routes": [{ "pattern": "craftski.onkie.dev", "custom_domain": true }],
   "workers_dev": false,
   "preview_urls": false,
-  // Fill the id from `wrangler kv namespace create PRICES` before the first deploy.
-  "kv_namespaces": [{ "binding": "PRICES", "id": "<filled at deploy>" }]
+  "kv_namespaces": [{ "binding": "PRICES", "id": "8b5514d693ee44e597f2cea7f234b1ba" }]
 }
