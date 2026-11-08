@@ -8,13 +8,14 @@ use std::sync::mpsc::{self, Sender};
 use super::{Msg, Outbox, rail};
 use crate::icons;
 use crate::market::{self, Origin};
-use crate::public_data::Refresh;
+use crate::merchants::Side;
+use crate::public_data::{self, PublicHouse, Refresh};
 use crate::recipes::{self, FileDataId, Profession};
 
 /// Asks the art loader for a profession's cards ahead of the rest.
-pub struct Art(Sender<Profession>);
+pub struct ArtQueue(Sender<Profession>);
 
-impl Art {
+impl ArtQueue {
     pub fn ask(&self, profession: Profession) {
         let _ = self.0.send(profession);
     }
@@ -22,10 +23,10 @@ impl Art {
 
 /// Starts the loaders that run once: the interface art, `first`'s cards first, the item
 /// sheets, and the rail's icons followed by the merchants.
-pub fn start(out: &Outbox, first: Profession) -> Art {
+pub fn start(out: &Outbox, first: Profession) -> ArtQueue {
     let (ask, asked) = mpsc::channel();
     let art = out.clone();
-    std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, path)))));
+    std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, crate::skin::Art::File(path))))));
     let sheets = out.clone();
     std::thread::spawn(move || sheets.send(Msg::Sheets(Box::new(settled(crate::sheets::load)))));
     let out = out.clone();
@@ -36,7 +37,7 @@ pub fn start(out: &Outbox, first: Profession) -> Art {
         out.send(Msg::Catalog(Box::new(catalog)));
         prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
     });
-    Art(ask)
+    ArtQueue(ask)
 }
 
 /// TSM's prices with `profession`'s recipes, then their icons.
@@ -68,6 +69,11 @@ pub fn prices(out: &Outbox, origin: Origin, refresh: Refresh) {
         let prices = settled(|| market::read_prices(&origin, refresh));
         out.send(Msg::Prices(origin, Box::new(prices)));
     });
+}
+
+/// Whether `house`'s cached files are old enough to download again.
+pub fn due(house: PublicHouse, side: Side, now: u64) -> bool {
+    public_data::due(house, side, now)
 }
 
 /// `load`'s result, or an error should it panic, so a loading state always ends.

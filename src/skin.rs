@@ -165,6 +165,20 @@ impl Piece {
     }
 }
 
+/// A piece ready to decode: a PNG the desktop cut and cached, or pixels the browser cut in
+/// memory.
+pub enum Art {
+    File(PathBuf),
+    Rgba(Rgba),
+}
+
+/// Straight-alpha RGBA8, `width` × `height`.
+pub struct Rgba {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
 pub fn dir() -> Option<PathBuf> {
     cache::dir("ui-v1")
 }
@@ -229,15 +243,11 @@ fn fetch_atlas(agent: &ureq::Agent, dir: &Path, atlas: u32, pieces: &[Piece], on
     if missing.is_empty() {
         return Ok(());
     }
-    let url = format!("https://wago.tools/api/casc/{atlas}?download");
+    let url = atlas_url(atlas);
     let mut response = agent.get(&url).call().map_err(|e| format!("{url}: {e}"))?;
     let bytes = response.body_mut().with_config().limit(64 << 20).read_to_vec().map_err(|e| format!("{url}: {e}"))?;
-    let (w, h, rgba) = blp::decode(&bytes).map_err(|e| format!("{url}: {e}"))?;
-    drop(bytes);
-    for p in missing {
-        let [l, t, r, b] = p.cut().rect;
-        let piece = crop(w, &rgba, p.cut().rect).ok_or_else(|| format!("{:?} reaches past its {w}x{h} atlas {atlas}", p))?;
-        let png = encode_png(r - l, b - t, piece)?;
+    for (p, piece) in cut_atlas(atlas, &bytes, &missing)? {
+        let png = encode_png(piece)?;
         let file = path(dir, p);
         write_atomic(&file, &png).map_err(|e| format!("{}: {e}", file.display()))?;
         on_ready(p, file);
@@ -245,8 +255,27 @@ fn fetch_atlas(agent: &ureq::Agent, dir: &Path, atlas: u32, pieces: &[Piece], on
     Ok(())
 }
 
-fn encode_png(w: u32, h: u32, rgba: Vec<u8>) -> Result<Vec<u8>, String> {
-    let image = image::RgbaImage::from_raw(w, h, rgba).ok_or("piece size and pixels disagree")?;
+/// The CASC download of the texture `atlas` names, which serves any origin.
+pub fn atlas_url(atlas: u32) -> String {
+    format!("https://wago.tools/api/casc/{atlas}?download")
+}
+
+/// The pieces cut from `atlas` out of its BLP `bytes`.
+pub fn cut_atlas(atlas: u32, bytes: &[u8], pieces: &[Piece]) -> Result<Vec<(Piece, Rgba)>, String> {
+    let (w, h, rgba) = blp::decode(bytes).map_err(|e| format!("{}: {e}", atlas_url(atlas)))?;
+    pieces
+        .iter()
+        .filter(|p| p.cut().atlas == atlas)
+        .map(|&p| {
+            let [l, t, r, b] = p.cut().rect;
+            let piece = crop(w, &rgba, p.cut().rect).ok_or_else(|| format!("{p:?} reaches past its {w}x{h} atlas {atlas}"))?;
+            Ok((p, Rgba { width: r - l, height: b - t, pixels: piece }))
+        })
+        .collect()
+}
+
+fn encode_png(piece: Rgba) -> Result<Vec<u8>, String> {
+    let image = image::RgbaImage::from_raw(piece.width, piece.height, piece.pixels).ok_or("piece size and pixels disagree")?;
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).map_err(|e| e.to_string())?;
     Ok(out.into_inner())

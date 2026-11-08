@@ -280,6 +280,43 @@ pub fn load(house: PublicHouse, side: Side, refresh: Refresh) -> Result<(PriceBo
     Ok((book(house, side, realm, region, region_updated), Read { at: crate::platform::now(), modified: None, warning: stale.map(|s: Stale| s.words(now)) }))
 }
 
+/// One of the site's copies of a TSM file, as the browser received it from `web/worker`.
+pub struct SiteFile {
+    pub status: u16,
+    pub body: String,
+    /// `X-Craftski-Fetched-At`: when the site downloaded its copy.
+    pub fetched_at: Option<String>,
+    /// `X-Craftski-Stale`: why the site served a copy past due, "rate-limited" or "unreachable".
+    pub stale: Option<String>,
+}
+
+/// The site's paths for `house`'s two files for `side`: the realm's, then the region's.
+pub fn site_paths(house: PublicHouse, side: Side) -> [String; 2] {
+    let region = house.region.slug();
+    [format!("/prices/{region}/realm/{}-{}.csv", house.realm.slug(), side.name().to_lowercase()), format!("/prices/{region}/region.csv")]
+}
+
+/// `house`'s prices for `side` from the site's copies of its realm and region files. A copy the
+/// site served past due gives a warning; Err when either file has no copy.
+pub fn from_site(house: PublicHouse, side: Side, realm: SiteFile, region: SiteFile, now: u64) -> Result<(PriceBook, Read), String> {
+    let text = |file: &SiteFile| match file.status {
+        200 => Ok(()),
+        404 => Err("TSM publishes no public data for this auction house".to_string()),
+        status => Err(format!("TSM public data: {}", Some(file.body.trim()).filter(|b| !b.is_empty()).map_or_else(|| format!("HTTP {status}"), str::to_string))),
+    };
+    text(&realm)?;
+    text(&region)?;
+    let warning = [&realm, &region].into_iter().find_map(|f| {
+        let why = if f.stale.as_deref() == Some("rate-limited") { "rate-limited" } else { "unreachable" };
+        // JavaScript's ISO times carry milliseconds.
+        let age = f.fetched_at.as_deref().and_then(|t| iso_secs(&format!("{}Z", t.get(..19)?))).map(|at| now.saturating_sub(at));
+        f.stale.as_ref().map(|_| format!("TSM public data {why}, showing prices from {}", age.map_or_else(|| "earlier".into(), overview::ago)))
+    });
+    let (region, region_updated) = parse_region(&region.body).map_err(|e| format!("TSM public data, region: {e}"))?;
+    let realm = parse_realm(&realm.body).map_err(|e| format!("TSM public data, realm: {e}"))?;
+    Ok((book(house, side, realm, region, region_updated), Read { at: crate::platform::now(), modified: None, warning }))
+}
+
 fn book(house: PublicHouse, side: Side, realm: RealmBook, region: HashMap<u32, RegionPrice>, region_updated: Option<u64>) -> PriceBook {
     let scope = house.scope(side);
     let mut book = PriceBook::default();
@@ -523,5 +560,28 @@ mod tests {
         assert_eq!(limited.words(now), "TSM public data rate-limited, retrying in 52 min");
         assert_eq!(unreachable.words(now), "TSM public data unreachable, showing prices from 3 hours ago");
         assert_eq!(Stale { age: None, ..unreachable }.words(now), "TSM public data unreachable, retrying in 5 min");
+    }
+
+    #[test]
+    fn the_site_serves_each_house_and_its_region_by_slug() {
+        let rp = PublicHouse { region: Region::Us, realm: ForeverRealm::RoleplayPvp };
+        assert_eq!(site_paths(rp, Side::Alliance), ["/prices/us/realm/roleplay-pvp-alliance.csv".to_string(), "/prices/us/region.csv".to_string()]);
+    }
+
+    #[test]
+    fn the_sites_copies_price_the_house_and_a_late_copy_says_how_old_it_is() {
+        let house = PublicHouse { region: Region::Eu, realm: ForeverRealm::PvP };
+        let file = |status: u16, body: &str, stale: Option<&str>| SiteFile { status, body: body.into(), fetched_at: Some("2026-11-08T19:00:00.000Z".into()), stale: stale.map(String::from) };
+        let now = iso_secs("2026-11-08T22:00:00Z").unwrap();
+        let (book, read) = from_site(house, Side::Horde, file(200, REALM, None), file(200, REGION, None), now).unwrap();
+        assert_eq!((book.realm().map(|(name, _)| name), book.realm_price(2318).and_then(|p| p.min_buyout), book.region.len(), read.warning), (Some("PvP-Horde"), Some(Copper(28)), 3, None));
+
+        let (_, read) = from_site(house, Side::Horde, file(200, REALM, None), file(200, REGION, Some("rate-limited")), now).unwrap();
+        assert_eq!(read.warning.as_deref(), Some("TSM public data rate-limited, showing prices from 3 hours ago"));
+
+        let missing = from_site(house, Side::Horde, file(404, "", None), file(200, REGION, None), now).err();
+        let held = from_site(house, Side::Horde, file(200, REALM, None), file(503, "TSM is rate-limiting downloads; no copy of this file yet.\n", None), now).err();
+        assert_eq!(missing.as_deref(), Some("TSM publishes no public data for this auction house"));
+        assert_eq!(held.as_deref(), Some("TSM public data: TSM is rate-limiting downloads; no copy of this file yet."));
     }
 }

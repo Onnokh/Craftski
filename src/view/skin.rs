@@ -1,27 +1,30 @@
 //! The game's art as widgets draw it: one decoded image per piece, and the layers that lay
 //! them behind an element. A widget whose pieces have not decoded draws its flat look.
 
-use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rune::{Align, El, Image, ImageCache, Pixels, SurfaceFit, el};
 
-use crate::skin::{self, Piece};
+use crate::skin::{self, Art, Piece};
 
 static ART: [OnceLock<Image>; skin::COUNT] = [const { OnceLock::new() }; skin::COUNT];
 static SHOWN: AtomicU64 = AtomicU64::new(0);
 const _: () = assert!(skin::COUNT <= u64::BITS as usize);
 
-/// Decodes the piece cached at `path`, once per process.
-pub fn show(cache: &ImageCache, piece: Piece, path: &Path) {
-    ART[piece.index()].get_or_init(|| {
-        let (w, h) = piece.size();
-        cache.file(path, w.max(h), 2.0)
+/// Decodes the piece's art, once per process.
+pub fn show(cache: &ImageCache, piece: Piece, art: Art) {
+    ART[piece.index()].get_or_init(|| match art {
+        Art::File(path) => {
+            let (w, h) = piece.size();
+            cache.file(path, w.max(h), 2.0)
+        }
+        Art::Rgba(piece) => cache.rgba(piece.width, piece.height, piece.pixels),
     });
 }
 
 /// Waits for every piece shown so far to decode, for a snapshot.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn wait() {
     for image in ART.iter().filter_map(OnceLock::get) {
         let _ = image.wait();

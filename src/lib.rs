@@ -30,3 +30,5 @@ pub mod tooltip;
 pub mod vendor;
 pub mod view;
 pub mod wow;
+#[cfg(target_arch = "wasm32")]
+mod web;

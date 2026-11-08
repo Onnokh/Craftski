@@ -38,7 +38,7 @@ fn names_path(dir: &Path) -> PathBuf {
 }
 
 /// The 56 px rendition: rows draw icons at 22 pt, which is 44 px at scale 2.
-fn image_url(name: &str) -> String {
+pub fn image_url(name: &str) -> String {
     format!("https://wow.zamimg.com/images/wow/icons/large/{name}.jpg")
 }
 
