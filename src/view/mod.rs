@@ -1,11 +1,12 @@
 mod detail;
+mod flips;
 mod header;
 mod rail;
 mod table;
 mod toolbar;
 mod widgets;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -14,6 +15,7 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 
 use crate::icons;
 use crate::market::{self, Market};
+use crate::merchants::{self, Catalog};
 use crate::overview::{Overview, overview};
 use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
@@ -22,7 +24,14 @@ use crate::theme::{self, p};
 
 const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    Crafts,
+    Flips,
+}
+
 pub struct App {
+    tab: Tab,
     load: Load,
     /// The loader thread's messages, until it finishes.
     inbox: Option<Receiver<Msg>>,
@@ -34,6 +43,7 @@ pub struct App {
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,
+    flips: flips::State,
 }
 
 enum Load {
@@ -44,6 +54,7 @@ enum Load {
 
 enum Msg {
     Market(Box<Result<Market, String>>),
+    Catalog(Box<Result<Catalog, String>>),
     Icon(FileDataId, PathBuf),
     Rail(&'static str, RailImage),
 }
@@ -113,6 +124,7 @@ impl Dims {
 impl App {
     pub fn new() -> App {
         App {
+            tab: Tab::Crafts,
             load: Load::Loading,
             inbox: None,
             icons: Icons::default(),
@@ -122,6 +134,7 @@ impl App {
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
             search: TextEdit::new(""),
+            flips: flips::State::new(),
         }
     }
 
@@ -199,20 +212,28 @@ pub fn setup(s: &mut App, wake: Waker) {
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
         send(Msg::Market(Box::new(market)));
         fetch_rail(|name, image| send(Msg::Rail(name, image)));
-        match icons::prefetch(&ids, |id, path| send(Msg::Icon(id, path))) {
-            Ok(report) if !report.failed.is_empty() => eprintln!("{} of {} icons failed, first: {}", report.failed.len(), report.icons, report.failed[0].1),
-            Ok(_) => {}
-            Err(e) => eprintln!("icons not fetched: {e}"),
-        }
+        prefetch(&ids, |id, path| send(Msg::Icon(id, path)));
+        let catalog = merchants::load();
+        let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
+        send(Msg::Catalog(Box::new(catalog)));
+        prefetch(&ids, |id, path| send(Msg::Icon(id, path)));
     });
 }
 
-/// The rail's profession icons: the covered one as it is, the rest greyed.
+fn prefetch(ids: &BTreeSet<FileDataId>, on_ready: impl Fn(FileDataId, PathBuf) + Sync) {
+    match icons::prefetch(ids, on_ready) {
+        Ok(report) if !report.failed.is_empty() => eprintln!("{} of {} icons failed, first: {}", report.failed.len(), report.icons, report.failed[0].1),
+        Ok(_) => {}
+        Err(e) => eprintln!("icons not fetched: {e}"),
+    }
+}
+
+/// The rail's icons: the covered profession and the flips coin as they are, the rest greyed.
 fn fetch_rail(on_ready: impl Fn(&'static str, RailImage)) {
-    let names: Vec<&str> = rail::ICONS.iter().map(|(_, name)| *name).collect();
-    for ((name, result), (_, icon)) in icons::fetch_named(&names).into_iter().zip(rail::ICONS) {
+    let names: Vec<&'static str> = rail::ICONS.iter().map(|(_, name)| *name).chain([rail::COIN]).collect();
+    for ((name, result), icon) in icons::fetch_named(&names).into_iter().zip(names.iter().copied()) {
         let image = result.and_then(|path| {
-            if icon == rail::ACTIVE {
+            if icon == rail::ACTIVE || icon == rail::COIN {
                 Ok(RailImage::File(path))
             } else {
                 icons::decode_dimmed(&path).map(|(w, h, rgba)| RailImage::Dimmed(w, h, rgba))
@@ -231,6 +252,7 @@ pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
     loop {
         match rx.try_recv() {
             Ok(Msg::Market(result)) => s.land(*result),
+            Ok(Msg::Catalog(result)) => s.land_catalog(*result),
             Ok(Msg::Icon(id, path)) => s.icons.show(id, &path),
             Ok(Msg::Rail(name, image)) => s.icons.show_rail(name, image),
             Err(TryRecvError::Empty) => break,
@@ -247,8 +269,26 @@ pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
     changed
 }
 
-/// Ctrl+K finds, Escape clears the search, and the arrow keys walk the rows.
+/// Ctrl+K finds, Escape closes the zone menu or clears the search, and the arrow keys walk the
+/// rows, all on the open tab.
 pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.tab == Tab::Flips {
+        let f = &mut s.flips;
+        if ev.is_command('k') {
+            f.search.focused = true;
+            return true;
+        }
+        return match ev.key {
+            Key::Escape if f.close_menu() => true,
+            Key::Escape if !f.search.text.is_empty() => {
+                f.clear_search();
+                true
+            }
+            Key::Down => f.step(1, tx),
+            Key::Up => f.step(-1, tx),
+            _ => false,
+        };
+    }
     if ev.is_command('k') {
         s.search.focused = true;
         return true;
@@ -269,6 +309,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let main = match &s.load {
         Load::Loading => message("Loading TSM prices and recipes..."),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
+        Load::Ready(_) if s.tab == Tab::Flips => flips::main(s, d),
         Load::Ready(r) => row()
             .grow(1.0)
             .h_full()
@@ -285,7 +326,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             )
             .child(detail::detail(s, r, d)),
     };
-    row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main)
+    let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
+    if s.tab == Tab::Flips { flips::overlay(s).into_iter().fold(root, |r, e| r.child(e)) } else { root }
 }
 
 fn message(m: &str) -> El {
@@ -300,12 +342,30 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 pub fn scene_loaded(s: &mut App) {
     s.land(market::load());
     let Load::Ready(r) = &s.load else { return };
+    show_icons(s, icons::referenced(&r.market.recipes));
+}
+
+/// The flips tab in Thunder Bluff, priced as the window would price it.
+pub fn scene_flips(s: &mut App) {
+    s.tab = Tab::Flips;
+    s.land(market::load());
+    let catalog = merchants::load();
+    let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
+    s.land_catalog(catalog);
+    show_icons(s, ids);
+}
+
+/// The flips tab with the zone menu open.
+pub fn scene_zones(s: &mut App) {
+    scene_flips(s);
+    s.flips.open_menu();
+}
+
+fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     let (tx, rx) = mpsc::channel();
-    if let Err(e) = icons::prefetch(&icons::referenced(&r.market.recipes), |id, path| {
+    prefetch(&ids, |id, path| {
         let _ = tx.send((id, path));
-    }) {
-        eprintln!("icons not fetched: {e}");
-    }
+    });
     drop(tx);
     s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
     for (id, path) in rx {
