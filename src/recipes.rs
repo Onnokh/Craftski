@@ -292,7 +292,8 @@ pub fn join(t: &Tables, profession: Profession) -> Result<Vec<Recipe>, String> {
         if !spells.contains_key(&spell) || num::<u32>(effect)? != CREATE_ITEM {
             return Ok(());
         }
-        let candidate = (num(index)?, num(item)?, num(qty)?);
+        // Spells such as Minor Wizard Oil name no amount and still make one.
+        let candidate = (num(index)?, num(item)?, num::<f32>(qty)?.max(1.0));
         let slot = creates.entry(spell).or_insert(candidate);
         if candidate.0 < slot.0 {
             *slot = candidate;
@@ -507,7 +508,7 @@ mod tests {
                            10,0,24,4234,1,3818\n\
                            11,1,24,15407,2,19047\n\
                            12,0,6,0,5,19047\n\
-                           13,0,24,2862,1,2660\n\
+                           13,0,24,2862,0,2660\n\
                            14,0,24,1234,1,9999\n\
                            15,0,24,8170,1,44953\n"
                 .into(),
@@ -598,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn joins_only_the_skill_lines_of_the_profession_asked_for() {
+    fn joins_only_the_skill_lines_of_the_profession_asked_for_reading_no_amount_as_one() {
         assert_eq!(join(&tables(), Profession::Blacksmithing).unwrap(), vec![Recipe {
             spell_id: 2660,
             item_id: 2862,
