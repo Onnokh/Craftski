@@ -60,7 +60,7 @@ pub fn evaluate(recipe: &Recipe, book: &PriceBook, source: PriceSource) -> Evalu
 mod tests {
     use super::*;
     use crate::prices::{RealmPrice, RegionPrice};
-    use crate::recipes::Reagent;
+    use crate::recipes::{Quality, Reagent};
 
     fn book() -> PriceBook {
         let mut b = PriceBook::default();
@@ -74,8 +74,8 @@ mod tests {
     }
 
     fn cured_rugged_hide() -> Recipe {
-        let reagent = |item_id, count| Reagent { item_id, item_name: String::new(), icon: None, count };
-        Recipe { spell_id: 19047, item_id: 15407, item_name: "Cured Rugged Hide".into(), icon: None, quantity: 2.0, skill: None, reagents: vec![reagent(8171, 2), reagent(15409, 1)] }
+        let reagent = |item_id, count| Reagent { item_id, item_name: String::new(), quality: Quality::Common, icon: None, count };
+        Recipe { spell_id: 19047, item_id: 15407, item_name: "Cured Rugged Hide".into(), quality: Quality::Common, slot: None, icon: None, quantity: 2.0, skill: None, reagents: vec![reagent(8171, 2), reagent(15409, 1)] }
     }
 
     #[test]

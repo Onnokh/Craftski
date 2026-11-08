@@ -164,7 +164,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recipes::Reagent;
+    use crate::recipes::{Quality, Reagent};
 
     #[test]
     fn names_an_icon_from_its_content_disposition() {
@@ -185,11 +185,13 @@ mod tests {
 
     #[test]
     fn references_crafted_and_reagent_icons_once_each() {
-        let reagent = |item_id, icon: Option<u32>| Reagent { item_id, item_name: String::new(), icon: icon.map(FileDataId), count: 1 };
+        let reagent = |item_id, icon: Option<u32>| Reagent { item_id, item_name: String::new(), quality: Quality::Common, icon: icon.map(FileDataId), count: 1 };
         let recipe = |spell_id, icon: Option<u32>, reagents| Recipe {
             spell_id,
             item_id: spell_id,
             item_name: String::new(),
+            quality: Quality::Common,
+            slot: None,
             icon: icon.map(FileDataId),
             quantity: 1.0,
             skill: None,

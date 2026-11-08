@@ -31,6 +31,10 @@ pub struct PriceBook {
     /// Newest `downloadTime` (unix seconds) among the blocks feeding each map.
     pub realm_updated: Option<u64>,
     pub region_updated: Option<u64>,
+    /// The `LoadData` scope feeding each map: a realm such as "PvP-Horde", a region such as
+    /// "Forever-EU".
+    pub realm_scope: Option<String>,
+    pub region_scope: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,11 +158,23 @@ fn parse_block(line: &str, book: &mut PriceBook) -> Result<(), String> {
         }
     }
 
+    let region = stats.iter().flatten().any(|s| s.is_region());
     if let Some(time) = time {
-        let updated = if stats.iter().flatten().any(|s| s.is_region()) { &mut book.region_updated } else { &mut book.realm_updated };
+        let updated = if region { &mut book.region_updated } else { &mut book.realm_updated };
         *updated = (*updated).max(Some(time));
     }
+    if let Some(scope) = scope(line) {
+        let slot = if region { &mut book.region_scope } else { &mut book.realm_scope };
+        slot.get_or_insert_with(|| scope.to_owned());
+    }
     Ok(())
+}
+
+/// The second `LoadData` argument: `LoadData("BLOCK","PvP-Horde",[[...`.
+fn scope(line: &str) -> Option<&str> {
+    let args = &line[line.find("LoadData(")? + "LoadData(".len()..line.find("[[")?];
+    let scope = args.split(',').nth(1)?.trim().trim_matches('"');
+    (!scope.is_empty()).then_some(scope)
 }
 
 fn between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
@@ -199,6 +215,7 @@ select(2, ...).LoadData("APP_INFO","Global",[[return {version="1.0.9",lastSync=1
         assert_eq!(book.region.len(), 1);
         assert_eq!(book.region[&2318], RegionPrice { sale_avg: Some(Copper(29)), sold_per_day: Some(9130.56), sale_rate: Some(0.96), ..Default::default() });
         assert_eq!((book.realm_updated, book.region_updated), (Some(1_794_129_134), Some(1_794_099_200)));
+        assert_eq!((book.realm_scope.as_deref(), book.region_scope.as_deref()), (Some("PvP-Horde"), Some("Forever-EU")));
     }
 
     #[test]

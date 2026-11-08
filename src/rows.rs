@@ -111,10 +111,10 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
 mod tests {
     use super::*;
     use crate::copper::Copper;
-    use crate::recipes::Skill;
+    use crate::recipes::{Quality, Skill};
 
     fn recipe(spell_id: u32, name: &str, skill: u16) -> Recipe {
-        Recipe { spell_id, item_id: spell_id, item_name: name.into(), icon: None, quantity: 1.0, skill: Some(Skill { learn: skill, grey: skill + 10 }), reagents: vec![] }
+        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: Some(Skill { learn: skill, grey: skill + 10 }), reagents: vec![] }
     }
 
     fn eval(profit: Option<i64>, sold: Option<f64>) -> Evaluation {

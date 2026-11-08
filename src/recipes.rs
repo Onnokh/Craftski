@@ -22,10 +22,117 @@ pub const BUILD: &str = "1.60.1.70862";
 #[serde(transparent)]
 pub struct FileDataId(pub u32);
 
+/// `ItemSparse.OverallQualityID`, the colour an item's name shows in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Quality {
+    Poor,
+    #[default]
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary,
+    Artifact,
+    Heirloom,
+}
+
+impl Quality {
+    pub fn from_id(id: u8) -> Option<Quality> {
+        use Quality::*;
+        [Poor, Common, Uncommon, Rare, Epic, Legendary, Artifact, Heirloom].get(usize::from(id)).copied()
+    }
+}
+
+/// Where an item is worn or held, from `ItemSparse.InventoryType`, as the tooltip names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Slot {
+    Head,
+    Neck,
+    Shoulder,
+    Shirt,
+    Chest,
+    Waist,
+    Legs,
+    Feet,
+    Wrist,
+    Hands,
+    Finger,
+    Trinket,
+    Weapon,
+    Shield,
+    Ranged,
+    Cloak,
+    Bag,
+    Tabard,
+    HeldInOffHand,
+    Ammo,
+    Quiver,
+    Relic,
+}
+
+impl Slot {
+    pub fn from_inventory_type(id: u8) -> Option<Slot> {
+        use Slot::*;
+        Some(match id {
+            1 => Head,
+            2 => Neck,
+            3 => Shoulder,
+            4 => Shirt,
+            5 | 20 => Chest,
+            6 => Waist,
+            7 => Legs,
+            8 => Feet,
+            9 => Wrist,
+            10 => Hands,
+            11 => Finger,
+            12 => Trinket,
+            13 | 17 | 21 | 22 => Weapon,
+            14 => Shield,
+            15 | 25 | 26 => Ranged,
+            16 => Cloak,
+            18 => Bag,
+            19 => Tabard,
+            23 => HeldInOffHand,
+            24 => Ammo,
+            27 => Quiver,
+            28 => Relic,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Slot::Head => "Head",
+            Slot::Neck => "Neck",
+            Slot::Shoulder => "Shoulder",
+            Slot::Shirt => "Shirt",
+            Slot::Chest => "Chest",
+            Slot::Waist => "Waist",
+            Slot::Legs => "Legs",
+            Slot::Feet => "Feet",
+            Slot::Wrist => "Wrist",
+            Slot::Hands => "Hands",
+            Slot::Finger => "Finger",
+            Slot::Trinket => "Trinket",
+            Slot::Weapon => "Weapon",
+            Slot::Shield => "Shield",
+            Slot::Ranged => "Ranged",
+            Slot::Cloak => "Cloak",
+            Slot::Bag => "Bag",
+            Slot::Tabard => "Tabard",
+            Slot::HeldInOffHand => "Held in off-hand",
+            Slot::Ammo => "Ammo",
+            Slot::Quiver => "Quiver",
+            Slot::Relic => "Relic",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Reagent {
     pub item_id: u32,
     pub item_name: String,
+    pub quality: Quality,
     pub icon: Option<FileDataId>,
     pub count: u32,
 }
@@ -35,6 +142,9 @@ pub struct Recipe {
     pub spell_id: u32,
     pub item_id: u32,
     pub item_name: String,
+    pub quality: Quality,
+    /// None for items that are not worn or held, such as leather and armor kits.
+    pub slot: Option<Slot>,
     pub icon: Option<FileDataId>,
     pub quantity: f32,
     /// None where the data has no ranks for the recipe, as for Winter Boots.
@@ -121,31 +231,45 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         .iter()
         .filter_map(|(&spell_id, &skill)| {
             let (_, item_id, quantity) = *creates.get(&spell_id)?;
-            let reagents = reagents.remove(&spell_id)?.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: String::new(), icon: None, count }).collect();
-            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), icon: None, quantity, skill, reagents })
+            let reagents = reagents
+                .remove(&spell_id)?
+                .into_iter()
+                .map(|(item_id, count)| Reagent { item_id, item_name: String::new(), quality: Quality::Common, icon: None, count })
+                .collect();
+            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), quality: Quality::Common, slot: None, icon: None, quantity, skill, reagents })
         })
         .collect();
 
     let wanted: BTreeSet<u32> = recipes.iter().flat_map(|r| std::iter::once(r.item_id).chain(r.reagents.iter().map(|g| g.item_id))).collect();
-    let mut names: BTreeMap<u32, String> = BTreeMap::new();
-    each_row(&t.item_sparse, "ItemSparse", ["ID", "Display_lang"], |[id, name]| {
+    let mut facts: BTreeMap<u32, ItemFacts> = BTreeMap::new();
+    each_row(&t.item_sparse, "ItemSparse", ["ID", "Display_lang", "OverallQualityID", "InventoryType"], |[id, name, quality, slot]| {
         let id = num(id)?;
         if wanted.contains(&id) {
-            names.insert(id, name.to_owned());
+            let quality = Quality::from_id(num(quality)?).unwrap_or_default();
+            facts.insert(id, ItemFacts { name: name.to_owned(), quality, slot: Slot::from_inventory_type(num(slot)?) });
         }
         Ok(())
     })?;
     let icon = icons(t, &wanted)?;
-    let name = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("Item #{id}"));
+    let unknown = |id: u32| ItemFacts { name: format!("Item #{id}"), quality: Quality::Common, slot: None };
     for r in &mut recipes {
-        r.item_name = name(r.item_id);
+        let f = facts.get(&r.item_id).cloned().unwrap_or_else(|| unknown(r.item_id));
+        (r.item_name, r.quality, r.slot) = (f.name, f.quality, f.slot);
         r.icon = icon.get(&r.item_id).copied();
         for g in &mut r.reagents {
-            g.item_name = name(g.item_id);
+            let f = facts.get(&g.item_id).cloned().unwrap_or_else(|| unknown(g.item_id));
+            (g.item_name, g.quality) = (f.name, f.quality);
             g.icon = icon.get(&g.item_id).copied();
         }
     }
     Ok(recipes)
+}
+
+#[derive(Clone)]
+struct ItemFacts {
+    name: String,
+    quality: Quality,
+    slot: Option<Slot>,
 }
 
 /// Each wanted item's icon: its own, else its base appearance's, as the client resolves it.
@@ -207,7 +331,7 @@ fn num<T: FromStr>(s: &str) -> Result<T, String> {
 }
 
 /// Bump when `Recipe` changes shape, so a file an older version wrote is never read.
-const CACHE_SCHEMA: &str = "v3";
+const CACHE_SCHEMA: &str = "v4";
 
 #[derive(Serialize, Deserialize)]
 struct Cache {
@@ -289,12 +413,12 @@ mod tests {
                              3,7777,2319,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0\n\
                              4,44953,2319,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0\n"
                 .into(),
-            item_sparse: "ID,Description_lang,Display_lang\n\
-                          4234,,\"Heavy Leather\"\n\
-                          2319,\"Soft, supple\",\"Medium Leather\"\n\
-                          15407,,\"Cured Rugged Hide\"\n\
-                          8171,,\"Rugged Hide\"\n\
-                          8170,,\"Light Leather\"\n"
+            item_sparse: "ID,Description_lang,Display_lang,InventoryType,OverallQualityID\n\
+                          4234,,\"Heavy Leather\",0,1\n\
+                          2319,\"Soft, supple\",\"Medium Leather\",0,1\n\
+                          15407,,\"Cured Rugged Hide\",16,3\n\
+                          8171,,\"Rugged Hide\",0,2\n\
+                          8170,,\"Light Leather\",0,9\n"
                 .into(),
             item: "ID,ClassID,IconFileDataID\n\
                    4234,7,134256\n\
@@ -321,36 +445,49 @@ mod tests {
     #[test]
     fn joins_create_item_effects_with_reagents_icons_and_ranks_for_the_profession() {
         let recipes = join(&tables(), &LEATHERWORKING).unwrap();
-        let reagent = |item_id, name: &str, icon: Option<u32>, count| Reagent { item_id, item_name: name.into(), icon: icon.map(FileDataId), count };
+        let reagent = |item_id, name: &str, quality, icon: Option<u32>, count| Reagent { item_id, item_name: name.into(), quality, icon: icon.map(FileDataId), count };
         assert_eq!(recipes, vec![
             Recipe {
                 spell_id: 3818,
                 item_id: 4234,
                 item_name: "Heavy Leather".into(),
+                quality: Quality::Common,
+                slot: None,
                 icon: Some(FileDataId(134256)),
                 quantity: 1.0,
                 skill: Some(Skill { learn: 125, grey: 135 }),
-                reagents: vec![reagent(2319, "Medium Leather", Some(134254), 5)],
+                reagents: vec![reagent(2319, "Medium Leather", Quality::Common, Some(134254), 5)],
             },
             Recipe {
                 spell_id: 19047,
                 item_id: 15407,
                 item_name: "Cured Rugged Hide".into(),
+                quality: Quality::Rare,
+                slot: Some(Slot::Cloak),
                 icon: Some(FileDataId(134255)),
                 quantity: 2.0,
                 skill: Some(Skill { learn: 250, grey: 270 }),
-                reagents: vec![reagent(8171, "Rugged Hide", Some(134257), 1), reagent(15409, "Item #15409", None, 1)],
+                reagents: vec![reagent(8171, "Rugged Hide", Quality::Uncommon, Some(134257), 1), reagent(15409, "Item #15409", Quality::Common, None, 1)],
             },
             Recipe {
                 spell_id: 44953,
                 item_id: 8170,
                 item_name: "Light Leather".into(),
+                quality: Quality::Common,
+                slot: None,
                 icon: Some(FileDataId(134251)),
                 quantity: 1.0,
                 skill: None,
-                reagents: vec![reagent(2319, "Medium Leather", Some(134254), 3)],
+                reagents: vec![reagent(2319, "Medium Leather", Quality::Common, Some(134254), 3)],
             },
         ]);
+    }
+
+    #[test]
+    fn quality_and_slot_ids_map_as_the_client_names_them() {
+        assert_eq!([0, 2, 4, 7, 8].map(Quality::from_id), [Some(Quality::Poor), Some(Quality::Uncommon), Some(Quality::Epic), Some(Quality::Heirloom), None]);
+        let slot = |id| Slot::from_inventory_type(id).map(Slot::name);
+        assert_eq!([16, 20, 10, 18, 0, 29].map(slot), [Some("Cloak"), Some("Chest"), Some("Hands"), Some("Bag"), None, None]);
     }
 
     #[test]
