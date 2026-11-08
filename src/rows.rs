@@ -131,6 +131,7 @@ mod tests {
         assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Profit, descending: true }), vec![3, 0, 2, 1]);
         assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Profit, descending: false }), vec![2, 0, 3, 1]);
         assert_eq!(visible(&r, &e, ALL, Sort { column: Column::SoldPerDay, descending: false }), vec![3, 0, 1, 2]);
+        assert_eq!(visible(&r, &e, ALL, Sort { column: Column::SoldPerDay, descending: true }), vec![1, 0, 3, 2]);
     }
 
     #[test]

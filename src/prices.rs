@@ -69,17 +69,17 @@ impl Stat {
     }
 
     fn apply(self, book: &mut PriceBook, id: u32, raw: u64) {
-        // TSM writes 0 where it has no price, so a zero price is a missing one.
+        // TSM writes 0 where it has no data, so a zero price or sale rate is a missing one.
         let price = (raw > 0).then_some(Copper(raw));
-        let thousandths = raw as f64 / 1000.0;
+        let thousandths = (raw > 0).then_some(raw as f64 / 1000.0);
         if self.is_region() {
             let p = book.region.entry(id).or_default();
             match self {
                 Stat::RegionMarketValue => p.market_value = price,
                 Stat::RegionHistorical => p.historical = price,
                 Stat::RegionSale => p.sale_avg = price,
-                Stat::RegionSoldPerDay => p.sold_per_day = Some(thousandths),
-                _ => p.sale_rate = Some(thousandths),
+                Stat::RegionSoldPerDay => p.sold_per_day = thousandths,
+                _ => p.sale_rate = thousandths,
             }
         } else {
             let p = book.realm.entry(id).or_default();
@@ -199,6 +199,14 @@ select(2, ...).LoadData("APP_INFO","Global",[[return {version="1.0.9",lastSync=1
         assert_eq!(book.region.len(), 1);
         assert_eq!(book.region[&2318], RegionPrice { sale_avg: Some(Copper(29)), sold_per_day: Some(9130.56), sale_rate: Some(0.96), ..Default::default() });
         assert_eq!((book.realm_updated, book.region_updated), (Some(1_794_129_134), Some(1_794_099_200)));
+    }
+
+    #[test]
+    fn a_zero_sale_rate_is_unknown_like_a_zero_price() {
+        let src = r#"x[[return {downloadTime=1,fields={"itemString","regionSale","regionSoldPerDay","regionSalePercent"},data={{2319,T,0,0},{2318,0,8MKI0,U0}}}]]"#;
+        let book = parse(src).unwrap();
+        assert_eq!(book.region[&2319], RegionPrice { sale_avg: Some(Copper(29)), sold_per_day: None, sale_rate: None, ..Default::default() });
+        assert_eq!(book.region[&2318], RegionPrice { sale_avg: None, sold_per_day: Some(9130.56), sale_rate: Some(0.96), ..Default::default() });
     }
 
     #[test]
