@@ -7,9 +7,9 @@ use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, Span, col, el, row, text};
 use super::{Stocked, row_key};
 use crate::copper::Copper;
 use crate::flip_rows::{Column, Row};
-use crate::rows::{self, per_day};
+use crate::rows;
 use crate::theme::{self, p};
-use crate::view::widgets::{Money, flexible, hidden_hint, icon_frame, unknown};
+use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, sold_per_day, unknown};
 use crate::view::{App, Dims};
 
 const ROW: f32 = 32.0;
@@ -61,10 +61,8 @@ fn head(s: &App, d: Dims) -> El {
     let sort = s.flips.sort;
     let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().line);
     for (column, width) in columns(d) {
-        let sorted = sort.column == column;
-        let title = if sorted { format!("{} {}", column.title(), if sort.descending { "↓" } else { "↑" }) } else { column.title().to_string() };
-        let label = text(title).font(theme::LABEL).color(if sorted { p().text } else { p().muted });
-        out = out.child(cell(column, width).child(label).role("columnheader").cursor(Cursor::Pointer).on_press(move |s: &mut App| {
+        let descending = (sort.column == column).then_some(sort.descending);
+        out = out.child(cell(column, width).child(column_title(column.title(), descending)).role("columnheader").cursor(Cursor::Pointer).on_press(move |s: &mut App| {
             s.flips.sort = s.flips.sort.clicked(column);
             s.flips.refilter();
         }));
@@ -116,7 +114,7 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
             Column::DepositLoss => flip.deposit.loss.map_or_else(unknown, |l| money.show(Copper(l.round() as u64))),
             Column::Profit => flip.profit.map_or_else(unknown, |pr| Money::new(theme::BODY_STRONG, p().text).short().signed(pr)),
             Column::SaleRate => flip.sale_rate.map_or_else(unknown, |r| number(format!("{:.0}%", r * 100.0))),
-            Column::SoldPerDay => flip.sold_per_day.map_or_else(unknown, |v| number(per_day(v))),
+            Column::SoldPerDay => sold_per_day(flip.sold_per_day),
             Column::Limit => flip.limit.map_or_else(unknown, |l| number(l.to_string())),
         };
         out = out.child(cell(column, width).child(content));
