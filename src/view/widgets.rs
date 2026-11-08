@@ -230,18 +230,16 @@ pub fn wowhead<S: 'static>(url: String) -> El {
 }
 
 /// A table row's box: hovered faintly, and when `selected` tinted warm under the game's
-/// selection glow, or without the art a brass edge. The mark is always the first child, an
-/// empty one when unselected, so the cells after it keep their places as the selection moves
-/// and each animates as itself.
+/// selection glow, or without the art a brass edge. Every row has the mark, as its first
+/// child, and only a selected one shows it: the selection moving fades it in place, where a
+/// mark that left the tree would fade out over the row's text, and the cells after it keep
+/// their places so each animates as itself.
 pub fn selectable_row(selected: bool) -> El {
     let out = row().w_full().hover(Color::WHITE.alpha(0.025));
-    let edge = || el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0);
-    if !selected {
-        return out.child(edge());
-    }
+    let shown = if selected { 1.0 } else { 0.0 };
     match skin::stretch(Piece::RowSelected) {
-        Some(glow) => out.fill(p().gold.alpha(0.05)).child(glow.dim(0.4)),
-        None => out.fill(p().selected).child(edge().fill(p().brass)),
+        Some(glow) => out.fill(p().gold.alpha(0.05 * shown)).child(glow.dim(0.5 * shown)),
+        None => out.fill(p().selected.alpha(shown)).child(el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(p().brass).dim(shown)),
     }
 }
 

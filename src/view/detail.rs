@@ -50,7 +50,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         .pt(16.0)
         .child(red_button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, None, 36.0, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
         .child(wowhead::<App>(wowhead_url(recipe.item_id)));
-    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().key("detail-body").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
+    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
 fn identity(s: &App, recipe: &Recipe) -> El {
