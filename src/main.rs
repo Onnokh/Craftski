@@ -17,6 +17,7 @@ mod merchants;
 mod overview;
 mod prices;
 mod profit;
+mod public_data;
 mod recipes;
 mod rows;
 mod settings;
@@ -110,7 +111,7 @@ fn appdata() -> Result<std::path::PathBuf, String> {
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
     let profession = settings::start_profession()?;
-    let m = market::load(&appdata()?, &settings::load_realm(), profession)?;
+    let m = market::load(&market::Origin::AppData(appdata()?), public_data::Refresh::IfDue, &settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: None, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;

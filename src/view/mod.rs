@@ -22,11 +22,12 @@ use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker,
 
 use crate::flips::Rules;
 use crate::icons;
-use crate::market::{self, Market};
+use crate::market::{self, Market, Origin};
 use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
 use crate::prices;
 use crate::profit::{self, Evaluation, PriceOrigin};
+use crate::public_data::Refresh;
 use crate::recipes::{self, FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
@@ -252,7 +253,7 @@ impl App {
         let Some(out) = self.outbox.clone() else { return };
         let (realm, profession) = (self.realm.clone(), self.profession);
         std::thread::spawn(move || {
-            let market = settled(|| market::load(&appdata, &realm, profession));
+            let market = settled(|| market::load(&Origin::AppData(appdata), Refresh::IfDue, &realm, profession));
             let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
             out.send(Msg::Market(profession, Box::new(market)));
             prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
@@ -602,7 +603,7 @@ pub fn scene_loaded(s: &mut App) {
 
 /// Prices read on this thread from the AppData.lua located, as the loader thread reads them.
 fn land_now(s: &mut App) {
-    let market = s.appdata_path().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|path| market::load(&path, &s.realm, s.profession));
+    let market = s.appdata_path().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|path| market::load(&Origin::AppData(path), Refresh::CacheOnly, &s.realm, s.profession));
     s.land(s.profession, market);
 }
 
@@ -837,7 +838,7 @@ mod tests {
     #[test]
     fn a_switch_drops_the_old_recipes_lands_only_the_new_professions_and_keeps_the_search() {
         let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
-        let market = |recipes| Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, recipes, "");
+        let market = |recipes| Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, recipes, "");
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let rows: Vec<&str> = r.rows.iter().map(|&i| r.market.recipes[i].item_name.as_str()).collect();
@@ -869,7 +870,7 @@ mod tests {
         let mut s = App::new();
         s.profession = Profession::Mining;
         let recipe = Recipe { spell_id: 1, item_id: 1, item_name: "Light Armor Kit".into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
-        s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, vec![recipe], "")));
+        s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe], "")));
         let r = s.ready().unwrap();
         assert_eq!((r.recipes == Recipes::Loading, r.market.recipes.len(), s.selected), (true, 0, None));
     }
