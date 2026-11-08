@@ -66,7 +66,8 @@ impl State {
             shelf: Shelf::Loading,
             zone: flip_rows::HOME.to_owned(),
             sort: Sort { column: Column::Profit, descending: true },
-            min_sold: 0,
+            // "1+": most vendor stock never sells, and with no sale rate its deposit loss is unknown.
+            min_sold: 1,
             hide_unprofitable: true,
             selected: None,
             search: TextEdit::new(""),
