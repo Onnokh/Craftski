@@ -22,11 +22,12 @@ use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker,
 
 use crate::flips::Rules;
 use crate::icons;
-use crate::market::{self, Market};
+use crate::market::{self, Market, Origin, PriceSource, Read};
 use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
-use crate::prices;
+use crate::prices::{self, PriceBook};
 use crate::profit::{self, Evaluation, PriceOrigin};
+use crate::public_data::{self, PublicHouse, Refresh};
 use crate::recipes::{self, FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
@@ -45,9 +46,13 @@ pub enum Tab {
 
 pub struct App {
     tab: Tab,
-    /// The AppData.lua prices come from, resolved once at start and on each folder the player
-    /// picks.
+    /// The AppData.lua prices come from under the desktop app source, resolved once at start
+    /// and on each folder the player picks.
     appdata: Option<AppData>,
+    /// Where prices come from: AppData.lua, or TSM's public data without the desktop app.
+    source: PriceSource,
+    /// A public data refresh is under way on a loader thread.
+    refreshing: bool,
     /// The folders looked in at start, shown while no AppData.lua was found.
     searched: Vec<PathBuf>,
     /// Why the last folder picked gave no AppData.lua.
@@ -88,15 +93,19 @@ pub struct App {
 
 enum Load {
     Loading,
-    /// No AppData.lua to read: none was found, or the one named is missing.
+    /// No AppData.lua to read under the desktop app source: none was found, or the one named is
+    /// missing.
     Unlocated,
     Failed(String),
     Ready(Box<Ready>),
 }
 
 enum Msg {
-    /// Prices with the recipes of the profession named, which the player may have left since.
-    Market(Profession, Box<Result<Market, String>>),
+    /// Prices from the origin named with the recipes of the profession named; the player may
+    /// have left either since.
+    Market(Origin, Profession, Box<Result<Market, String>>),
+    /// Prices read again from the origin named.
+    Prices(Origin, Box<Result<(PriceBook, Read), String>>),
     Recipes(Profession, Box<Result<Vec<Recipe>, String>>),
     Catalog(Box<Result<Catalog, String>>),
     Sheets(Box<Result<Sheets, String>>),
@@ -196,11 +205,14 @@ impl App {
     pub fn new() -> App {
         let profession = settings::start_profession().unwrap_or(Profession::Leatherworking);
         let appdata = wow::locate();
-        let readable = appdata.as_ref().is_some_and(|a| a.path.is_file());
+        let source = settings::load_source();
+        let readable = source != PriceSource::App || appdata.as_ref().is_some_and(|a| a.path.is_file());
         App {
             tab: Tab::Crafts,
             searched: if appdata.is_none() { wow::install_dirs() } else { Vec::new() },
             appdata,
+            source,
+            refreshing: false,
             folder_note: None,
             load: if readable { Load::Loading } else { Load::Unlocated },
             inbox: None,
@@ -229,7 +241,10 @@ impl App {
     /// have landed first.
     fn land(&mut self, profession: Profession, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, recipes: Recipes::Shown, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
+            Ok(market) => {
+                let reload_error = market.read.warning.clone();
+                Load::Ready(Box::new(Ready { market, recipes: Recipes::Shown, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error }))
+            }
             Err(e) => Load::Failed(e),
         };
         self.reprice_flips();
@@ -244,7 +259,11 @@ impl App {
     /// Reads TSM's prices with the shown profession's recipes on a loader thread, or asks for
     /// the folder when there is no AppData.lua to read.
     fn load_market(&mut self) {
-        let Some(appdata) = self.appdata.as_ref().map(|a| a.path.clone()).filter(|p| p.is_file()) else {
+        let origin = match self.origin() {
+            Some(Origin::AppData(path)) if !path.is_file() => None,
+            origin => origin,
+        };
+        let Some(origin) = origin else {
             self.load = Load::Unlocated;
             return;
         };
@@ -252,15 +271,30 @@ impl App {
         let Some(out) = self.outbox.clone() else { return };
         let (realm, profession) = (self.realm.clone(), self.profession);
         std::thread::spawn(move || {
-            let market = settled(|| market::load(&appdata, &realm, profession));
+            let market = settled(|| market::load(&origin, Refresh::IfDue, &realm, profession));
             let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
-            out.send(Msg::Market(profession, Box::new(market)));
+            out.send(Msg::Market(origin, profession, Box::new(market)));
             prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
         });
     }
 
-    fn appdata_path(&self) -> Option<PathBuf> {
-        self.appdata.as_ref().map(|a| a.path.clone())
+    /// What prices are read from: the AppData.lua located, or the public house for the
+    /// character's faction.
+    fn origin(&self) -> Option<Origin> {
+        match self.source {
+            PriceSource::App => self.appdata.as_ref().map(|a| Origin::AppData(a.path.clone())),
+            PriceSource::Public(house) => Some(Origin::Public(house, self.rules.side)),
+        }
+    }
+
+    /// Reads prices from `source` from now on, remembered for next time.
+    pub(super) fn set_source(&mut self, source: PriceSource) {
+        if source == self.source {
+            return;
+        }
+        settings::save_source(source);
+        self.source = source;
+        self.load_market();
     }
 
     fn select_first(&mut self) {
@@ -322,12 +356,39 @@ impl App {
     /// Reads TSM's prices again and reprices every recipe and flip. The selection, filters,
     /// tab and scroll stay; a failed read keeps the old prices and says why in the status bar.
     pub(super) fn reload(&mut self, appdata: &Path) {
+        self.land_prices(market::read_book(appdata).map_err(|e| format!("Reload failed: {e}")));
+    }
+
+    /// The status bar's Reload: AppData.lua read again now, or public data refreshed on a loader
+    /// thread as far as its download limits allow.
+    pub(super) fn reload_prices(&mut self) {
+        match self.origin() {
+            Some(Origin::AppData(path)) => self.reload(&path),
+            Some(origin) => self.refresh_public(origin, Refresh::Now),
+            None => {}
+        }
+    }
+
+    /// Reads public data again on a loader thread, unless a refresh is already under way.
+    fn refresh_public(&mut self, origin: Origin, refresh: Refresh) {
+        let Some(out) = self.outbox.clone().filter(|_| !self.refreshing) else { return };
+        self.refreshing = true;
+        std::thread::spawn(move || {
+            let prices = settled(|| market::read_prices(&origin, refresh));
+            out.send(Msg::Prices(origin, Box::new(prices)));
+        });
+    }
+
+    /// Reprices every recipe and flip from prices read again. The selection, filters, tab and
+    /// scroll stay; a failed read keeps the old prices and the status bar says why, as it does
+    /// a warning that came with the new ones.
+    fn land_prices(&mut self, result: Result<(PriceBook, Read), String>) {
         self.now = unix_secs(SystemTime::now());
         let Load::Ready(r) = &mut self.load else { return };
-        match market::read_book(appdata) {
+        match result {
             Ok((book, read)) => {
+                r.reload_error = read.warning.clone();
                 r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes), &self.realm);
-                r.reload_error = None;
             }
             Err(e) => {
                 r.reload_error = Some(e);
@@ -462,7 +523,7 @@ fn fetch_rail(on_ready: impl Fn(&'static str, PathBuf)) {
 }
 
 /// Lands the loader's messages, and on each new minute moves the clock the ages read from and
-/// reloads when TSM has rewritten AppData.lua.
+/// reloads when TSM has rewritten AppData.lua, or refreshes public data once a file is due.
 pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
     let landed = drain(s) | skin::newly_ready();
     let now = unix_secs(SystemTime::now());
@@ -470,8 +531,14 @@ pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
     let ticked = now / 60 != s.now / 60;
     if ticked {
         s.now = now;
-        if let Some(path) = s.appdata_path() {
-            s.reload_if_changed(&path);
+        match s.origin() {
+            Some(Origin::AppData(path)) => s.reload_if_changed(&path),
+            Some(origin @ Origin::Public(house, side)) if public_data::due(house, side, now) => match s.load {
+                Load::Ready(_) => s.refresh_public(origin, Refresh::IfDue),
+                Load::Failed(_) => s.load_market(),
+                _ => {}
+            },
+            _ => {}
         }
     }
     landed || ticked
@@ -484,7 +551,17 @@ fn drain(s: &mut App) -> bool {
     for m in rx.try_iter() {
         changed = true;
         match m {
-            Msg::Market(profession, result) => s.land(profession, *result),
+            Msg::Market(origin, profession, result) => {
+                if s.origin() == Some(origin) {
+                    s.land(profession, *result);
+                }
+            }
+            Msg::Prices(origin, result) => {
+                s.refreshing = false;
+                if s.origin() == Some(origin) {
+                    s.land_prices(*result);
+                }
+            }
             Msg::Recipes(profession, result) => s.land_recipes(profession, *result),
             Msg::Catalog(result) => s.land_catalog(*result),
             Msg::Sheets(result) => match *result {
@@ -600,9 +677,10 @@ pub fn scene_loaded(s: &mut App) {
     show_icons(s, icons::referenced(&r.market.recipes));
 }
 
-/// Prices read on this thread from the AppData.lua located, as the loader thread reads them.
+/// Prices read on this thread from where they come from, as the loader thread reads them, but
+/// public data from the cache alone.
 fn land_now(s: &mut App) {
-    let market = s.appdata_path().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|path| market::load(&path, &s.realm, s.profession));
+    let market = s.origin().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|origin| market::load(&origin, Refresh::CacheOnly, &s.realm, s.profession));
     s.land(s.profession, market);
 }
 
@@ -642,6 +720,18 @@ pub fn scene_flips_hidden(s: &mut App) {
 pub fn scene_settings(s: &mut App) {
     scene_flips(s);
     s.tab = Tab::Settings;
+}
+
+/// `loaded` priced from TSM's cached public data for EU PvP, the saved faction's house.
+pub fn scene_public(s: &mut App) {
+    s.source = PriceSource::Public(PublicHouse::default());
+    scene_loaded(s);
+}
+
+/// `settings` with TSM's cached public data for EU PvP chosen.
+pub fn scene_settings_public(s: &mut App) {
+    s.source = PriceSource::Public(PublicHouse::default());
+    scene_settings(s);
 }
 
 /// The flips tab with the zone menu open.
@@ -837,7 +927,7 @@ mod tests {
     #[test]
     fn a_switch_drops_the_old_recipes_lands_only_the_new_professions_and_keeps_the_search() {
         let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
-        let market = |recipes| Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, recipes, "");
+        let market = |recipes| Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, recipes, "");
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let rows: Vec<&str> = r.rows.iter().map(|&i| r.market.recipes[i].item_name.as_str()).collect();
@@ -869,7 +959,7 @@ mod tests {
         let mut s = App::new();
         s.profession = Profession::Mining;
         let recipe = Recipe { spell_id: 1, item_id: 1, item_name: "Light Armor Kit".into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
-        s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None }, vec![recipe], "")));
+        s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe], "")));
         let r = s.ready().unwrap();
         assert_eq!((r.recipes == Recipes::Loading, r.market.recipes.len(), s.selected), (true, 0, None));
     }
@@ -897,8 +987,44 @@ mod tests {
         s.reload(&missing);
         let (scope, updated, price, error) = seen(&s);
         assert_eq!((scope, updated, price), (Some("PvE-Horde".into()), Some(200), Some(Copper(249))));
-        assert!(error.is_some_and(|e| e.starts_with(&format!("reading {}: ", missing.display()))));
+        assert!(error.is_some_and(|e| e.starts_with(&format!("Reload failed: reading {}: ", missing.display()))));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn public_data_needs_no_appdata_and_lands_only_for_the_house_and_faction_in_use() {
+        use crate::merchants::Side;
+        use crate::public_data::{ForeverRealm, Region};
+        let mut s = App::new();
+        let house = PublicHouse { region: Region::Eu, realm: ForeverRealm::PvP };
+        (s.appdata, s.source, s.rules.side) = (None, PriceSource::Public(house), Side::Horde);
+        s.load_market();
+        assert!(matches!(s.load, Load::Loading));
+        s.source = PriceSource::App;
+        s.load_market();
+        assert!(matches!(s.load, Load::Unlocated));
+
+        s.source = PriceSource::Public(house);
+        s.land(s.profession, Ok(Market::new(PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, Vec::new(), "")));
+        let (tx, rx) = mpsc::channel();
+        s.inbox = Some(rx);
+        let book = |scope: &str| {
+            let mut book = PriceBook::default();
+            book.realms.insert(scope.into(), prices::RealmBook::default());
+            book.choose_realm(scope);
+            let read = market::Read { at: UNIX_EPOCH, modified: None, warning: Some("TSM public data rate-limited, retrying in 52 min".into()) };
+            Box::new(Ok((book, read)))
+        };
+        let seen = |s: &App| {
+            let r = s.ready().unwrap();
+            (r.market.book.realm().map(|(name, _)| name.to_owned()), r.reload_error.clone())
+        };
+        tx.send(Msg::Prices(Origin::Public(house, Side::Alliance), book("PvP-Alliance"))).unwrap();
+        drain(&mut s);
+        assert_eq!(seen(&s), (None, None));
+        tx.send(Msg::Prices(Origin::Public(house, Side::Horde), book("PvP-Horde"))).unwrap();
+        drain(&mut s);
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some("TSM public data rate-limited, retrying in 52 min".into())));
     }
 
     #[test]

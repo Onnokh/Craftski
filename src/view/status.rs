@@ -9,12 +9,14 @@ use rune::{Color, Cursor, El, Span, el, rich, row, text};
 use super::menu::opener;
 use super::widgets::{ARROW_ROOM, DROPDOWN_GAP, REFRESH, glyph};
 use super::{App, Dims, Ready};
+use crate::market::PriceSource;
 use crate::menu::Menu;
-use crate::overview::{Feed, Freshness, read_at};
+use crate::overview::{Feed, Freshness, checked_at, read_at};
 use crate::theme::{self, p};
 
 const GAME: &str = "WoW Forever";
 const PRICES: &str = "Prices";
+const PUBLIC: &str = "TSM public data";
 const HEIGHT: f32 = 32.0;
 const LEFT: f32 = 16.0;
 const RIGHT: f32 = 12.0;
@@ -41,16 +43,20 @@ const FITS: [(bool, bool); 3] = [(true, true), (true, false), (false, false)];
 pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let read = r.market.read.at.duration_since(UNIX_EPOCH).map_or(0, |t| t.as_millis() as i64);
     let read = LocalTime::at(read);
-    let read = read_at(read.hour, read.minute);
-    let error = r.reload_error.as_ref().map(|e| format!("Reload failed: {e}"));
+    // Under public data the label names the source, which the read time names for AppData.lua.
+    let (label, read) = match s.source {
+        PriceSource::App => (PRICES, read_at(read.hour, read.minute)),
+        PriceSource::Public(_) => (PUBLIC, checked_at(read.hour, read.minute)),
+    };
+    let error = r.reload_error.clone();
     let (realm, region) = (Feed::realm(&r.market.book, s.now), Feed::region(&r.market.book, s.now));
     let room = d.status.unwrap_or(f32::INFINITY) - LEFT - RIGHT;
     let fits = FITS.map(|(with_region, with_read)| (with_region.then_some(&region), error.as_deref().or(with_read.then_some(read.as_str()))));
-    let fit = fits.iter().find(|(region, note)| needed(&realm, *region, *note) <= room);
+    let fit = fits.iter().find(|(region, note)| needed(label, &realm, *region, *note) <= room);
     let (region, note) = fit.unwrap_or(&fits[2]);
     let squeeze = fit.is_none();
 
-    let prices = row().gap(LABEL_GAP).center_y().child(caption(PRICES, p().faint)).child(realm_pill(s, &realm, squeeze));
+    let prices = row().gap(LABEL_GAP).center_y().child(caption(label, p().faint)).child(realm_pill(s, &realm, squeeze));
     let rule = el().w(DIVIDER).h(14.0).fill(p().rule).a11y_hidden();
     let mut bar = row()
         .key("status")
@@ -111,11 +117,7 @@ fn reload() -> El {
         .role("button")
         .label("Reload TSM prices")
         .cursor(Cursor::Pointer)
-        .on_press(|s: &mut App| {
-            if let Some(path) = s.appdata_path() {
-                s.reload(&path);
-            }
-        })
+        .on_press(|s: &mut App| s.reload_prices())
 }
 
 /// A control that stays bare until hovered, framed as the toolbar's while `open`.
@@ -139,11 +141,11 @@ fn caption(words: &str, color: Color) -> El {
 /// The width the bar's parts take at their natural size, with the gap between each two. The
 /// flexible space before the note counts as a part of no width; a long error note counts only
 /// the part it keeps when truncated.
-fn needed(realm: &Feed, region: Option<&Feed>, note: Option<&str>) -> f32 {
+fn needed(label: &str, realm: &Feed, region: Option<&Feed>, note: Option<&str>) -> f32 {
     let w = |words: &str| rune::text::measure(words, &[], theme::CAPTION, None).0;
     let feed = |f: &Feed| w(&f.line()) + if f.age.is_some() { DOT + DOT_GAP } else { 0.0 };
     let pill = PILL_LEFT + feed(realm) + ARROW_ROOM;
-    let mut parts = vec![w(GAME), DIVIDER, w(PRICES) + LABEL_GAP + pill];
+    let mut parts = vec![w(GAME), DIVIDER, w(label) + LABEL_GAP + pill];
     parts.extend(region.map(feed));
     parts.push(0.0);
     parts.extend(note.map(|n| w(n).min(NOTE_KEPT)));

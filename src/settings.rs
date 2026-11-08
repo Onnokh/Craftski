@@ -1,11 +1,14 @@
 //! The player's choices that outlive a session, one small text file each under
 //! `%LOCALAPPDATA%\tsm-crafts`: the profession shown, their rank in each profession and the
-//! realm prices come from, the AppData.lua they chose, and the character who buys from merchants.
+//! realm prices come from, the AppData.lua they chose or the public auction house they read
+//! instead, and the character who buys from merchants.
 
 use std::path::{Path, PathBuf};
 
 use crate::flips::{Bartering, Rules};
+use crate::market::PriceSource;
 use crate::merchants::Side;
+use crate::public_data::{ForeverRealm, PublicHouse, Region};
 use crate::recipes::Profession;
 
 /// The one rank saved before each profession had its own; it was always Leatherworking's.
@@ -18,6 +21,11 @@ const FACTION: &str = "faction.txt";
 const HONORED: &str = "honored.txt";
 /// Bartering's percent.
 const BARTERING: &str = "bartering.txt";
+/// "app" or "public".
+const PRICES: &str = "prices.txt";
+/// The public house's region and realm by slug, kept while the app reads AppData.lua.
+const PUBLIC_REGION: &str = "public-region.txt";
+const PUBLIC_REALM: &str = "public-realm.txt";
 
 fn path(file: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts").join(file))
@@ -121,6 +129,41 @@ fn rules_files(rules: &Rules) -> [(&'static str, String); 3] {
     [(FACTION, rules.side.name().to_string()), (HONORED, rules.honored.join("\n")), (BARTERING, rules.bartering.percent().to_string())]
 }
 
+/// Where prices come from, AppData.lua when nothing is saved.
+pub fn load_source() -> PriceSource {
+    source_from(saved)
+}
+
+pub fn save_source(source: PriceSource) {
+    for (file, text) in source_files(source) {
+        save(file, text);
+    }
+}
+
+/// The public house last chosen, EU PvP when none is saved.
+pub fn load_house() -> PublicHouse {
+    house_from(saved)
+}
+
+fn source_from(saved: impl Fn(&str) -> Option<String>) -> PriceSource {
+    match saved(PRICES).as_deref() {
+        Some("public") => PriceSource::Public(house_from(saved)),
+        _ => PriceSource::App,
+    }
+}
+
+fn house_from(saved: impl Fn(&str) -> Option<String>) -> PublicHouse {
+    PublicHouse { region: saved(PUBLIC_REGION).and_then(|s| Region::parse(&s)).unwrap_or_default(), realm: saved(PUBLIC_REALM).and_then(|s| ForeverRealm::parse(&s)).unwrap_or_default() }
+}
+
+/// Choosing AppData.lua leaves the public house saved, for when the player comes back to it.
+fn source_files(source: PriceSource) -> Vec<(&'static str, &'static str)> {
+    match source {
+        PriceSource::App => vec![(PRICES, "app")],
+        PriceSource::Public(house) => vec![(PRICES, "public"), (PUBLIC_REGION, house.region.slug()), (PUBLIC_REALM, house.realm.slug())],
+    }
+}
+
 /// The rank a typed value names; anything but a whole number means no rank.
 pub fn parse_skill(text: &str) -> Option<u16> {
     text.trim().parse().ok()
@@ -152,6 +195,24 @@ mod tests {
         assert_eq!(files, [("faction.txt", "Alliance".to_string()), ("honored.txt", "Darnassus\nStormwind".to_string()), ("bartering.txt", "5".to_string())]);
         let pairs: Vec<(&str, &str)> = files.iter().map(|(f, t)| (*f, t.as_str())).collect();
         assert_eq!(rules_from(saved_as(&pairs)), rules);
+    }
+
+    #[test]
+    fn the_price_source_reads_back_as_saved_and_app_keeps_the_house() {
+        let house = PublicHouse { region: Region::Us, realm: ForeverRealm::RoleplayPvp };
+        let files = source_files(PriceSource::Public(house));
+        assert_eq!(files, [("prices.txt", "public"), ("public-region.txt", "us"), ("public-realm.txt", "roleplay-pvp")]);
+        assert_eq!(source_from(saved_as(&files)), PriceSource::Public(house));
+        assert_eq!(source_files(PriceSource::App), [("prices.txt", "app")]);
+        let back_to_app = [("prices.txt", "app"), ("public-region.txt", "us"), ("public-realm.txt", "roleplay-pvp")];
+        assert_eq!((source_from(saved_as(&back_to_app)), house_from(saved_as(&back_to_app))), (PriceSource::App, house));
+    }
+
+    #[test]
+    fn nothing_saved_reads_appdata_and_defaults_the_house_to_eu_pvp() {
+        let eu_pvp = PublicHouse { region: Region::Eu, realm: ForeverRealm::PvP };
+        assert_eq!((source_from(saved_as(&[])), house_from(saved_as(&[]))), (PriceSource::App, eu_pvp));
+        assert_eq!(source_from(saved_as(&[("prices.txt", "public"), ("public-region.txt", "mars")])), PriceSource::Public(eu_pvp));
     }
 
     #[test]

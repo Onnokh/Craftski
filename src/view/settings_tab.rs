@@ -7,9 +7,12 @@ use rune::{El, ScrollSpec, col, row, text};
 use super::detail::band;
 use super::header::page;
 use super::widgets::checkbox;
-use super::{App, Dims, folder};
+use super::{App, Dims, Load, folder};
 use crate::flips::{self, Bartering, Rules};
+use crate::market::PriceSource;
 use crate::merchants::Side;
+use crate::overview::Feed;
+use crate::public_data::{ForeverRealm, PublicHouse, Region};
 use crate::settings;
 use crate::theme::{self, p};
 
@@ -20,8 +23,8 @@ pub fn main(s: &App, d: Dims) -> El {
     let body = col()
         .w_full()
         .max_w(720.0)
-        .child(band("World of Warcraft folder"))
-        .child(folder::block(s).mt(12.0))
+        .child(band("Prices"))
+        .child(prices(s))
         .child(band("Character").mt(32.0))
         .child(setting("Faction", row().gap(8.0).children(faction)))
         .child(setting("Honored or better with", honored(s)))
@@ -33,6 +36,56 @@ pub fn main(s: &App, d: Dims) -> El {
         .min_w(0.0)
         .child(page("Settings", "Where prices come from, and who buys from merchants.".into(), d))
         .child(col().key("settings-body").w_full().grow(1.0).min_h(0.0).px(d.pad).pb(24.0).scroll(ScrollSpec { stick_bottom: false }).child(body))
+}
+
+/// The two sources: the desktop app with the AppData.lua it reads, or TSM's public data with
+/// the region and realm whose auction house it reads.
+fn prices(s: &App) -> El {
+    let house = match s.source {
+        PriceSource::App => None,
+        PriceSource::Public(house) => Some(house),
+    };
+    let sources = row()
+        .gap(8.0)
+        .flex_wrap()
+        .child(radio("TSM desktop app", house.is_none(), |s| s.set_source(PriceSource::App)))
+        .child(radio("TSM public data, no TSM needed", house.is_some(), |s| s.set_source(PriceSource::Public(settings::load_house()))));
+    let out = col().w_full().child(sources.mt(12.0));
+    let Some(house) = house else {
+        return out.child(caption("Reads the prices the TSM desktop app saves for WoW Forever in AppData.lua.").mt(16.0)).child(folder::block(s, false).mt(16.0));
+    };
+    let pick = move |house: PublicHouse| move |s: &mut App| s.set_source(PriceSource::Public(house));
+    let regions = Region::ALL.map(|region| radio(region.label(), house.region == region, pick(PublicHouse { region, ..house })));
+    let realms = ForeverRealm::ALL.map(|realm| radio(realm.name(), house.realm == realm, pick(PublicHouse { realm, ..house })));
+    out.child(setting("Region", row().gap(8.0).children(regions)))
+        .child(setting("Realm", row().gap(8.0).flex_wrap().children(realms)))
+        .child(house_caption(s, house).mt(16.0))
+}
+
+/// The auction house in use, and how old its prices are once they load, or why they are older
+/// than they should be.
+fn house_caption(s: &App, house: PublicHouse) -> El {
+    let scope = house.scope(s.rules.side);
+    let mut out = col().w_full().gap(4.0).child(caption(&format!("Auction house {scope}, from your faction below.")));
+    let shown = s.ready().filter(|r| r.market.book.realm().is_some_and(|(name, _)| name == scope) && r.market.book.region_scope == Some(house.region.name()));
+    match (&s.load, shown) {
+        (_, Some(r)) => {
+            let (realm, region) = (Feed::realm(&r.market.book, s.now), Feed::region(&r.market.book, s.now));
+            if let (Some((realm, _)), Some((region, _))) = (realm.age, region.age) {
+                out = out.child(caption(&format!("Its prices are from {realm}, the region's from {region}.")));
+            }
+            if let Some(warning) = &r.reload_error {
+                out = out.child(text(warning).font(theme::CAPTION).color(p().loss).wrap());
+            }
+        }
+        (Load::Failed(e), None) => out = out.child(text(e).font(theme::CAPTION).color(p().loss).wrap()),
+        _ => {}
+    }
+    out
+}
+
+fn radio(label: &str, on: bool, pick: impl Fn(&mut App) + 'static) -> El {
+    checkbox(label, on, pick).role("radio")
 }
 
 /// A checkbox per faction whose merchants serve this side, and per one saved but not among
@@ -55,7 +108,7 @@ fn setting(label: &str, control: El) -> El {
 }
 
 fn choice(label: &str, on: bool, pick: impl Fn(&mut Rules) + Copy + 'static) -> El {
-    checkbox(label, on, move |s: &mut App| s.set_rules(pick)).role("radio")
+    radio(label, on, move |s| s.set_rules(pick))
 }
 
 fn caption(words: &str) -> El {
@@ -63,10 +116,15 @@ fn caption(words: &str) -> El {
 }
 
 impl App {
-    /// Changes the character, remembered for next time, and prices the flips for it.
+    /// Changes the character, remembered for next time, and prices the flips for it. Under
+    /// public data, a new faction reads its own auction house.
     fn set_rules(&mut self, change: impl FnOnce(&mut Rules)) {
+        let side = self.rules.side;
         change(&mut self.rules);
         settings::save_rules(&self.rules);
+        if self.rules.side != side && self.source != PriceSource::App {
+            self.load_market();
+        }
         self.reprice_flips();
     }
 }
