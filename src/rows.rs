@@ -56,7 +56,7 @@ impl Column {
     fn number(self, r: &Recipe, e: &Evaluation) -> Option<f64> {
         match self {
             Column::Item => None,
-            Column::Skill => Some(f64::from(r.skill)),
+            Column::Skill => r.skill.map(|s| f64::from(s.learn)),
             Column::Qty => Some(f64::from(r.quantity)),
             Column::Cost => e.cost.map(|c| c.0 as f64),
             Column::Resale => e.resale.map(|c| c.0 as f64),
@@ -111,9 +111,10 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
 mod tests {
     use super::*;
     use crate::copper::Copper;
+    use crate::recipes::Skill;
 
     fn recipe(spell_id: u32, name: &str, skill: u16) -> Recipe {
-        Recipe { spell_id, item_id: spell_id, item_name: name.into(), icon: None, quantity: 1.0, skill, grey_at: skill + 10, reagents: vec![] }
+        Recipe { spell_id, item_id: spell_id, item_name: name.into(), icon: None, quantity: 1.0, skill: Some(Skill { learn: skill, grey: skill + 10 }), reagents: vec![] }
     }
 
     fn eval(profit: Option<i64>, sold: Option<f64>) -> Evaluation {
@@ -145,6 +146,14 @@ mod tests {
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 0.0 }, by_name), vec![0, 2, 3]);
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: false, min_sold_per_day: 1.0 }, by_name), vec![0, 1]);
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0 }, by_name), vec![0]);
+    }
+
+    #[test]
+    fn unknown_skill_sorts_last_in_both_directions() {
+        let (mut r, e) = fixture();
+        r[1].skill = None;
+        assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Skill, descending: false }), vec![0, 3, 2, 1]);
+        assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Skill, descending: true }), vec![2, 0, 3, 1]);
     }
 
     #[test]

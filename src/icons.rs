@@ -192,8 +192,7 @@ mod tests {
             item_name: String::new(),
             icon: icon.map(FileDataId),
             quantity: 1.0,
-            skill: 1,
-            grey_at: 10,
+            skill: None,
             reagents,
         };
         let recipes = [recipe(1, Some(134256), vec![reagent(2319, Some(134254)), reagent(9, None)]), recipe(2, None, vec![reagent(2319, Some(134254)), reagent(4304, Some(134257))])];

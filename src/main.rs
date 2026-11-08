@@ -9,7 +9,7 @@ mod view;
 
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 
-const SIZE: (f32, f32) = (1280.0, 800.0);
+const SIZE: (f32, f32) = (1640.0, 1000.0);
 
 fn main() {
     let cli = std::env::args().find_map(|a| match a.as_str() {
@@ -61,7 +61,7 @@ fn dump() -> Result<(), String> {
         println!(
             "{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}",
             r.item_name,
-            r.skill,
+            r.skill.map_or_else(na, |s| s.learn.to_string()),
             r.quantity,
             e.cost.map_or_else(na, |c| c.to_string()),
             e.resale.map_or_else(na, |c| c.to_string()),

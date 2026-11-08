@@ -245,10 +245,10 @@ fn table(s: &App, k: &Kit) -> El {
     for c in Column::ALL {
         let col = TableColumn::new(c.id(), c.title()).sortable();
         t = t.column(match c {
-            Column::Item => col.flex(1.0).min(140.0),
+            Column::Item => col.flex(1.0).min(200.0),
             Column::Skill | Column::Qty => col.width(56.0).align(Align::End),
             Column::Margin | Column::SoldPerDay | Column::Auctions => col.width(92.0).align(Align::End),
-            _ => col.width(124.0).align(Align::End),
+            _ => col.width(112.0).align(Align::End),
         });
     }
     let (gain, loss) = (k.c.success.fg, k.c.danger.fg);
@@ -269,7 +269,7 @@ fn table(s: &App, k: &Kit) -> El {
                     .child(s.icons.square(recipe.icon, ROW_ICON, k))
                     .child(text(&recipe.item_name).font(style.font).color(style.text).truncate().shrink().min_w(0.0).help_when_truncated(&recipe.item_name)),
             ),
-            Some(Column::Skill) => Cell::text(recipe.skill.to_string()).mono(),
+            Some(Column::Skill) => recipe.skill.map_or_else(na, |skill| Cell::text(skill.learn.to_string()).mono()),
             Some(Column::Qty) => Cell::text(format!("{}", recipe.quantity)).mono(),
             Some(Column::Cost) => money(e.cost),
             Some(Column::Resale) => money(e.resale),
@@ -299,7 +299,7 @@ fn detail(s: &App, r: &Ready, k: &Kit) -> El {
     let mut panel = panel
         .child(row().w_full().gap(10.0).center_y().child(s.icons.square(recipe.icon, TITLE_ICON, k)).child(title))
         .child(muted(format!("Makes {} per craft, spell {}", recipe.quantity, recipe.spell_id)))
-        .child(muted(format!("Skill {} (green {}, grey {})", recipe.skill, recipe.green_at(), recipe.grey_at)));
+        .child(muted(recipe.skill.map_or_else(|| format!("Skill {NA}"), |s| format!("Skill {} (green {}, grey {})", s.learn, s.green(), s.grey))));
     for reagent in &recipe.reagents {
         let unit = profit::unit_price(&r.market.book, reagent.item_id, s.source);
         let line = unit.map(|Copper(c)| Copper(c * u64::from(reagent.count)));

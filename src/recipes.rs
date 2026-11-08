@@ -37,16 +37,22 @@ pub struct Recipe {
     pub item_name: String,
     pub icon: Option<FileDataId>,
     pub quantity: f32,
-    /// Rank needed to learn it.
-    pub skill: u16,
-    /// Rank at which it turns grey and stops raising skill.
-    pub grey_at: u16,
+    /// None where the data has no ranks for the recipe, as for Winter Boots.
+    pub skill: Option<Skill>,
     pub reagents: Vec<Reagent>,
 }
 
-impl Recipe {
-    pub fn green_at(&self) -> u16 {
-        self.skill.midpoint(self.grey_at)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Skill {
+    /// Rank needed to learn it.
+    pub learn: u16,
+    /// Rank at which it turns grey and stops raising skill.
+    pub grey: u16,
+}
+
+impl Skill {
+    pub fn green(self) -> u16 {
+        self.learn.midpoint(self.grey)
     }
 }
 
@@ -65,10 +71,11 @@ const REAGENT_SLOTS: usize = 8;
 
 pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> {
     // MinSkillLineRank is 1 on every Forever row; the trainer gates a recipe at its trivial-low rank.
-    let mut spells: BTreeMap<u32, (u16, u16)> = BTreeMap::new();
+    let mut spells: BTreeMap<u32, Option<Skill>> = BTreeMap::new();
     each_row(&t.skill_line_ability, "SkillLineAbility", ["SkillLine", "Spell", "TrivialSkillLineRankLow", "TrivialSkillLineRankHigh"], |[line, spell, low, high]| {
         if profession.skill_lines.contains(&num(line)?) {
-            spells.entry(num(spell)?).or_insert((num(low)?, num(high)?));
+            let (learn, grey) = (num(low)?, num(high)?);
+            spells.entry(num(spell)?).or_insert((learn != 0).then_some(Skill { learn, grey }));
         }
         Ok(())
     })?;
@@ -112,10 +119,10 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
 
     let mut recipes: Vec<Recipe> = spells
         .iter()
-        .filter_map(|(&spell_id, &(skill, grey_at))| {
+        .filter_map(|(&spell_id, &skill)| {
             let (_, item_id, quantity) = *creates.get(&spell_id)?;
             let reagents = reagents.remove(&spell_id)?.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: String::new(), icon: None, count }).collect();
-            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), icon: None, quantity, skill, grey_at, reagents })
+            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), icon: None, quantity, skill, reagents })
         })
         .collect();
 
@@ -265,25 +272,29 @@ mod tests {
                                  2,2945,19047,1,270,250\n\
                                  3,164,2660,1,30,1\n\
                                  4,165,9999,1,40,20\n\
-                                 5,165,7777,1,40,20\n"
+                                 5,165,7777,1,40,20\n\
+                                 6,165,44953,1,0,0\n"
                 .into(),
             spell_effect: "ID,EffectIndex,Effect,EffectItemType,EffectBasePointsF,SpellID\n\
                            10,0,24,4234,1,3818\n\
                            11,1,24,15407,2,19047\n\
                            12,0,6,0,5,19047\n\
                            13,0,24,2862,1,2660\n\
-                           14,0,24,1234,1,9999\n"
+                           14,0,24,1234,1,9999\n\
+                           15,0,24,8170,1,44953\n"
                 .into(),
             spell_reagents: "ID,SpellID,Reagent_0,Reagent_1,Reagent_2,Reagent_3,Reagent_4,Reagent_5,Reagent_6,Reagent_7,ReagentCount_0,ReagentCount_1,ReagentCount_2,ReagentCount_3,ReagentCount_4,ReagentCount_5,ReagentCount_6,ReagentCount_7\n\
                              1,3818,2319,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0\n\
                              2,19047,8171,15409,0,0,0,0,0,0,1,1,0,0,0,0,0,0\n\
-                             3,7777,2319,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0\n"
+                             3,7777,2319,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0\n\
+                             4,44953,2319,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0\n"
                 .into(),
             item_sparse: "ID,Description_lang,Display_lang\n\
                           4234,,\"Heavy Leather\"\n\
                           2319,\"Soft, supple\",\"Medium Leather\"\n\
                           15407,,\"Cured Rugged Hide\"\n\
-                          8171,,\"Rugged Hide\"\n"
+                          8171,,\"Rugged Hide\"\n\
+                          8170,,\"Light Leather\"\n"
                 .into(),
             item: "ID,ClassID,IconFileDataID\n\
                    4234,7,134256\n\
@@ -308,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn joins_create_item_effects_with_reagents_and_icons_for_the_profession() {
+    fn joins_create_item_effects_with_reagents_icons_and_ranks_for_the_profession() {
         let recipes = join(&tables(), &LEATHERWORKING).unwrap();
         let reagent = |item_id, name: &str, icon: Option<u32>, count| Reagent { item_id, item_name: name.into(), icon: icon.map(FileDataId), count };
         assert_eq!(recipes, vec![
@@ -318,8 +329,7 @@ mod tests {
                 item_name: "Heavy Leather".into(),
                 icon: Some(FileDataId(134256)),
                 quantity: 1.0,
-                skill: 125,
-                grey_at: 135,
+                skill: Some(Skill { learn: 125, grey: 135 }),
                 reagents: vec![reagent(2319, "Medium Leather", Some(134254), 5)],
             },
             Recipe {
@@ -328,9 +338,17 @@ mod tests {
                 item_name: "Cured Rugged Hide".into(),
                 icon: Some(FileDataId(134255)),
                 quantity: 2.0,
-                skill: 250,
-                grey_at: 270,
+                skill: Some(Skill { learn: 250, grey: 270 }),
                 reagents: vec![reagent(8171, "Rugged Hide", Some(134257), 1), reagent(15409, "Item #15409", None, 1)],
+            },
+            Recipe {
+                spell_id: 44953,
+                item_id: 8170,
+                item_name: "Light Leather".into(),
+                icon: Some(FileDataId(134251)),
+                quantity: 1.0,
+                skill: None,
+                reagents: vec![reagent(2319, "Medium Leather", Some(134254), 3)],
             },
         ]);
     }
