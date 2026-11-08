@@ -148,11 +148,16 @@ pub fn button<S: 'static>(label: &str, kind: ButtonKind, act: impl Fn(&mut S, &m
     b.child(text(label).font(theme::BODY_MEDIUM).color(color)).on_press_tx(act)
 }
 
-pub static SEARCH: Icon = Icon {
-    name: "tsm-search",
-    view: 24.0,
-    body: r#"<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
+/// A Rune Icons outline glyph from `assets/icons`, drawn in its element's colour: the files'
+/// `stroke="black"` names no hex colour, so rune draws them as a tintable coverage mask.
+macro_rules! rune_icon {
+    ($file:literal) => {
+        Icon { name: concat!("rune-", $file), view: 24.0, body: include_str!(concat!("../../assets/icons/", $file, ".svg")) }
+    };
+}
+
+pub static SEARCH: Icon = rune_icon!("search");
+pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()
