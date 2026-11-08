@@ -1,3 +1,6 @@
+// A release build opens no console window beside its own; debug builds keep it for their logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod blp;
 mod breakdown;
 mod cache;
@@ -37,7 +40,11 @@ fn main() {
         "--flips" => Some(flips),
         _ => None,
     });
+    if cli.is_some() {
+        attach_console();
+    }
     if let Err(e) = settings::start_profession() {
+        attach_console();
         eprintln!("{e}");
         std::process::exit(2);
     }
@@ -68,6 +75,25 @@ fn main() {
         }
     });
 }
+
+/// Writes what follows to the terminal the program was run from, which a release build, being a
+/// windowed program, has none of. Without one, or when the debug build has its own, it does
+/// nothing.
+#[cfg(windows)]
+fn attach_console() {
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn AttachConsole(process: u32) -> i32;
+    }
+    // SAFETY: takes a process id by value and touches no Rust memory.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_console() {}
 
 /// Top-left that centers a window of `size` points on a display, in physical desktop pixels.
 fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32)) -> (i32, i32) {
