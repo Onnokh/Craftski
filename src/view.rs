@@ -1,20 +1,30 @@
 use std::borrow::Cow;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, OnceLock};
 
-use rune::{Align, Cx, El, Tx, Waker, col, row, spacer, text};
-use rune_kit::{Cell, Kit, SegmentedControl, SortDir, Switch, Table, TableColumn, TableState};
+use rune::{Align, Cx, El, Image, ImageCache, Tx, Waker, col, el, row, spacer, text};
+use rune_kit::{Cell, Kit, SegmentedControl, SortDir, Switch, Table, TableColumn, TableState, TableStyle};
 
 use crate::copper::{Copper, signed};
+use crate::icons;
 use crate::market::{self, Market};
 use crate::profit::{self, Evaluation, PriceSource};
+use crate::recipes::FileDataId;
 use crate::rows::{self, Column, Filter, Sort};
 
 const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
 const NA: &str = "n/a";
+const ROW_ICON: f32 = 22.0;
+const TITLE_ICON: f32 = 36.0;
+const REAGENT_ICON: f32 = 20.0;
 
 pub struct App {
     load: Load,
+    /// The loader thread's messages, until it finishes.
+    inbox: Option<Receiver<Msg>>,
+    icons: Icons,
     source: PriceSource,
     hide_unpriced: bool,
     min_sold: usize,
@@ -22,10 +32,38 @@ pub struct App {
 }
 
 enum Load {
-    /// Holds the loader's channel once `setup` has started it.
-    Loading(Option<Receiver<Result<Market, String>>>),
+    Loading,
     Failed(String),
     Ready(Ready),
+}
+
+enum Msg {
+    Market(Result<Market, String>),
+    Icon(FileDataId, PathBuf),
+}
+
+/// Decoded icons by file data id. An icon without an image, or still decoding, draws as an
+/// empty square.
+#[derive(Default)]
+struct Icons {
+    cache: Option<ImageCache>,
+    images: HashMap<FileDataId, Image>,
+}
+
+impl Icons {
+    fn show(&mut self, id: FileDataId, path: &Path) {
+        if let Some(cache) = &self.cache {
+            self.images.insert(id, cache.file(path, ROW_ICON, 1.0));
+        }
+    }
+
+    fn square(&self, id: Option<FileDataId>, size: f32, k: &Kit) -> El {
+        let square = el().w(size).h(size).radius(3.0).fill(k.c.layer_03).a11y_hidden();
+        match id.and_then(|id| self.images.get(&id)) {
+            Some(image) => square.pixels(image.pixels()),
+            None => square,
+        }
+    }
 }
 
 struct Ready {
@@ -38,7 +76,7 @@ impl App {
     pub fn new() -> App {
         let mut table = TableState::new();
         table.set_sort(Column::Profit.id(), SortDir::Descending);
-        App { load: Load::Loading(None), source: PriceSource::Realm, hide_unpriced: true, min_sold: 0, table }
+        App { load: Load::Loading, inbox: None, icons: Icons::default(), source: PriceSource::Realm, hide_unpriced: true, min_sold: 0, table }
     }
 
     fn land(&mut self, result: Result<Market, String>) {
@@ -66,23 +104,50 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    let Load::Loading(slot @ None) = &mut s.load else { return };
+    if s.icons.cache.is_none() {
+        s.icons.cache = Some(ImageCache::new(wake.clone()));
+    }
+    if !matches!(s.load, Load::Loading) || s.inbox.is_some() {
+        return;
+    }
     let (tx, rx) = mpsc::channel();
-    *slot = Some(rx);
+    s.inbox = Some(rx);
     std::thread::spawn(move || {
-        let _ = tx.send(market::load());
+        let market = market::load();
+        let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
+        let _ = tx.send(Msg::Market(market));
         wake();
+        let on_ready = |id, path| {
+            let _ = tx.send(Msg::Icon(id, path));
+            wake();
+        };
+        match icons::prefetch(&ids, on_ready) {
+            Ok(report) if !report.failed.is_empty() => eprintln!("{} of {} icons failed, first: {}", report.failed.len(), report.icons, report.failed[0].1),
+            Ok(_) => {}
+            Err(e) => eprintln!("icons not fetched: {e}"),
+        }
     });
 }
 
 pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
-    let Load::Loading(Some(rx)) = &s.load else { return false };
-    match rx.try_recv() {
-        Ok(result) => s.land(result),
-        Err(TryRecvError::Empty) => return false,
-        Err(TryRecvError::Disconnected) => s.land(Err("the loader stopped without a result".into())),
+    let Some(rx) = s.inbox.take() else { return false };
+    let mut changed = false;
+    loop {
+        match rx.try_recv() {
+            Ok(Msg::Market(result)) => s.land(result),
+            Ok(Msg::Icon(id, path)) => s.icons.show(id, &path),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                if matches!(s.load, Load::Loading) {
+                    s.land(Err("the loader stopped without a result".into()));
+                }
+                return true;
+            }
+        }
+        changed = true;
     }
-    true
+    s.inbox = Some(rx);
+    changed
 }
 
 fn kit(dark: bool) -> &'static Kit {
@@ -94,7 +159,7 @@ fn kit(dark: bool) -> &'static Kit {
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let k = kit(cx.system_dark());
     let body = match &s.load {
-        Load::Loading(_) => message(k, "Loading TSM prices and recipes..."),
+        Load::Loading => message(k, "Loading TSM prices and recipes..."),
         Load::Failed(e) => message(k, &format!("Could not load data: {e}")),
         Load::Ready(r) => row().w_full().grow(1.0).min_h(0.0).child(col().grow(1.0).h_full().min_h(0.0).child(table(s, k).grow(1.0).min_h(0.0))).child(detail(s, r, k)),
     };
@@ -187,13 +252,23 @@ fn table(s: &App, k: &Kit) -> El {
         });
     }
     let (gain, loss) = (k.c.success.fg, k.c.danger.fg);
+    let style = TableStyle::from_kit(k);
+    let k = kit(k.dark);
     t.cell(move |s: &App, i, id| {
         let Some(r) = s.ready() else { return Cell::text("") };
         let (recipe, e) = (&r.market.recipes[r.rows[i]], &r.evals[r.rows[i]]);
         let na = || Cell::text(NA).muted();
         let money = |c: Option<Copper>| c.map_or_else(na, |c| Cell::text(c.to_string()).mono());
         match Column::from_id(id) {
-            Some(Column::Item) => Cell::text(&recipe.item_name),
+            Some(Column::Item) => Cell::el(
+                row()
+                    .gap(8.0)
+                    .center_y()
+                    .shrink()
+                    .min_w(0.0)
+                    .child(s.icons.square(recipe.icon, ROW_ICON, k))
+                    .child(text(&recipe.item_name).font(style.font).color(style.text).truncate().shrink().min_w(0.0).help_when_truncated(&recipe.item_name)),
+            ),
             Some(Column::Skill) => Cell::text(recipe.skill.to_string()).mono(),
             Some(Column::Qty) => Cell::text(format!("{}", recipe.quantity)).mono(),
             Some(Column::Cost) => money(e.cost),
@@ -220,8 +295,9 @@ fn detail(s: &App, r: &Ready, k: &Kit) -> El {
     let (recipe, e) = (&r.market.recipes[i], &r.evals[i]);
     let small = |t: String| text(t).font(k.ty.text_small).color(k.c.text_base);
     let muted = |t: String| text(t).font(k.ty.text_small).color(k.c.text_muted);
+    let title = text(recipe.item_name.clone()).font(k.ty.body_medium).color(k.c.text_strong).wrap().shrink().min_w(0.0);
     let mut panel = panel
-        .child(text(recipe.item_name.clone()).font(k.ty.body_medium).color(k.c.text_strong).wrap())
+        .child(row().w_full().gap(10.0).center_y().child(s.icons.square(recipe.icon, TITLE_ICON, k)).child(title))
         .child(muted(format!("Makes {} per craft, spell {}", recipe.quantity, recipe.spell_id)))
         .child(muted(format!("Skill {} (green {}, grey {})", recipe.skill, recipe.green_at(), recipe.grey_at)));
     for reagent in &recipe.reagents {
@@ -235,7 +311,15 @@ fn detail(s: &App, r: &Ready, k: &Kit) -> El {
             col()
                 .w_full()
                 .gap(2.0)
-                .child(row().w_full().gap(6.0).child(small(format!("{}x", reagent.count))).child(small(reagent.item_name.clone()).truncate()))
+                .child(
+                    row()
+                        .w_full()
+                        .gap(6.0)
+                        .center_y()
+                        .child(s.icons.square(reagent.icon, REAGENT_ICON, k))
+                        .child(small(format!("{}x", reagent.count)))
+                        .child(small(reagent.item_name.clone()).truncate().shrink().min_w(0.0)),
+                )
                 .child(price),
         );
     }
@@ -246,13 +330,26 @@ fn detail(s: &App, r: &Ready, k: &Kit) -> El {
         .child(total("Profit", e.profit.map_or(NA.into(), signed)))
 }
 
+/// Prefetches icons and waits for every one to decode, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
     s.land(market::load());
-    if let Load::Ready(r) = &s.load
-        && let Some(&first) = r.rows.first()
-    {
-        let id = r.market.recipes[first].spell_id.to_string();
-        s.table.select(id);
+    let Load::Ready(r) = &s.load else { return };
+    let (tx, rx) = mpsc::channel();
+    if let Err(e) = icons::prefetch(&icons::referenced(&r.market.recipes), |id, path| {
+        let _ = tx.send((id, path));
+    }) {
+        eprintln!("icons not fetched: {e}");
+    }
+    drop(tx);
+    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
+    for (id, path) in rx {
+        s.icons.show(id, &path);
+    }
+    for image in s.icons.images.values() {
+        let _ = image.wait();
+    }
+    if let Some(&first) = r.rows.first() {
+        s.table.select(r.market.recipes[first].spell_id.to_string());
     }
 }
 
