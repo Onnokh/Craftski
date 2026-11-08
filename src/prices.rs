@@ -163,18 +163,22 @@ fn parse_block(line: &str, book: &mut PriceBook) -> Result<(), String> {
         let updated = if region { &mut book.region_updated } else { &mut book.realm_updated };
         *updated = (*updated).max(Some(time));
     }
-    if let Some(scope) = scope(line) {
-        let slot = if region { &mut book.region_scope } else { &mut book.realm_scope };
+    if let Some((block, scope)) = scope(line) {
+        // Commodities trade region-wide, so their blocks carry the region's scope even though
+        // their fields are the realm kind.
+        let region_wide = region || (block.contains("COMMODITY") && !block.contains("NON_COMMODITY"));
+        let slot = if region_wide { &mut book.region_scope } else { &mut book.realm_scope };
         slot.get_or_insert_with(|| scope.to_owned());
     }
     Ok(())
 }
 
-/// The second `LoadData` argument: `LoadData("BLOCK","PvP-Horde",[[...`.
-fn scope(line: &str) -> Option<&str> {
+/// The block name and scope that open a line: `LoadData("BLOCK","PvP-Horde",[[...`.
+fn scope(line: &str) -> Option<(&str, &str)> {
     let args = &line[line.find("LoadData(")? + "LoadData(".len()..line.find("[[")?];
-    let scope = args.split(',').nth(1)?.trim().trim_matches('"');
-    (!scope.is_empty()).then_some(scope)
+    let mut args = args.split(',').map(|a| a.trim().trim_matches('"'));
+    let (block, scope) = (args.next()?, args.next()?);
+    (!scope.is_empty()).then_some((block, scope))
 }
 
 fn between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
@@ -215,6 +219,14 @@ select(2, ...).LoadData("APP_INFO","Global",[[return {version="1.0.9",lastSync=1
         assert_eq!(book.region.len(), 1);
         assert_eq!(book.region[&2318], RegionPrice { sale_avg: Some(Copper(29)), sold_per_day: Some(9130.56), sale_rate: Some(0.96), ..Default::default() });
         assert_eq!((book.realm_updated, book.region_updated), (Some(1_794_129_134), Some(1_794_099_200)));
+        assert_eq!((book.realm_scope.as_deref(), book.region_scope.as_deref()), (Some("PvP-Horde"), Some("Forever-EU")));
+    }
+
+    #[test]
+    fn the_realm_scope_skips_region_wide_commodity_blocks() {
+        let src = r#"x.LoadData("AUCTIONDB_COMMODITY_HISTORICAL","Forever-EU",[[return {downloadTime=5,fields={"itemString","historical"},data={{2318,T}}}]])
+x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=6,fields={"itemString","minBuyout"},data={{4234,6I}}}]])"#;
+        let book = parse(src).unwrap();
         assert_eq!((book.realm_scope.as_deref(), book.region_scope.as_deref()), (Some("PvP-Horde"), Some("Forever-EU")));
     }
 
