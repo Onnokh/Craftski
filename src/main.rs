@@ -80,7 +80,7 @@ fn dump() -> Result<(), String> {
     let profession = settings::start_profession()?;
     let m = market::load(&settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
-    let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
+    let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: None, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
     println!("{}: {} recipes, {} realm-priced items, {} region-priced items", profession.name(), m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
@@ -119,7 +119,7 @@ fn flips() -> Result<(), String> {
     book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
     let all = flips::evaluate(&c.merchants, &c.items, &book, &flips::RULES);
-    let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
+    let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: None, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
     let merchants: std::collections::BTreeSet<usize> = offers.iter().map(|&i| all[i].merchant).collect();

@@ -38,7 +38,7 @@ pub fn overlay(s: &App) -> Vec<El> {
     let panel = col().key("tooltip").instant_changes().w(WIDTH).role("tooltip").label(card.name.clone());
     let panel = match skin::frame(FRAME, EDGE) {
         Some(border) => panel.padding(EDGE + 5.0).child(el().pin(Some(3.0), Some(3.0), Some(3.0), Some(3.0)).fill(p().tooltip)).children(border),
-        None => panel.padding(12.0).radius(4.0).fill(p().tooltip).border(1.0, p().line2),
+        None => panel.padding(12.0).radius(4.0).fill(p().tooltip).border(1.0, p().bronze),
     };
     vec![cursor, body(s, panel, card).anchored(CURSOR, Side::Right, Align::Start, 18.0)]
 }

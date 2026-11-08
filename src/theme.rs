@@ -51,9 +51,7 @@ fn is_truetype(bytes: &[u8]) -> bool {
 pub struct Palette {
     pub ground: Color,
     pub surface: Color,
-    pub line: Color,
-    pub line2: Color,
-    /// Row dividers, a step quieter than `line`, which rules the column heads and bands.
+    /// Row dividers, quieter than the bronze that rules the column heads and bands.
     pub rule: Color,
     pub selected: Color,
     /// The fill of what is chosen: a pill whose filter is on, a menu's current item.
@@ -73,9 +71,6 @@ pub struct Palette {
     pub bar_selected: [Color; 2],
     /// A lit sales pip.
     pub pip: Color,
-    /// The status bar's gradient, top to bottom, and the warm light along its bevels.
-    pub status: [Color; 2],
-    pub bevel: Color,
     pub on_brass: Color,
     pub loss: Color,
     /// The caution icon beside a market figure the data cannot vouch for.
@@ -95,8 +90,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
     Palette {
         ground: c("#0B0806"),
         surface: c("#120E0A"),
-        line: c("#2E2822"),
-        line2: c("#3A332B"),
         rule: c("#FFE2AA").alpha(0.07),
         selected: c("#221D17"),
         active: c("#26211B"),
@@ -110,8 +103,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         bar: [c("#C9A24E"), c("#8A6A2A")],
         bar_selected: [c("#FFE07A"), c("#C99A32")],
         pip: c("#E8C66A"),
-        status: [c("#1C150E"), c("#0E0B08")],
-        bevel: c("#FFD28C"),
         on_brass: c("#1E1608"),
         loss: c("#E57560"),
         warn: c("#FFB733"),

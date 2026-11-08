@@ -74,7 +74,7 @@ pub fn table(s: &App, r: &Ready, d: Dims) -> El {
         (Recipes::Shown, None) if r.rows.is_empty() => say("No recipes match these filters.".into()),
         (Recipes::Shown, hint) => col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows).children(hint),
     };
-    col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label(format!("{name} recipes"))
+    col().grow(1.0).min_h(0.0).w_full().px(d.inset).child(head(s, d)).child(body).role("table").label(format!("{name} recipes"))
 }
 
 /// What the filters hide that the search finds, if anything.
@@ -90,7 +90,7 @@ fn hint(s: &App, r: &Ready, d: Dims) -> Option<El> {
         })
         .collect();
     let line = rows::hint(h.count, &s.search.text, &names, !r.rows.is_empty());
-    Some(hidden_hint(line, d.pad, |s: &mut App| s.show_all()))
+    Some(hidden_hint(line, d.cell_pad(), |s: &mut App| s.show_all()))
 }
 
 fn head(s: &App, d: Dims) -> El {
@@ -101,7 +101,7 @@ fn head(s: &App, d: Dims) -> El {
             s.refresh();
         })
     };
-    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze).child(title(Column::Item, flexible().items_start()));
+    let mut out = row().w_full().h(ROW).px(d.cell_pad()).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze).child(title(Column::Item, flexible().items_start()));
     for (slot, width) in slots(d) {
         let cell = slot.cell(width);
         out = out.child(match slot.column() {
@@ -126,7 +126,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0));
     let mut out = selectable_row(selected)
         .h(ROW)
-        .px(d.pad)
+        .px(d.cell_pad())
         .gap(d.gap)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)

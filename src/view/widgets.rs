@@ -115,53 +115,42 @@ pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
 
 /// Between a toolbar's search and its pills.
 pub const TOOLBAR_GAP: f32 = 12.0;
-/// The room a dropdown keeps on its right for the arrow its art draws, or the chevron without it.
+/// The room a dropdown keeps on its right for its chevron.
 pub const ARROW_ROOM: f32 = 30.0;
 
 /// Between a dropdown's parts.
 pub const DROPDOWN_GAP: f32 = 6.0;
 
-/// A dropdown's body, `height` tall with `left` padding: the game's dropdown button, brighter
-/// while `open`, or without the art an outline filled while `active` says its filter narrows
-/// the rows. The opener adds the room on its right.
+/// A toolbar control's 32pt height, and the height of a checkbox's frame within it.
+const CONTROL: f32 = 32.0;
+
+/// A dropdown's body, `height` tall with `left` padding, in the control frame. The opener adds
+/// the chevron on its right.
 pub fn dropdown(height: f32, left: f32, active: bool, open: bool) -> El {
-    let out = row().h(height).pl(left).gap(DROPDOWN_GAP).center_y();
-    match skin::nine_slice(if open { Piece::DropdownOpen } else { Piece::Dropdown }, [8.0, 8.0, 28.0, 8.0]) {
-        Some(layers) => out.children(layers).hover(Color::WHITE.alpha(0.03)),
-        None => outline(out, active, open),
-    }
+    frame(row().h(height).pl(left).gap(DROPDOWN_GAP).center_y(), active, open)
 }
 
 /// A toolbar dropdown.
 pub fn pill(active: bool, open: bool) -> El {
-    dropdown(32.0, 12.0, active, open)
+    dropdown(CONTROL, 12.0, active, open)
 }
 
-/// The flat pill: 32pt tall in the line colour, filled with the stronger border while `active`.
-/// `open` strengthens the border alone, for a pill whose menu is open or whose field has focus.
-fn outline(out: El, active: bool, open: bool) -> El {
-    let out = out.radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
-    if active { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) }
+/// The frame every toolbar control shares: a bronze outline on darkened ground. `open` turns
+/// the outline brass, for a control whose menu is open or whose field has focus; `active` fills
+/// it, for a filter that hides rows a fresh look would show.
+fn frame(out: El, active: bool, open: bool) -> El {
+    let out = out.radius(4.0).border(1.0, if open { p().brass } else { p().bronze });
+    if active { out.fill(p().active) } else { out.fill(Color::BLACK.alpha(0.45)).hover(Color::WHITE.alpha(0.03)) }
 }
 
-/// A toolbar text field's frame, 32pt tall: the game's search border, or without it the flat
-/// pill, filled while `active` says its value narrows the rows.
+/// A toolbar text field's frame, filled while `active` says its value narrows the rows.
 pub fn field_box(active: bool, focused: bool) -> El {
-    let out = row().key("field-box").h(32.0).px(12.0).gap(8.0).center_y().cursor(Cursor::Text);
-    match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
-        Some(layers) => out.children(layers),
-        None => outline(out, active, focused),
-    }
+    frame(row().key("field-box").h(CONTROL).px(12.0).gap(8.0).center_y().cursor(Cursor::Text), active, focused)
 }
 
-/// A toolbar's search: a magnifier and `field` in the game's search border, 400pt wide while
-/// the pills leave room.
+/// A toolbar's search: a magnifier and `field`, 400pt wide while the pills leave room.
 pub fn search_box(field: El, focused: bool) -> El {
-    let out = row().key("search-box").h(32.0).w(400.0).shrink().gap(8.0).px(12.0).center_y().cursor(Cursor::Text);
-    let out = match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
-        Some(layers) => out.children(layers),
-        None => out.radius(4.0).border(1.0, if focused { p().line2 } else { p().line }).clip_rounded(4.0),
-    };
+    let out = frame(row().key("search-box").h(CONTROL).w(400.0).shrink().gap(8.0).px(12.0).center_y().cursor(Cursor::Text), false, focused).clip_rounded(4.0);
     let magnifier = match skin::art(Piece::Magnifier) {
         Some(px) => el().w(16.0).h(16.0).pixels(px).a11y_hidden(),
         None => glyph(&SEARCH, 16.0, p().faint),
@@ -169,22 +158,25 @@ pub fn search_box(field: El, focused: bool) -> El {
     out.child(magnifier).child(field)
 }
 
-/// A checkbox and its label; pressing anywhere on it flips the box. The game's box and tick, or
-/// without them a brass square in a pill.
+/// A checkbox and its label in the control frame; pressing anywhere on it flips the box. The
+/// game's box and tick, or without them a brass square, sits as far from the frame's left as
+/// from its top and bottom.
 pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
-    let out = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
+    let (square, left, gap) = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
         (Some(bx), Some(tick)) => {
             let square = el().w(22.0).h(22.0).pixels(bx).a11y_hidden();
-            let square = if on { square.child(el().absolute(0.0, -1.0).w(22.0).h(22.0).pixels(tick)) } else { square };
-            row().h(32.0).gap(8.0).center_y().child(square)
+            // The game draws its tick spilling out of the box, up and to the right. Smaller, and
+            // with the tick's bounds centred on the box's, it sits inside instead.
+            (if on { square.child(el().absolute(0.8, 4.0).w(18.0).h(18.0).pixels(tick)) } else { square }, (CONTROL - 22.0) / 2.0, 7.0)
         }
         _ => {
             let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
-            let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
-            outline(row().h(32.0).pl(13.0).pr(11.0).gap(8.0).center_y(), false, false).child(square)
+            (if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) }, (CONTROL - 16.0) / 2.0, 8.0)
         }
     };
-    out.child(text(label).font(theme::BODY).color(p().text))
+    frame(row().h(CONTROL).pl(left).pr(12.0).gap(gap).center_y(), false, false)
+        .child(square)
+        .child(text(label).font(theme::BODY).color(p().text))
         .key(label)
         .role("checkbox")
         .label(label)

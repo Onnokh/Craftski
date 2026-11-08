@@ -15,12 +15,6 @@ pub enum Piece {
     SlotFrame,
     ProgressBg,
     ProgressFrame,
-    Dropdown,
-    DropdownOpen,
-    MenuBg,
-    SearchLeft,
-    SearchMid,
-    SearchRight,
     Magnifier,
     RedLeft,
     RedMid,
@@ -63,12 +57,6 @@ const SHARED_CUTS: [Cut; Piece::SHARED.len()] = [
     cut("profession-square-frame-c60-2x", 8164397, [131, 39, 211, 119]),
     cut("profession-progressbar-bg-c60-2x", 8164397, [219, 1, 967, 47]),
     cut("profession-progressbar-frame-c60-2x", 8164397, [219, 49, 967, 95]),
-    cut("common-dropdown-b-button-c60-2x", 8069110, [1, 183, 195, 235]),
-    cut("common-dropdown-b-button-open-c60-2x", 8069110, [197, 237, 391, 289]),
-    cut("common-dropdown-bg-c60-2x", 8069110, [183, 1, 319, 137]),
-    cut("common-search-border-left-c60", 8086476, [227, 1, 243, 41]),
-    cut("common-search-border-middle-c60", 8086476, [1, 1, 225, 41]),
-    cut("common-search-border-right-c60", 8086476, [1, 43, 17, 83]),
     cut("common-search-magnifyingglass", 3281887, [19, 85, 43, 109]),
     cut("128-redbutton-left-c60", 8063723, [391, 781, 505, 909]),
     cut("_128-redbutton-center-c60", 8063723, [0, 1, 64, 129]),
@@ -120,17 +108,11 @@ pub const COUNT: usize = Piece::SHARED.len() + 2 * Profession::ALL.len();
 
 impl Piece {
     /// The pieces every profession draws alike.
-    pub const SHARED: [Piece; 26] = [
+    pub const SHARED: [Piece; 20] = [
         Piece::Background,
         Piece::SlotFrame,
         Piece::ProgressBg,
         Piece::ProgressFrame,
-        Piece::Dropdown,
-        Piece::DropdownOpen,
-        Piece::MenuBg,
-        Piece::SearchLeft,
-        Piece::SearchMid,
-        Piece::SearchRight,
         Piece::Magnifier,
         Piece::RedLeft,
         Piece::RedMid,
@@ -201,15 +183,6 @@ pub fn crop(width: u32, rgba: &[u8], rect: [u32; 4]) -> Option<Vec<u8>> {
         return None;
     }
     Some((t..b).flat_map(|y| &rgba[(y * width + l) * 4..(y * width + r) * 4]).copied().collect())
-}
-
-/// The nine `[left, top, right, bottom]` rectangles, row by row, that `insets` (from each edge,
-/// in the same order) cut a `width`×`height` piece into: corners, edges and the middle.
-pub fn nine(width: u32, height: u32, insets: [u32; 4]) -> [[u32; 4]; 9] {
-    let [l, t, r, b] = insets;
-    let xs = [0, l, width.saturating_sub(r), width];
-    let ys = [0, t, height.saturating_sub(b), height];
-    std::array::from_fn(|i| [xs[i % 3], ys[i / 3], xs[i % 3 + 1], ys[i / 3 + 1]])
 }
 
 /// Puts `pieces` on disk, calling `on_ready` from a worker thread as each one is there, cached
@@ -341,20 +314,9 @@ mod tests {
     }
 
     #[test]
-    fn cuts_a_piece_into_corners_edges_and_middle() {
-        let cells = nine(194, 52, [16, 16, 56, 16]);
-        assert_eq!(cells[0], [0, 0, 16, 16]);
-        assert_eq!(cells[4], [16, 16, 138, 36]);
-        assert_eq!(cells[8], [138, 36, 194, 52]);
-        let image = vec![0; 194 * 52 * 4];
-        let area: usize = cells.iter().map(|&c| crop(194, &image, c).map_or(0, |px| px.len() / 4)).sum();
-        assert_eq!(area, 194 * 52);
-    }
-
-    #[test]
     fn sizes_double_density_art_at_half_its_pixels() {
         assert_eq!(Piece::SlotFrame.size(), (40.0, 40.0));
-        assert_eq!(Piece::SearchLeft.size(), (16.0, 40.0));
+        assert_eq!(Piece::Magnifier.size(), (24.0, 24.0));
     }
 
     #[test]

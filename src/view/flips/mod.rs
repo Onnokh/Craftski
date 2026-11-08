@@ -71,7 +71,7 @@ impl State {
             zone: flip_rows::HOME.to_owned(),
             sort: Sort { column: Column::Profit, descending: true },
             // "1+": most vendor stock never sells, and with no sale rate its deposit loss is unknown.
-            min_sold: 1,
+            min_sold: 2,
             hide_unprofitable: true,
             supply: Supply::All,
             selected: None,
@@ -137,7 +137,7 @@ impl State {
     /// an endless supply and only profitable flips, for a snapshot scene.
     pub fn search_patterns_narrowly(&mut self) {
         self.search = TextEdit::new("patter");
-        self.min_sold = 2;
+        self.min_sold = 3;
         self.supply = Supply::Endless;
         self.hide_unprofitable = true;
         self.refilter();

@@ -42,7 +42,8 @@ impl Column {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Filter<'a> {
     pub hide_unpriced: bool,
-    pub min_sold_per_day: f64,
+    /// The fewest sales a day that show, any above none; `None` shows those without sales too.
+    pub min_sold_per_day: Option<f64>,
     /// The player's rank: recipes learned above it hide, recipes without a known rank stay.
     pub max_skill: Option<u16>,
     /// Matches the crafted item or any reagent by name, ignoring case. Blank matches all.
@@ -59,14 +60,14 @@ pub enum FilterKind {
 
 impl Filter<'_> {
     fn on(&self) -> Vec<FilterKind> {
-        [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::HideUnpriced, self.hide_unpriced), (FilterKind::Skill, self.max_skill.is_some())].into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
+        [(FilterKind::Sells, self.min_sold_per_day.is_some()), (FilterKind::HideUnpriced, self.hide_unpriced), (FilterKind::Skill, self.max_skill.is_some())].into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
     }
 
     fn without(self, off: &[FilterKind]) -> Self {
         let mut f = self;
         for k in off {
             match k {
-                FilterKind::Sells => f.min_sold_per_day = 0.0,
+                FilterKind::Sells => f.min_sold_per_day = None,
                 FilterKind::HideUnpriced => f.hide_unpriced = false,
                 FilterKind::Skill => f.max_skill = None,
             }
@@ -180,7 +181,7 @@ fn kept(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Vec<usize> 
         .filter(|&i| {
             let e = &evals[i];
             let priced = !filter.hide_unpriced || e.profit.is_some();
-            let selling = filter.min_sold_per_day <= 0.0 || e.sold_per_day.is_some_and(|s| s >= filter.min_sold_per_day);
+            let selling = sells(e.sold_per_day, filter.min_sold_per_day);
             let learnable = filter.max_skill.is_none_or(|max| recipes[i].skill.is_none_or(|s| s.learn <= max));
             priced && selling && learnable && matches(&recipes[i], &needle)
         })
@@ -190,6 +191,12 @@ fn kept(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Vec<usize> 
 /// The recipes that the search matches but the filters hide.
 pub fn hidden(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Option<Hidden<FilterKind>> {
     Hidden::find(&filter.on(), |off| kept(recipes, evals, filter.without(off)).len())
+}
+
+/// Whether `sold` a day meets `min`: any sales above none and at least `min`, or anything at
+/// all, unknown sales included, without a minimum.
+pub fn sells(sold: Option<f64>, min: Option<f64>) -> bool {
+    min.is_none_or(|min| sold.is_some_and(|s| s > 0.0 && s >= min))
 }
 
 /// Sales a day with one decimal, or none once the count is large enough not to need it.
@@ -223,7 +230,7 @@ mod tests {
         )
     }
 
-    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: 0.0, max_skill: None, query: "" };
+    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: None, max_skill: None, query: "" };
 
     #[test]
     fn unknown_values_sort_last_in_both_directions() {
@@ -239,8 +246,16 @@ mod tests {
         let (r, e) = fixture();
         let by_name = Sort { column: Column::Item, descending: false };
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, ..ALL }, by_name), vec![0, 2, 3]);
-        assert_eq!(visible(&r, &e, Filter { min_sold_per_day: 1.0, ..ALL }, by_name), vec![0, 1]);
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0, ..ALL }, by_name), vec![0]);
+        assert_eq!(visible(&r, &e, Filter { min_sold_per_day: Some(1.0), ..ALL }, by_name), vec![0, 1]);
+        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: Some(1.0), ..ALL }, by_name), vec![0]);
+    }
+
+    #[test]
+    fn a_zero_minimum_keeps_slow_sellers_and_hides_what_never_sold() {
+        let (r, e) = fixture();
+        let by_name = Sort { column: Column::Item, descending: false };
+        assert_eq!(visible(&r, &e, Filter { min_sold_per_day: Some(0.0), ..ALL }, by_name), vec![0, 1, 3]);
+        assert_eq!([sells(Some(0.0), Some(0.0)), sells(None, None), sells(Some(0.0), None)], [false, true, true]);
     }
 
     #[test]
@@ -268,7 +283,7 @@ mod tests {
         assert_eq!(find("mithril"), Vec::<usize>::new());
     }
 
-    const SELLING_PRICED: Filter = Filter { hide_unpriced: true, min_sold_per_day: 1.0, max_skill: None, query: "" };
+    const SELLING_PRICED: Filter = Filter { hide_unpriced: true, min_sold_per_day: Some(1.0), max_skill: None, query: "" };
 
     #[test]
     fn names_only_the_filter_that_hides_what_the_search_finds() {
@@ -300,7 +315,7 @@ mod tests {
         let (r, e) = fixture();
         assert_eq!(hidden(&r, &e, Filter { query: "kit", ..SELLING_PRICED }), None);
         assert_eq!(hidden(&r, &e, ALL), None);
-        assert_eq!(hidden(&r, &e, Filter { min_sold_per_day: 1.0, ..ALL }), Some(Hidden { count: 2, by: vec![FilterKind::Sells] }));
+        assert_eq!(hidden(&r, &e, Filter { min_sold_per_day: Some(1.0), ..ALL }), Some(Hidden { count: 2, by: vec![FilterKind::Sells] }));
     }
 
     #[test]
