@@ -357,9 +357,10 @@ mod tests {
     #[test]
     #[ignore = "reads this machine's TSM data and the merchant catalog"]
     fn real_data_patterns_hidden_by_the_filters() {
-        let m = crate::market::load(&crate::settings::load_realm()).unwrap();
+        let (mut book, _) = crate::market::read_book(&crate::market::appdata_path()).unwrap();
+        book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
-        let flips = crate::flips::evaluate(&c.merchants, &c.items, &m.book, &crate::flips::RULES);
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
         let filter = Filter { zone: HOME, hide_unprofitable: true, min_sold_per_day: 5.0, query: "patter", supply: Supply::Endless };
         let names = |filter| -> Vec<String> { visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| c.items[&flips[r.flip].item].name.clone()).collect() };
         let shown = names(filter);
@@ -376,9 +377,10 @@ mod tests {
     #[test]
     #[ignore = "reads this machine's TSM data and the merchant catalog"]
     fn real_data_never_shows_an_item_twice() {
-        let m = crate::market::load(&crate::settings::load_realm()).unwrap();
+        let (mut book, _) = crate::market::read_book(&crate::market::appdata_path()).unwrap();
+        book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
-        let flips = crate::flips::evaluate(&c.merchants, &c.items, &m.book, &crate::flips::RULES);
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
         let mut twice = Vec::new();
         for zone in zones(&flips, &c.merchants) {
             for hide_unprofitable in [false, true] {

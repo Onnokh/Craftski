@@ -69,7 +69,7 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
 
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
-    let m = market::load(&settings::load_realm())?;
+    let m = market::load(&settings::load_realm(), recipes::Profession::Leatherworking)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
@@ -106,9 +106,10 @@ fn flips() -> Result<(), String> {
     use flip_rows::{Column, Filter};
     let args: Vec<String> = std::env::args().collect();
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
-    let m = market::load(&settings::load_realm())?;
+    let (mut book, _) = market::read_book(&market::appdata_path())?;
+    book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
-    let all = flips::evaluate(&c.merchants, &c.items, &m.book, &flips::RULES);
+    let all = flips::evaluate(&c.merchants, &c.items, &book, &flips::RULES);
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
     let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
     let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
@@ -121,7 +122,7 @@ fn flips() -> Result<(), String> {
         merchants.len(),
         rows.len(),
         offers.len(),
-        m.book.realm().map_or("?", |(name, _)| name)
+        book.realm().map_or("?", |(name, _)| name)
     );
     let by_supply: Vec<String> = flip_rows::Supply::ALL.iter().map(|&supply| format!("{} {}", supply.label(), flip_rows::visible(&all, &c.merchants, &c.items, Filter { supply, ..filter }, rows::Sort { column: Column::Profit, descending: true }).len())).collect();
     println!("flips by supply: {}", by_supply.join(", "));
@@ -149,7 +150,7 @@ fn flips() -> Result<(), String> {
 }
 
 fn fetch_icons() -> Result<(), String> {
-    let recipes = recipes::load(&recipes::LEATHERWORKING)?;
+    let recipes = recipes::load(recipes::Profession::Leatherworking)?;
     let ids = icons::referenced(&recipes);
     let started = std::time::Instant::now();
     let report = icons::prefetch(&ids, |_, _| {})?;

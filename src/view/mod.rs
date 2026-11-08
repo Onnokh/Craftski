@@ -23,7 +23,7 @@ use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
 use crate::prices;
 use crate::profit::{self, Evaluation, PriceOrigin};
-use crate::recipes::{FileDataId, Recipe};
+use crate::recipes::{FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
 use crate::skin::Piece;
@@ -283,7 +283,7 @@ pub fn setup(s: &mut App, wake: Waker) {
             let _ = tx.send(m);
             wake();
         };
-        let market = market::load(&realm);
+        let market = market::load(&realm, Profession::Leatherworking);
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
         send(Msg::Market(Box::new(market)));
         fetch_rail(|name, image| send(Msg::Rail(name, image)));
@@ -448,7 +448,7 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 
 /// Fetches every icon and piece of art and waits for each to decode, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
-    s.land(market::load(&s.realm));
+    s.land(market::load(&s.realm, Profession::Leatherworking));
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
 }
@@ -456,7 +456,7 @@ pub fn scene_loaded(s: &mut App) {
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
     s.tab = Tab::Flips;
-    s.land(market::load(&s.realm));
+    s.land(market::load(&s.realm, Profession::Leatherworking));
     let catalog = merchants::load();
     let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
     s.land_catalog(catalog);

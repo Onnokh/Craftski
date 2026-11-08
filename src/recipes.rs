@@ -6,13 +6,86 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-pub struct Profession {
-    pub name: &'static str,
-    pub skill_lines: &'static [u32],
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Profession {
+    Alchemy,
+    Blacksmithing,
+    Cooking,
+    Enchanting,
+    Engineering,
+    FirstAid,
+    Leatherworking,
+    Mining,
+    Tailoring,
 }
 
-/// 2945 is the child skill line Forever files some Leatherworking recipes under.
-pub const LEATHERWORKING: Profession = Profession { name: "Leatherworking", skill_lines: &[165, 2945] };
+struct Facts {
+    name: &'static str,
+    slug: &'static str,
+    skill_lines: &'static [u32],
+    icon: &'static str,
+}
+
+const fn facts(name: &'static str, slug: &'static str, skill_lines: &'static [u32], icon: &'static str) -> Facts {
+    Facts { name, slug, skill_lines, icon }
+}
+
+/// Indexed by `Profession as usize`. Each second skill line is the child line Forever added for
+/// the profession; build 1.60.1.70862 files recipes under it only for Leatherworking, but a
+/// later build may fill the others.
+const FACTS: [Facts; Profession::ALL.len()] = [
+    facts("Alchemy", "alchemy", &[171, 2937], "trade_alchemy"),
+    facts("Blacksmithing", "blacksmithing", &[164, 2938], "trade_blacksmithing"),
+    facts("Cooking", "cooking", &[185, 2939], "inv_misc_food_15"),
+    facts("Enchanting", "enchanting", &[333, 2940], "trade_engraving"),
+    facts("Engineering", "engineering", &[202, 2941], "trade_engineering"),
+    facts("First Aid", "first-aid", &[129, 2942], "spell_holy_sealofsacrifice"),
+    facts("Leatherworking", "leatherworking", &[165, 2945], "trade_leatherworking"),
+    facts("Mining", "mining", &[186], "trade_mining"),
+    facts("Tailoring", "tailoring", &[197, 2948], "trade_tailoring"),
+];
+
+impl Profession {
+    pub const ALL: [Profession; 9] = [
+        Profession::Alchemy,
+        Profession::Blacksmithing,
+        Profession::Cooking,
+        Profession::Enchanting,
+        Profession::Engineering,
+        Profession::FirstAid,
+        Profession::Leatherworking,
+        Profession::Mining,
+        Profession::Tailoring,
+    ];
+
+    fn facts(self) -> &'static Facts {
+        &FACTS[self as usize]
+    }
+
+    pub fn name(self) -> &'static str {
+        self.facts().name
+    }
+
+    /// Its name in file names and on the command line, as in `first-aid`.
+    pub fn slug(self) -> &'static str {
+        self.facts().slug
+    }
+
+    pub fn skill_lines(self) -> &'static [u32] {
+        self.facts().skill_lines
+    }
+
+    /// The game's icon for it, by the name icon files go by.
+    pub fn icon(self) -> &'static str {
+        self.facts().icon
+    }
+
+    /// The profession `text` names by its slug or its name, in any case.
+    pub fn parse(text: &str) -> Option<Profession> {
+        let text = text.trim();
+        Profession::ALL.into_iter().find(|p| text.eq_ignore_ascii_case(p.slug()) || text.eq_ignore_ascii_case(p.name()))
+    }
+}
 
 /// The installed WoW: Forever build. Downloads pin it so the cache key names what was fetched.
 pub const BUILD: &str = "1.60.1.70862";
@@ -174,6 +247,18 @@ pub struct Tables {
     pub icons: IconTables,
 }
 
+impl Tables {
+    fn fetch() -> Result<Tables, String> {
+        Ok(Tables {
+            skill_line_ability: fetch("SkillLineAbility")?,
+            spell_effect: fetch("SpellEffect")?,
+            spell_reagents: fetch("SpellReagents")?,
+            item_sparse: fetch("ItemSparse")?,
+            icons: IconTables::fetch()?,
+        })
+    }
+}
+
 /// The tables that name an item's icon.
 pub struct IconTables {
     pub item: String,
@@ -190,11 +275,11 @@ impl IconTables {
 const CREATE_ITEM: u32 = 24;
 const REAGENT_SLOTS: usize = 8;
 
-pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> {
+pub fn join(t: &Tables, profession: Profession) -> Result<Vec<Recipe>, String> {
     // MinSkillLineRank is 1 on every Forever row; the trainer gates a recipe at its trivial-low rank.
     let mut spells: BTreeMap<u32, Option<Skill>> = BTreeMap::new();
     each_row(&t.skill_line_ability, "SkillLineAbility", ["SkillLine", "Spell", "TrivialSkillLineRankLow", "TrivialSkillLineRankHigh"], |[line, spell, low, high]| {
-        if profession.skill_lines.contains(&num(line)?) {
+        if profession.skill_lines().contains(&num(line)?) {
             let (learn, grey) = (num(low)?, num(high)?);
             spells.entry(num(spell)?).or_insert((learn != 0).then_some(Skill { learn, grey }));
         }
@@ -356,33 +441,39 @@ pub fn cache_dir() -> Option<PathBuf> {
     Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts"))
 }
 
-fn cache_path(profession: &Profession) -> Option<PathBuf> {
-    Some(cache_dir()?.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.name.to_lowercase())))
+fn cache_path(profession: Profession) -> Option<PathBuf> {
+    Some(cache_dir()?.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.slug())))
 }
 
 /// Recipes from the cache, or downloaded, joined and cached when the cache lacks this build.
-pub fn load(profession: &Profession) -> Result<Vec<Recipe>, String> {
-    let path = cache_path(profession);
-    let cached = path.as_ref().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<Cache>(&b).ok());
-    if let Some(cache) = cached.filter(|c| c.build == BUILD && c.profession == profession.name) {
-        return Ok(cache.recipes);
-    }
-    let tables = Tables {
-        skill_line_ability: fetch("SkillLineAbility")?,
-        spell_effect: fetch("SpellEffect")?,
-        spell_reagents: fetch("SpellReagents")?,
-        item_sparse: fetch("ItemSparse")?,
-        icons: IconTables::fetch()?,
-    };
-    let recipes = join(&tables, profession)?;
-    if let Some(path) = path {
-        let cache = Cache { build: BUILD.into(), profession: profession.name.into(), recipes };
-        if let Err(e) = write_json(&path, &cache) {
+pub fn load(profession: Profession) -> Result<Vec<Recipe>, String> {
+    load_each(&[profession]).map(|mut each| each.remove(0))
+}
+
+/// Each profession's recipes as [`load`] gives them, downloading the tables at most once.
+pub fn load_each(professions: &[Profession]) -> Result<Vec<Vec<Recipe>>, String> {
+    let mut tables = None;
+    let mut each = Vec::with_capacity(professions.len());
+    for &profession in professions {
+        let path = cache_path(profession);
+        let cached = path.as_ref().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<Cache>(&b).ok());
+        if let Some(cache) = cached.filter(|c| c.build == BUILD && c.profession == profession.name()) {
+            each.push(cache.recipes);
+            continue;
+        }
+        let t = match &tables {
+            Some(t) => t,
+            None => tables.insert(Tables::fetch()?),
+        };
+        let cache = Cache { build: BUILD.into(), profession: profession.name().into(), recipes: join(t, profession)? };
+        if let Some(path) = path
+            && let Err(e) = write_json(&path, &cache)
+        {
             eprintln!("recipe cache not written to {}: {e}", path.display());
         }
-        return Ok(cache.recipes);
+        each.push(cache.recipes);
     }
-    Ok(recipes)
+    Ok(each)
 }
 
 pub fn write_json(path: &std::path::Path, value: &impl Serialize) -> std::io::Result<()> {
@@ -424,14 +515,17 @@ mod tests {
                              1,3818,2319,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0\n\
                              2,19047,8171,15409,0,0,0,0,0,0,1,1,0,0,0,0,0,0\n\
                              3,7777,2319,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0\n\
-                             4,44953,2319,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0\n"
+                             4,44953,2319,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0\n\
+                             5,2660,2835,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0\n"
                 .into(),
             item_sparse: "ID,Description_lang,Display_lang,InventoryType,OverallQualityID\n\
                           4234,,\"Heavy Leather\",0,1\n\
                           2319,\"Soft, supple\",\"Medium Leather\",0,1\n\
                           15407,,\"Cured Rugged Hide\",16,3\n\
                           8171,,\"Rugged Hide\",0,2\n\
-                          8170,,\"Light Leather\",0,9\n"
+                          8170,,\"Light Leather\",0,9\n\
+                          2862,,\"Rough Sharpening Stone\",0,1\n\
+                          2835,,\"Rough Stone\",0,1\n"
                 .into(),
             icons: icon_tables(),
         }
@@ -444,7 +538,8 @@ mod tests {
                    2319,7,134254\n\
                    15407,7,0\n\
                    8171,7,134257\n\
-                   8170,7,134251\n"
+                   8170,7,134251\n\
+                   2862,0,135248\n"
                 .into(),
             item_modified_appearance: "ID,ItemID,ItemAppearanceModifierID,ItemAppearanceID,OrderIndex\n\
                                        1,15407,0,501,1\n\
@@ -463,7 +558,7 @@ mod tests {
 
     #[test]
     fn joins_create_item_effects_with_reagents_icons_and_ranks_for_the_profession() {
-        let recipes = join(&tables(), &LEATHERWORKING).unwrap();
+        let recipes = join(&tables(), Profession::Leatherworking).unwrap();
         let reagent = |item_id, name: &str, quality, icon: Option<u32>, count| Reagent { item_id, item_name: name.into(), quality, icon: icon.map(FileDataId), count };
         assert_eq!(recipes, vec![
             Recipe {
@@ -503,6 +598,30 @@ mod tests {
     }
 
     #[test]
+    fn joins_only_the_skill_lines_of_the_profession_asked_for() {
+        assert_eq!(join(&tables(), Profession::Blacksmithing).unwrap(), vec![Recipe {
+            spell_id: 2660,
+            item_id: 2862,
+            item_name: "Rough Sharpening Stone".into(),
+            quality: Quality::Common,
+            slot: None,
+            icon: Some(FileDataId(135248)),
+            quantity: 1.0,
+            skill: Some(Skill { learn: 1, grey: 30 }),
+            reagents: vec![Reagent { item_id: 2835, item_name: "Rough Stone".into(), quality: Quality::Common, icon: None, count: 1 }],
+        }]);
+        assert_eq!(join(&tables(), Profession::Tailoring), Ok(vec![]));
+    }
+
+    #[test]
+    fn the_registry_holds_one_row_per_profession_in_order_and_parses_slugs_and_names() {
+        for (i, p) in Profession::ALL.into_iter().enumerate() {
+            assert_eq!(p as usize, i, "{p:?}");
+        }
+        assert_eq!(["first-aid", " First Aid ", "LEATHERWORKING", "firstaid", ""].map(Profession::parse), [Some(Profession::FirstAid), Some(Profession::FirstAid), Some(Profession::Leatherworking), None, None]);
+    }
+
+    #[test]
     fn quality_and_slot_ids_map_as_the_client_names_them() {
         assert_eq!([0, 2, 4, 7, 8].map(Quality::from_id), [Some(Quality::Poor), Some(Quality::Uncommon), Some(Quality::Epic), Some(Quality::Heirloom), None]);
         let slot = |id| Slot::from_inventory_type(id).map(Slot::name);
@@ -513,6 +632,6 @@ mod tests {
     fn a_missing_column_names_its_table() {
         let mut t = tables();
         t.spell_effect = "ID,SpellID\n1,3818\n".into();
-        assert_eq!(join(&t, &LEATHERWORKING), Err("SpellEffect has no Effect column".into()));
+        assert_eq!(join(&t, Profession::Leatherworking), Err("SpellEffect has no Effect column".into()));
     }
 }
