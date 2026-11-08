@@ -22,10 +22,10 @@ impl Column {
 
     pub fn title(self) -> &'static str {
         match self {
-            Column::Item => "Item",
+            Column::Item => "Recipe",
             Column::Skill => "Skill",
-            Column::Cost => "Mats cost",
-            Column::Resale => "Sells for",
+            Column::Cost => "Materials",
+            Column::Resale => "Net sale",
             Column::Profit => "Profit",
             Column::Margin => "Margin",
             Column::SoldPerDay => "Sold/day",
@@ -51,6 +51,8 @@ impl Column {
 pub struct Filter<'a> {
     pub hide_unpriced: bool,
     pub min_sold_per_day: f64,
+    /// The player's rank: recipes learned above it hide, recipes without a known rank stay.
+    pub max_skill: Option<u16>,
     /// Matches the crafted item or any reagent by name, ignoring case. Blank matches all.
     pub query: &'a str,
 }
@@ -60,11 +62,12 @@ pub struct Filter<'a> {
 pub enum FilterKind {
     Sells,
     HideUnpriced,
+    Skill,
 }
 
 impl Filter<'_> {
     fn on(&self) -> Vec<FilterKind> {
-        [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::HideUnpriced, self.hide_unpriced)].into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
+        [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::HideUnpriced, self.hide_unpriced), (FilterKind::Skill, self.max_skill.is_some())].into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
     }
 
     fn without(self, off: &[FilterKind]) -> Self {
@@ -73,6 +76,7 @@ impl Filter<'_> {
             match k {
                 FilterKind::Sells => f.min_sold_per_day = 0.0,
                 FilterKind::HideUnpriced => f.hide_unpriced = false,
+                FilterKind::Skill => f.max_skill = None,
             }
         }
         f
@@ -185,7 +189,8 @@ fn kept(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Vec<usize> 
             let e = &evals[i];
             let priced = !filter.hide_unpriced || e.profit.is_some();
             let selling = filter.min_sold_per_day <= 0.0 || e.sold_per_day.is_some_and(|s| s >= filter.min_sold_per_day);
-            priced && selling && matches(&recipes[i], &needle)
+            let learnable = filter.max_skill.is_none_or(|max| recipes[i].skill.is_none_or(|s| s.learn <= max));
+            priced && selling && learnable && matches(&recipes[i], &needle)
         })
         .collect()
 }
@@ -200,14 +205,9 @@ pub fn per_day(d: f64) -> String {
     if d >= 100.0 { format!("{d:.0}") } else { format!("{d:.1}") }
 }
 
-/// Margin as a whole percent, as in `379%`.
+/// Margin as a whole percent with a true minus, as in `379%` or `−12%`.
 pub fn percent(margin: f32) -> String {
-    format!("{:.0}%", margin * 100.0)
-}
-
-/// How much of the margin bar to fill: full at 250%, so typical margins still differ.
-pub fn margin_fill(margin: f32) -> f32 {
-    (margin.abs() / 2.5).min(1.0)
+    format!("{:.0}%", margin * 100.0).replacen('-', "\u{2212}", 1)
 }
 
 #[cfg(test)]
@@ -231,7 +231,7 @@ mod tests {
         )
     }
 
-    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: 0.0, query: "" };
+    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: 0.0, max_skill: None, query: "" };
 
     #[test]
     fn unknown_values_sort_last_in_both_directions() {
@@ -246,9 +246,19 @@ mod tests {
     fn filters_hide_unpriced_rows_and_slow_sellers() {
         let (r, e) = fixture();
         let by_name = Sort { column: Column::Item, descending: false };
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, by_name), vec![0, 2, 3]);
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: false, min_sold_per_day: 1.0, query: "" }, by_name), vec![0, 1]);
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0, query: "" }, by_name), vec![0]);
+        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, ..ALL }, by_name), vec![0, 2, 3]);
+        assert_eq!(visible(&r, &e, Filter { min_sold_per_day: 1.0, ..ALL }, by_name), vec![0, 1]);
+        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0, ..ALL }, by_name), vec![0]);
+    }
+
+    #[test]
+    fn a_skill_hides_recipes_learned_above_it_and_keeps_those_without_a_rank() {
+        let (mut r, e) = fixture();
+        r[1].skill = None;
+        let by_name = Sort { column: Column::Item, descending: false };
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(225), ..ALL }, by_name), vec![0, 1, 2, 3]);
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(125), ..ALL }, by_name), vec![0, 1, 3]);
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(124), ..ALL }, by_name), vec![1]);
     }
 
     #[test]
@@ -266,7 +276,7 @@ mod tests {
         assert_eq!(find("mithril"), Vec::<usize>::new());
     }
 
-    const SELLING_PRICED: Filter = Filter { hide_unpriced: true, min_sold_per_day: 1.0, query: "" };
+    const SELLING_PRICED: Filter = Filter { hide_unpriced: true, min_sold_per_day: 1.0, max_skill: None, query: "" };
 
     #[test]
     fn names_only_the_filter_that_hides_what_the_search_finds() {
@@ -283,6 +293,14 @@ mod tests {
         // Sells hides the cloak, drums and elixir, Hide unpriced the boots and elixir.
         assert_eq!(hidden(&r, &e, SELLING_PRICED), Some(Hidden { count: 4, by: vec![FilterKind::Sells, FilterKind::HideUnpriced] }));
         assert_eq!(hidden(&r, &e, Filter { query: "elixir", ..SELLING_PRICED }), Some(Hidden { count: 1, by: vec![FilterKind::Sells, FilterKind::HideUnpriced] }));
+    }
+
+    #[test]
+    fn a_skill_below_a_found_recipe_is_named() {
+        let (r, e) = fixture();
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), query: "kit", ..ALL }), Some(Hidden { count: 1, by: vec![FilterKind::Skill] }));
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), query: "boots", ..ALL }), None);
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), ..SELLING_PRICED }), Some(Hidden { count: 4, by: vec![FilterKind::Sells, FilterKind::HideUnpriced, FilterKind::Skill] }));
     }
 
     #[test]
@@ -313,8 +331,7 @@ mod tests {
     #[test]
     fn numbers_read_as_the_table_prints_them() {
         assert_eq!((per_day(23.46), per_day(7.0), per_day(0.04), per_day(140.6)), ("23.5".into(), "7.0".into(), "0.0".into(), "141".into()));
-        assert_eq!((percent(3.79), percent(-0.124), percent(0.0)), ("379%".into(), "-12%".into(), "0%".into()));
-        assert_eq!((margin_fill(1.25), margin_fill(3.79), margin_fill(-0.5)), (0.5, 1.0, 0.2));
+        assert_eq!((percent(3.79), percent(-0.124), percent(0.0)), ("379%".into(), "\u{2212}12%".into(), "0%".into()));
     }
 
     #[test]

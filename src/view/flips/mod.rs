@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::{App, Dims, Load, SOLD_STEPS, message};
-use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Summary, Supply, Zone};
+use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
 use crate::merchants::{Catalog, Merchant};
@@ -41,7 +41,6 @@ struct Stocked {
     catalog: Catalog,
     flips: Vec<Flip>,
     zones: Vec<Zone>,
-    summary: Summary,
     rows: Vec<Row>,
     hidden: Option<Hidden<FilterKind>>,
 }
@@ -89,7 +88,6 @@ impl State {
     fn refilter(&mut self) {
         let Shelf::Ready(f) = &mut self.shelf else { return };
         let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text, supply: self.supply };
-        f.summary = flip_rows::summary(&f.flips, &f.catalog.merchants, &self.zone);
         f.rows = flip_rows::visible(&f.flips, &f.catalog.merchants, &f.catalog.items, filter, self.sort);
         f.hidden = flip_rows::hidden(&f.flips, &f.catalog.merchants, &f.catalog.items, filter);
     }
@@ -199,7 +197,7 @@ fn row_key(item: u32) -> String {
 impl App {
     pub(super) fn land_catalog(&mut self, result: Result<Catalog, String>) {
         self.flips.shelf = match result {
-            Ok(catalog) => Shelf::Ready(Box::new(Stocked { catalog, flips: Vec::new(), zones: Vec::new(), summary: flip_rows::summary(&[], &[], ""), rows: Vec::new(), hidden: None })),
+            Ok(catalog) => Shelf::Ready(Box::new(Stocked { catalog, flips: Vec::new(), zones: Vec::new(), rows: Vec::new(), hidden: None })),
             Err(e) => Shelf::Failed(e),
         };
         self.reprice_flips();

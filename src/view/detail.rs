@@ -1,213 +1,175 @@
-//! The selected recipe: profit, where the sale price goes, reagents, skill range and cautions.
+//! The selected recipe: profit per craft, where the sale price goes, the market behind it,
+//! reagents and skill range.
 
 use rune::{Color, Cursor, El, ScrollSpec, Span, Tx, col, el, row, text};
 
-use super::widgets::{ButtonKind, Money, WARNING, button, caps, flexible, glyph, icon_frame, section, unknown};
+use super::widgets::{ButtonKind, Money, button, flexible, icon_frame, unknown};
 use super::{App, Dims, Ready, recipe_at};
-use crate::breakdown::{Bar, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, waterfall, wowhead_url};
-use crate::copper::{Copper, signed};
-use crate::profit::{AuctionBasis, Evaluation, PriceOrigin, PriceSource, ReagentPrice};
+use crate::breakdown::{Caution, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, wowhead_url};
+use crate::profit::{AuctionBasis, Evaluation, PriceOrigin};
 use crate::recipes::{Recipe, Skill};
-use crate::rows::percent;
+use crate::rows::{per_day, percent};
 use crate::theme::{self, p};
 
-const PAD: f32 = 26.0;
+const PAD: f32 = 24.0;
+const ROW: f32 = 32.0;
+const DAGGER: &str = "\u{2020}";
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
     let Some((_, index)) = s.picked() else {
-        return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::sans(13.0, 400.0)).color(p().muted).wrap());
+        return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::BODY).color(p().muted).wrap());
     };
     let (recipe, e) = recipe_at(r, index);
     let costs = r.market.costs(s.source);
     let b = breakdown(recipe, e, &r.market.book, costs);
-    let inner = d.detail - 2.0 * PAD;
-    let mut body = col().w_full().gap(20.0).child(title(s, recipe)).child(profit_card(e, s.source)).child(money_flow(e, b.sale, inner)).child(reagents(s, &b.reagents));
-    if let Some(skill) = recipe.skill {
-        body = body.child(skill_range(skill));
+    let warning = caution(e.sold_per_day, e.auctions);
+    let money = Money::new(theme::BODY, p().text);
+    let sold = e.sold_per_day.map_or_else(|| "none recorded".into(), per_day);
+    let listed = e.auctions.map_or_else(unknown, |n| marked(n.to_string(), warning.is_some_and(Caution::on_listings)));
+    let mut body = col()
+        .w_full()
+        .child(identity(s, recipe))
+        .child(hero(e))
+        .child(band("Breakdown").mt(16.0))
+        .child(ledger("Sale price", b.sale.map_or_else(unknown, |s| money.show(s.gross))));
+    if let Some(Sale { basis: AuctionBasis::MarketValue, .. }) = b.sale {
+        body = body.child(note("No current listings, 14-day average.", false));
     }
-    if let Some(warning) = caution(e.sold_per_day, e.auctions) {
-        body = body.child(warn(&warning));
+    body = body
+        .child(ledger("AH cut, 5%", b.sale.map_or_else(unknown, |s| money.minus(s.cut))))
+        .child(ledger("Materials", e.cost.map_or_else(unknown, |c| money.minus(c))))
+        .child(ledger("Margin on materials", e.margin.map_or_else(unknown, |m| text(percent(m)).font(theme::BODY).color(p().text))))
+        .child(band("Market"))
+        .child(ledger("Sold per day, region", marked(sold, warning.is_some_and(|w| !w.on_listings()))))
+        .child(ledger("Listed on realm", listed));
+    if let Some(w) = warning {
+        body = body.child(note(w.note(), true));
+    }
+    body = body.child(band("Reagents"));
+    for line in &b.reagents {
+        body = body.child(reagent(s, line, money));
+    }
+    if let Some(skill) = recipe.skill {
+        body = body.child(band("Skill-up")).child(skill_range(skill));
     }
     let list = shopping_list(recipe, &r.market.recipes, costs);
     let url = wowhead_url(recipe.item_id);
     let actions = row()
         .w_full()
-        .gap(10.0)
-        .px(PAD)
+        .gap(8.0)
         .pt(16.0)
-        .pb(22.0)
         .child(button("Copy shopping list", ButtonKind::Primary, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
         .child(button("Open on Wowhead", ButtonKind::Ghost, move |_: &mut App, tx: &mut Tx| {
             if let Err(e) = tx.open_url(&url) {
                 eprintln!("{url}: {e}");
             }
         }));
-    panel
-        .child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body.px(PAD).pt(PAD)))
-        .child(actions)
+    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions)
 }
 
-fn title(s: &App, recipe: &Recipe) -> El {
+fn identity(s: &App, recipe: &Recipe) -> El {
     let quality = p().quality(recipe.quality);
     row()
-        .gap(14.0)
-        .center_y()
-        .child(icon_frame(s.icons.item(recipe.icon), 56.0, 2.0, 11.0, quality))
+        .w_full()
+        .pt(20.0)
+        .gap(16.0)
+        .child(icon_frame(s.icons.item(recipe.icon), 48.0, quality))
         .child(
             flexible()
-                .child(text(&recipe.item_name).font(theme::display(24.0).lh(26.4)).color(quality).wrap())
-                .child(text(subtitle(recipe)).font(theme::sans(12.5, 400.0)).color(p().muted).mt(5.0)),
+                .child(text(&recipe.item_name).font(theme::HEADING).color(quality).truncate())
+                .child(text(subtitle(recipe)).font(theme::CAPTION).color(p().muted).mt(4.0).truncate()),
         )
 }
 
-fn profit_card(e: &Evaluation, source: PriceSource) -> El {
-    let card = col().w_full().px(19.0).py(17.0).radius(14.0).fill(p().raised).border(1.0, p().line2).child(caps("Profit per craft", p().faint));
-    let Some(profit) = e.profit else {
-        let why = if e.unpriced.is_empty() { "The crafted item has no price on the auction house." } else { "A reagent has no price, so the cost is unknown." };
-        return card.child(text(why).font(theme::sans(13.0, 400.0)).color(p().muted).mt(10.0).wrap());
+fn hero(e: &Evaluation) -> El {
+    let figure = e.profit.map_or_else(|| text("\u{2014}").font(theme::FIGURE).color(p().faint), |pr| Money::new(theme::FIGURE, p().text).large().signed(pr));
+    row().w_full().h(ROW).mt(20.0).justify_between().center_y().child(text("Profit per craft").font(theme::BODY).color(p().muted)).child(figure)
+}
+
+/// A section label over its rows, ruled a step stronger than they are.
+pub(super) fn band(label: &str) -> El {
+    row().w_full().h(ROW).center_y().border_sides([0.0, 0.0, 1.0, 0.0], p().line).child(text(label).font(theme::LABEL).color(p().muted))
+}
+
+pub(super) fn ledger(label: &str, value: El) -> El {
+    row()
+        .w_full()
+        .h(ROW)
+        .justify_between()
+        .center_y()
+        .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
+        .child(text(label).font(theme::BODY).color(p().muted))
+        .child(value)
+}
+
+/// A market figure, with a brass dagger when the note below is about it.
+fn marked(value: String, mark: bool) -> El {
+    if !mark {
+        return text(value).font(theme::BODY).color(p().text);
+    }
+    let start = value.len() + 1;
+    text(format!("{value} {DAGGER}")).font(theme::BODY).color(p().text).spans(vec![Span::new(start, start + DAGGER.len()).color(p().brass)])
+}
+
+/// A caption line under the rows it explains; `mark` leads it with the dagger its figure
+/// carries.
+pub(super) fn note(message: &str, mark: bool) -> El {
+    let line = if mark { format!("{DAGGER} {message}") } else { message.to_string() };
+    let dagger = if mark { vec![Span::new(0, DAGGER.len()).color(p().brass)] } else { Vec::new() };
+    row().w_full().h(ROW).center_y().role("note").child(text(line).font(theme::CAPTION).color(p().muted).spans(dagger).truncate())
+}
+
+/// "2 × Rugged Leather at 1g 20s", or "…, vendor at" or "…, crafted at" when a vendor or this
+/// profession prices it. The source leads the price so a long name truncates the price first. A
+/// crafted reagent's line opens its recipe.
+fn reagent(s: &App, l: &ReagentLine, money: Money) -> El {
+    let name = format!("{} \u{d7} {}", l.reagent.count, l.reagent.item_name);
+    let (origin, recipe) = match l.price.map(|p| p.origin) {
+        Some(PriceOrigin::Vendor) => (", vendor", None),
+        Some(PriceOrigin::Crafted { spell_id }) => (", crafted", Some(spell_id)),
+        _ => ("", None),
     };
-    let value = Money::new(theme::mono(30.0, 500.0).lh(30.0), p().profit).coin(13.0, 7.0, 11.0).signed(profit);
-    let mut line = String::new();
-    let mut bold = Vec::new();
-    if let Some(m) = e.margin {
-        bold.push((0, percent(m).len()));
-        line.push_str(&percent(m));
-        line.push_str(" on ");
-    } else {
-        line.push_str("On ");
-    }
-    if let Some(cost) = e.cost {
-        let c = cost.to_string();
-        bold.push((line.len(), line.len() + c.len()));
-        line.push_str(&c);
-    }
-    line.push_str(match source {
-        PriceSource::Realm => " of mats · realm prices",
-        PriceSource::Region => " of mats · region prices",
-    });
-    let spans: Vec<Span> = bold.into_iter().map(|(a, b)| Span::new(a, b).weight(500.0).color(p().text)).collect();
-    card.child(row().mt(10.0).child(value)).child(text(line).font(theme::sans(12.5, 400.0)).color(p().muted).spans(spans).mt(10.0).wrap())
-}
-
-/// The waterfall from the sale price down to the profit. `width` is the panel's inner width.
-fn money_flow(e: &Evaluation, sale: Option<Sale>, width: f32) -> El {
-    let out = col().w_full().child(section("Where the money goes"));
-    let out = match (sale, e.cost, e.profit) {
-        (Some(sale), Some(cost), Some(profit)) => out.child(flow(sale, cost, profit, width)),
-        _ => out.child(text("Needs prices for the item and every reagent.").font(theme::sans(13.0, 400.0)).color(p().muted)),
+    let at = match l.price {
+        Some(price) => format!(" at {}", price.unit),
+        None => " unpriced".into(),
     };
-    match sale {
-        Some(Sale { basis: AuctionBasis::MarketValue, .. }) => out.child(text("No current listings · 14-day average").font(theme::sans(12.0, 400.0)).color(p().muted).mt(6.0)),
-        _ => out,
-    }
-}
-
-fn flow(Sale { gross, cut, .. }: Sale, cost: Copper, profit: i64, width: f32) -> El {
-    let w = waterfall(gross, cut, cost);
-    let amount = Money::new(theme::mono(12.5, 400.0), p().text);
-    let track = width - 96.0 - 104.0 - 20.0;
-    let line = |label: &str, label_color, bar: Bar, color: rune::Color, value: El| {
-        row()
-            .w_full()
-            .h(26.0)
-            .gap(10.0)
-            .center_y()
-            .child(text(label).font(theme::sans(13.0, 400.0)).color(label_color).w(96.0))
-            .child(row().w(track).h(8.0).radius(4.0).fill(p().track).child(el().w(bar.start * track)).child(el().w(bar.width * track).h_full().radius(4.0).fill(color)))
-            .child(row().w(104.0).justify_end().child(value))
+    let line = format!("{name}{origin}{at}");
+    let word = name.len() + 2..name.len() + origin.len();
+    let spans = match recipe {
+        Some(_) => vec![Span::new(name.len(), word.start).color(p().muted), Span::new(word.start, word.end).color(p().brass), Span::new(word.end, line.len()).color(p().muted)],
+        None => vec![Span::new(name.len(), line.len()).color(p().muted)],
     };
-    let minus = |c: Copper| amount.with_sign("\u{2212}", c);
-    let (profit_label, profit_color) = if profit < 0 { ("Loss", p().loss) } else { ("Profit", p().profit) };
-    col().w_full().child(line("Sells for", p().muted, w.sells, p().sells_bar, amount.show(gross)))
-        .child(line("AH cut 5%", p().muted, w.cut, p().loss, minus(cut)))
-        .child(line("Mats", p().muted, w.mats, p().loss.alpha(0.75), minus(cost)))
-        .child(line(profit_label, p().text, w.profit, profit_color, amount.color(profit_color).with_sign(if profit < 0 { "\u{2212}" } else { "" }, Copper(profit.unsigned_abs()))))
-        .label(format!("Sells for {gross}, AH cut {cut}, mats {cost}, profit {}", signed(profit)))
-}
-
-fn reagents(s: &App, lines: &[ReagentLine]) -> El {
-    let mut out = col().w_full().child(section("Reagents"));
-    let last = lines.len().saturating_sub(1);
-    for (i, l) in lines.iter().enumerate() {
-        let each = match l.price {
-            Some(price) => {
-                let r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(price.unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
-                let note = match price.origin {
-                    PriceOrigin::Vendor => Some(origin_note("vendor")),
-                    PriceOrigin::Crafted { .. } => Some(origin_note("crafted")),
-                    PriceOrigin::Auction => l.listed.map(|n| text(format!(" · {n} listed"))),
-                };
-                match note {
-                    Some(note) => r.child(note.font(theme::sans(12.0, 400.0)).color(p().muted)),
-                    None => r,
-                }
-            }
-            None => row().mt(2.0).child(text("No auction or vendor price").font(theme::sans(12.0, 400.0)).color(p().loss)),
-        };
-        let total = l.total.map_or_else(|| unknown("—"), |t| Money::new(theme::mono(13.0, 400.0), p().text).show(t));
-        let mut line = row()
-            .w_full()
-            .gap(12.0)
-            .py(10.0)
-            .center_y()
-            .child(icon_frame(s.icons.item(l.reagent.icon), 34.0, 1.5, 7.0, p().quality(l.reagent.quality)))
-            .child(text(format!("{}×", l.reagent.count)).font(theme::mono(13.0, 500.0)).color(p().brass).w(30.0))
-            .child(flexible().child(text(&l.reagent.item_name).font(theme::sans(14.0, 500.0)).color(p().text).truncate()).child(each))
-            .child(total);
-        if i != last {
-            line = line.pb(11.0).border_sides([0.0, 0.0, 1.0, 0.0], p().line);
-        }
-        if let Some(ReagentPrice { origin: PriceOrigin::Crafted { spell_id }, .. }) = l.price {
-            line = line.cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.025)).label(format!("Show the {} recipe", l.reagent.item_name)).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                s.selected = Some(spell_id);
-                tx.scroll_into_view(spell_id.to_string());
-            });
-        }
-        out = out.child(line);
+    let what = text(line).font(theme::BODY).color(p().text).spans(spans).truncate();
+    let out = row()
+        .w_full()
+        .h(ROW)
+        .gap(8.0)
+        .center_y()
+        .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
+        .child(icon_frame(s.icons.item(l.reagent.icon), 24.0, p().quality(l.reagent.quality)))
+        .child(flexible().child(what))
+        .child(l.total.map_or_else(unknown, |t| money.show(t)));
+    match recipe {
+        Some(spell_id) => out.cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.025)).label(format!("Show the {} recipe", l.reagent.item_name)).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            s.selected = Some(spell_id);
+            tx.scroll_into_view(spell_id.to_string());
+        }),
+        None => out,
     }
-    out
-}
-
-/// " · vendor" or " · crafted", standing where a reagent bought at auction shows how many are listed.
-fn origin_note(word: &str) -> El {
-    let note = format!(" · {word}");
-    let end = note.len();
-    text(note).spans(vec![Span::new(end - word.len(), end).color(p().sells_bar)])
 }
 
 /// Yellow from learning to green, green to grey, then grey: the ranks where a craft still
 /// raises the skill.
 fn skill_range(skill: Skill) -> El {
-    let [still, green, grey] = p().skill;
-    let third = |c| el().w_frac(1.0 / 3.0).h_full().fill(c);
-    let label = |t: String| text(t).font(theme::mono(11.5, 400.0)).color(p().muted);
-    col()
-        .w_full()
-        .child(section("Skill-up range"))
-        .child(row().w_full().h(6.0).radius(3.0).clip_rounded(3.0).child(third(still)).child(third(green)).child(third(grey)))
-        .child(
-            row()
-                .w_full()
-                .mt(6.0)
-                .justify_between()
-                .child(label(format!("{} learn", skill.learn)))
-                .child(label(format!("{} green", skill.green())))
-                .child(label(format!("{} grey", skill.grey))),
-        )
-}
-
-fn warn(message: &str) -> El {
+    let [yellow, green, grey] = p().skill;
+    let third = |color, label: String| col().w(0.0).grow(1.0).child(el().w_full().h(4.0).radius(2.0).fill(color)).child(text(label).font(theme::CAPTION).color(p().muted).mt(8.0));
     row()
         .w_full()
-        .gap(10.0)
-        .px(15.0)
-        .py(13.0)
-        .radius(12.0)
-        .fill(p().brass.alpha(0.063))
-        .border(1.0, p().brass.alpha(0.2))
-        .items_start()
-        .child(glyph(&WARNING, 16.0, p().brass).mt(2.0))
-        .child(flexible().child(text(message).font(theme::sans(12.5, 400.0).lh(18.1)).color(p().warn_text).wrap()))
-        .role("note")
+        .h(ROW)
+        .gap(2.0)
+        .center_y()
+        .child(third(yellow, format!("Yellow {}", skill.learn)))
+        .child(third(green, format!("Green {}", skill.green())))
+        .child(third(grey, format!("Grey {}", skill.grey)))
 }

@@ -16,10 +16,10 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 use crate::icons;
 use crate::market::{self, Market};
 use crate::merchants::{self, Catalog};
-use crate::overview::{Overview, overview};
 use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
+use crate::settings;
 use crate::theme::{self, p};
 
 const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
@@ -43,6 +43,8 @@ pub struct App {
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,
+    /// The player's profession rank as typed; blank shows every rank.
+    skill: TextEdit,
     flips: flips::State,
 }
 
@@ -75,14 +77,14 @@ struct Icons {
 impl Icons {
     fn show(&mut self, id: FileDataId, path: &Path) {
         if let Some(cache) = &self.cache {
-            self.items.insert(id, cache.file(path, 56.0, 2.0));
+            self.items.insert(id, cache.file(path, 48.0, 2.0));
         }
     }
 
     fn show_rail(&mut self, name: &'static str, image: RailImage) {
         let Some(cache) = &self.cache else { return };
         let image = match image {
-            RailImage::File(path) => cache.file(path, 30.0, 2.0),
+            RailImage::File(path) => cache.file(path, 32.0, 2.0),
             RailImage::Dimmed(w, h, rgba) => cache.rgba(w, h, rgba),
         };
         self.rail.insert(name, image);
@@ -96,7 +98,6 @@ impl Icons {
 struct Ready {
     market: Market,
     evals: Vec<Evaluation>,
-    overview: Overview,
     rows: Vec<usize>,
     hidden: Option<Hidden<FilterKind>>,
 }
@@ -108,16 +109,16 @@ struct Dims {
     pad: f32,
     detail: f32,
     gap: f32,
-    /// Skill, mats cost, sells for, profit, margin, sold/day, listed.
+    /// Skill, materials, net sale, profit, margin, sold/day, listed.
     cols: [f32; 7],
 }
 
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 20.0, detail: 360.0, gap: 10.0, cols: [44.0, 104.0, 104.0, 112.0, 52.0, 60.0, 48.0] }
+            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, cols: [40.0, 104.0, 104.0, 104.0, 56.0, 56.0, 40.0] }
         } else {
-            Dims { compact, pad: 32.0, detail: 420.0, gap: 14.0, cols: [104.0, 118.0, 118.0, 128.0, 112.0, 84.0, 64.0] }
+            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, cols: [56.0, 112.0, 112.0, 112.0, 72.0, 80.0, 64.0] }
         }
     }
 }
@@ -135,13 +136,14 @@ impl App {
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
             search: TextEdit::new(""),
+            skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
         }
     }
 
     fn land(&mut self, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), overview: overview(&[]), rows: Vec::new(), hidden: None })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None })),
             Err(e) => Load::Failed(e),
         };
         self.refresh();
@@ -153,8 +155,12 @@ impl App {
     fn refresh(&mut self) {
         let Load::Ready(r) = &mut self.load else { return };
         r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs(self.source))).collect();
-        r.overview = overview(&r.evals);
-        let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text };
+        let filter = Filter {
+            hide_unpriced: self.hide_unpriced,
+            min_sold_per_day: SOLD_STEPS[self.min_sold].1,
+            max_skill: settings::parse_skill(&self.skill.text),
+            query: &self.search.text,
+        };
         r.rows = rows::visible(&r.market.recipes, &r.evals, filter, self.sort);
         r.hidden = rows::hidden(&r.market.recipes, &r.evals, filter);
     }
@@ -166,6 +172,10 @@ impl App {
             match k {
                 FilterKind::Sells => self.min_sold = 0,
                 FilterKind::HideUnpriced => self.hide_unpriced = false,
+                FilterKind::Skill => {
+                    self.skill.clear();
+                    settings::save_skill("");
+                }
             }
         }
         self.refresh();
@@ -209,9 +219,7 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    if s.icons.cache.is_none() {
-        s.icons.cache = Some(ImageCache::new(wake.clone()));
-    }
+    widgets::load_coins(s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone())));
     if !matches!(s.load, Load::Loading) || s.inbox.is_some() {
         return;
     }
@@ -345,7 +353,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
 }
 
 fn message(m: &str) -> El {
-    col().grow(1.0).h_full().center().padding(24.0).child(text(m).font(theme::sans(14.0, 400.0)).color(p().muted).wrap())
+    col().grow(1.0).h_full().center().padding(24.0).child(text(m).font(theme::BODY).color(p().muted).wrap())
 }
 
 fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
@@ -393,7 +401,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
         let _ = tx.send((id, path));
     });
     drop(tx);
-    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
+    let coins = widgets::load_coins(s.icons.cache.insert(ImageCache::new(Arc::new(|| {}))));
     for (id, path) in rx {
         s.icons.show(id, &path);
     }
@@ -402,7 +410,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     for (name, image) in rail.into_inner() {
         s.icons.show_rail(name, image);
     }
-    for image in s.icons.items.values().chain(s.icons.rail.values()) {
+    for image in s.icons.items.values().chain(s.icons.rail.values()).chain(coins) {
         let _ = image.wait();
     }
 }

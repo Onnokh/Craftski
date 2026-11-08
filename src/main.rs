@@ -11,6 +11,7 @@ mod prices;
 mod profit;
 mod recipes;
 mod rows;
+mod settings;
 mod theme;
 mod vendor;
 mod view;
@@ -65,14 +66,16 @@ fn dump() -> Result<(), String> {
     let m = market::load()?;
     let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs(source))).collect::<Vec<_>>();
     let evals = evals_for(PriceSource::Realm);
-    let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, Sort { column: Column::Profit, descending: true });
+    let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
     println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
     let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
-    for (name, source, o) in [("realm", PriceSource::Realm, overview::overview(&evals)), ("region", PriceSource::Region, overview::overview(&evals_for(PriceSource::Region)))] {
+    for (name, source, evals) in [("realm", PriceSource::Realm, &evals), ("region", PriceSource::Region, &evals_for(PriceSource::Region))] {
+        let priced = evals.iter().filter(|e| e.profit.is_some()).count();
+        let missing = evals.iter().filter(|e| !e.unpriced.is_empty()).count();
         let crafted = reagents.iter().filter(|&&item| m.costs(source).get(item).is_some_and(|p| matches!(p.origin, profit::PriceOrigin::Crafted { .. }))).count();
-        println!("fully priced ({name}): {}/{}, {} miss a reagent price, {crafted} reagents cheapest to craft", o.priced, o.total, o.missing_reagent);
+        println!("fully priced ({name}): {priced}/{}, {missing} miss a reagent price, {crafted} reagents cheapest to craft", evals.len());
     }
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();

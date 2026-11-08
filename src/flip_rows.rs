@@ -24,8 +24,6 @@ pub enum Column {
 }
 
 impl Column {
-    pub const ALL: [Column; 9] = [Column::Item, Column::Vendor, Column::Paid, Column::Sells, Column::DepositLoss, Column::Profit, Column::SaleRate, Column::SoldPerDay, Column::Limit];
-
     pub fn title(self) -> &'static str {
         match self {
             Column::Item => "Item",
@@ -210,34 +208,6 @@ pub fn zones(flips: &[Flip], merchants: &[Merchant]) -> Vec<Zone> {
         by_zone.entry(merchants[f.merchant].zone.as_str()).or_default().insert(f.merchant);
     }
     by_zone.into_iter().filter(|(name, _)| !name.is_empty()).map(|(name, m)| Zone { name: name.to_owned(), merchants: m.len() }).collect()
-}
-
-/// The header's summary of one zone, counting each item once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Summary {
-    /// Indices into the flips.
-    pub top: Option<usize>,
-    /// The most profitable flip that sells at least once a day across the region.
-    pub best_selling: Option<usize>,
-    pub profitable: usize,
-    pub total: usize,
-    /// Items the region has no sale rate for, so their deposit loss is unknown.
-    pub no_rate: usize,
-}
-
-pub fn summary(flips: &[Flip], merchants: &[Merchant], zone: &str) -> Summary {
-    let offers: Vec<usize> = (0..flips.len()).filter(|&i| merchants[flips[i].merchant].zone == zone).collect();
-    let here: Vec<usize> = dedupe(flips, merchants, offers).into_iter().map(|r| r.flip).collect();
-    let earning = || here.iter().copied().filter(|&i| flips[i].profit.is_some_and(|p| p > 0));
-    // The first of equal profits wins, so ties resolve by item id rather than at random.
-    let best = |a: Option<usize>, i: usize| if a.is_some_and(|a| flips[a].profit >= flips[i].profit) { a } else { Some(i) };
-    Summary {
-        top: earning().fold(None, best),
-        best_selling: earning().filter(|&i| flips[i].sold_per_day.is_some_and(|s| s >= 1.0)).fold(None, best),
-        profitable: earning().count(),
-        total: here.len(),
-        no_rate: here.iter().filter(|&&i| flips[i].sale_rate.is_none()).count(),
-    }
 }
 
 #[cfg(test)]
@@ -433,19 +403,5 @@ mod tests {
     fn lists_each_zone_with_its_merchants_that_have_flips() {
         let (f, m, _) = fixture();
         assert_eq!(zones(&f, &m), vec![Zone { name: "Durotar".into(), merchants: 1 }, Zone { name: "Thunder Bluff".into(), merchants: 2 }]);
-    }
-
-    #[test]
-    fn sums_up_a_zone_with_its_top_earner_and_best_daily_seller() {
-        let (f, m, _) = fixture();
-        assert_eq!(summary(&f, &m, HOME), Summary { top: Some(0), best_selling: None, profitable: 1, total: 3, no_rate: 3 });
-        assert_eq!(summary(&f, &m, "Durotar"), Summary { top: Some(3), best_selling: Some(3), profitable: 1, total: 1, no_rate: 1 });
-    }
-
-    #[test]
-    fn a_zone_counts_an_item_two_merchants_sell_once() {
-        let (mut f, m, _) = fixture();
-        f.push(flip(1, 1, Some(650), Some(2.0), None));
-        assert_eq!(summary(&f, &m, HOME), Summary { top: Some(4), best_selling: Some(4), profitable: 1, total: 3, no_rate: 3 });
     }
 }
