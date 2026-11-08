@@ -51,9 +51,8 @@ fn is_truetype(bytes: &[u8]) -> bool {
 pub struct Palette {
     pub ground: Color,
     pub surface: Color,
-    pub line: Color,
     pub line2: Color,
-    /// Row dividers, a step quieter than `line`, which rules the column heads and bands.
+    /// Row dividers, quieter than the bronze that rules the column heads and bands.
     pub rule: Color,
     pub selected: Color,
     /// The fill of what is chosen: a pill whose filter is on, a menu's current item.
@@ -93,7 +92,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
     Palette {
         ground: c("#0B0806"),
         surface: c("#120E0A"),
-        line: c("#2E2822"),
         line2: c("#3A332B"),
         rule: c("#FFE2AA").alpha(0.07),
         selected: c("#221D17"),

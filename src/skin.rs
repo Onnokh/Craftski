@@ -15,12 +15,7 @@ pub enum Piece {
     SlotFrame,
     ProgressBg,
     ProgressFrame,
-    Dropdown,
-    DropdownOpen,
     MenuBg,
-    SearchLeft,
-    SearchMid,
-    SearchRight,
     Magnifier,
     RedLeft,
     RedMid,
@@ -54,12 +49,7 @@ const SHARED_CUTS: [Cut; Piece::SHARED.len()] = [
     cut("profession-square-frame-c60-2x", 8164397, [131, 39, 211, 119]),
     cut("profession-progressbar-bg-c60-2x", 8164397, [219, 1, 967, 47]),
     cut("profession-progressbar-frame-c60-2x", 8164397, [219, 49, 967, 95]),
-    cut("common-dropdown-b-button-c60-2x", 8069110, [1, 183, 195, 235]),
-    cut("common-dropdown-b-button-open-c60-2x", 8069110, [197, 237, 391, 289]),
     cut("common-dropdown-bg-c60-2x", 8069110, [183, 1, 319, 137]),
-    cut("common-search-border-left-c60", 8086476, [227, 1, 243, 41]),
-    cut("common-search-border-middle-c60", 8086476, [1, 1, 225, 41]),
-    cut("common-search-border-right-c60", 8086476, [1, 43, 17, 83]),
     cut("common-search-magnifyingglass", 3281887, [19, 85, 43, 109]),
     cut("128-redbutton-left-c60", 8063723, [391, 781, 505, 909]),
     cut("_128-redbutton-center-c60", 8063723, [0, 1, 64, 129]),
@@ -103,17 +93,12 @@ pub const COUNT: usize = Piece::SHARED.len() + 2 * Profession::ALL.len();
 
 impl Piece {
     /// The pieces every profession draws alike.
-    pub const SHARED: [Piece; 18] = [
+    pub const SHARED: [Piece; 13] = [
         Piece::Background,
         Piece::SlotFrame,
         Piece::ProgressBg,
         Piece::ProgressFrame,
-        Piece::Dropdown,
-        Piece::DropdownOpen,
         Piece::MenuBg,
-        Piece::SearchLeft,
-        Piece::SearchMid,
-        Piece::SearchRight,
         Piece::Magnifier,
         Piece::RedLeft,
         Piece::RedMid,
@@ -329,7 +314,7 @@ mod tests {
     #[test]
     fn sizes_double_density_art_at_half_its_pixels() {
         assert_eq!(Piece::SlotFrame.size(), (40.0, 40.0));
-        assert_eq!(Piece::SearchLeft.size(), (16.0, 40.0));
+        assert_eq!(Piece::Magnifier.size(), (24.0, 24.0));
     }
 
     #[test]

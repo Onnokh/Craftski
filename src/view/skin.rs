@@ -24,7 +24,6 @@ const _: () = assert!(skin::COUNT <= u64::BITS as usize);
 /// pieces that stretch by nine-slice.
 fn insets(piece: Piece) -> Option<[u32; 4]> {
     match piece {
-        Piece::Dropdown | Piece::DropdownOpen => Some([16, 16, 56, 16]),
         Piece::MenuBg => Some([24, 24, 24, 24]),
         _ => None,
     }
