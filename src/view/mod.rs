@@ -475,7 +475,7 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    widgets::load_coins(s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone())));
+    s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone()));
     if !matches!(s.load, Load::Loading | Load::Unlocated) || s.inbox.is_some() {
         return;
     }
@@ -752,7 +752,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
         let _ = tx.send((id, path));
     });
     drop(tx);
-    let coins = widgets::load_coins(s.icons.cache.insert(ImageCache::new(Arc::new(|| {}))));
+    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
     for (id, path) in rx {
         s.icons.show(id, &path);
     }
@@ -774,7 +774,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
             skin::show(cache, piece, &path);
         }
     }
-    for image in s.icons.items.values().chain(s.icons.rail.values()).chain(coins) {
+    for image in s.icons.items.values().chain(s.icons.rail.values()) {
         let _ = image.wait();
     }
     skin::wait();

@@ -8,45 +8,8 @@ use rune::{Color, TextStyle};
 use crate::recipes::Quality;
 
 const PLEX: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Variable.ttf");
-const FAMILIES: (&str, &str) = ("IBM Plex Sans", "monospace");
-/// Friz Quadrata, the game's own face, with IBM Plex drawing what it lacks.
-const FRIZ_FAMILIES: (&str, &str) = ("\"Friz Quadrata TT\", \"IBM Plex Sans\"", "monospace");
-const FRIZ_FILE_ID: u32 = 615960;
-
-/// The fonts and families the window draws with: Friz Quadrata when it is cached or downloads
-/// within a few seconds, else IBM Plex alone. The game's font is never bundled.
-pub fn fonts() -> (&'static [&'static [u8]], (&'static str, &'static str)) {
-    match friz() {
-        Ok(friz) => (Vec::leak(vec![PLEX, Vec::leak(friz)]), FRIZ_FAMILIES),
-        Err(e) => {
-            eprintln!("Friz Quadrata not loaded, drawing in IBM Plex: {e}");
-            (Vec::leak(vec![PLEX]), FAMILIES)
-        }
-    }
-}
-
-fn friz() -> Result<Vec<u8>, String> {
-    let dir = crate::cache::dir("fonts").ok_or("LOCALAPPDATA is not set")?;
-    let path = dir.join("frizqt__.ttf");
-    if let Ok(bytes) = std::fs::read(&path)
-        && is_truetype(&bytes)
-    {
-        return Ok(bytes);
-    }
-    let url = format!("https://wago.tools/api/casc/{FRIZ_FILE_ID}?download");
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(4))).build().into();
-    let mut response = agent.get(&url).call().map_err(|e| format!("{url}: {e}"))?;
-    let bytes = response.body_mut().with_config().limit(4 << 20).read_to_vec().map_err(|e| format!("{url}: {e}"))?;
-    if !is_truetype(&bytes) {
-        return Err(format!("{url}: not a TrueType font"));
-    }
-    std::fs::create_dir_all(&dir).and_then(|()| crate::cache::write_atomic(&path, &bytes)).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(bytes)
-}
-
-fn is_truetype(bytes: &[u8]) -> bool {
-    bytes.len() > 1024 && bytes.starts_with(&[0, 1, 0, 0])
-}
+pub const FONTS: &[&[u8]] = &[PLEX];
+pub const FAMILIES: (&str, &str) = ("IBM Plex Sans", "monospace");
 
 pub struct Palette {
     pub ground: Color,
@@ -62,6 +25,8 @@ pub struct Palette {
     pub brass: Color,
     /// The game's own gold: titles, column heads, section bands and the chosen standing.
     pub gold: Color,
+    /// Each coin's face then rim, gold first.
+    pub coins: [[Color; 2]; 3],
     /// The rule under column heads and section bands.
     pub bronze: Color,
     /// The profit bar's gradient, top to bottom, and the selected row's.
@@ -96,6 +61,7 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         faint: c("#776D5F"),
         brass: c("#D8A443"),
         gold: c("#FFD100"),
+        coins: [[c("#F2C230"), c("#7A5A10")], [c("#C8CDD4"), c("#5F656E")], [c("#C8743A"), c("#5E3214")]],
         bronze: c("#6E5536"),
         bar: [c("#C9A24E"), c("#8A6A2A")],
         bar_selected: [c("#FFE07A"), c("#C99A32")],
