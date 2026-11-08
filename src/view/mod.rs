@@ -289,7 +289,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
 }
 
 fn message(m: &str) -> El {
-    col().grow(1.0).h_full().center().padding(24.0).child(text(m).font(theme::sans(14.0, 400.0)).color(p().muted).wrap())
+    col().grow(1.0).h_full().center().padding(24.0).child(text(m).font(theme::BODY).color(p().muted).wrap())
 }
 
 fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
