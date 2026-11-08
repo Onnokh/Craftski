@@ -5,8 +5,9 @@ use std::borrow::Cow;
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
 use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, sold_per_day, unknown};
-use super::{App, Dims, Ready, SOLD_STEPS, recipe_at};
+use super::{App, Dims, Ready, recipe_at};
 use crate::charts;
+use crate::menu::SOLD_STEPS;
 use crate::rows::{self, Column, FilterKind, percent};
 use crate::settings;
 use crate::theme::{self, p};
@@ -78,8 +79,8 @@ fn hint(s: &App, r: &Ready, d: Dims) -> Option<El> {
         .by
         .iter()
         .map(|k| match k {
-            FilterKind::Sells => format!("Sells {}", SOLD_STEPS[s.min_sold].0),
-            FilterKind::HideUnpriced => "Hide unpriced".to_string(),
+            FilterKind::Sells => SOLD_STEPS[s.min_sold].named(),
+            FilterKind::HideUnpriced => "Priced only".to_string(),
             FilterKind::Skill => format!("Skill {}", settings::parse_skill(&s.skill.text).unwrap_or_default()),
         })
         .collect();

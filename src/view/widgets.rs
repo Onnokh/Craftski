@@ -121,12 +121,40 @@ pub fn segmented<S: 'static>(name: &str, segments: Vec<Segment<S>>) -> El {
     out
 }
 
+/// Between a toolbar's search and its pills.
+pub const TOOLBAR_GAP: f32 = 12.0;
+
+/// A toolbar filter's outline: 32pt tall in the line colour, or filled with the stronger
+/// border while `active` says its filter narrows the rows. `open` strengthens the border alone,
+/// for a pill whose menu is open or whose field has focus.
+pub fn pill(active: bool, open: bool) -> El {
+    let out = row().h(32.0).pl(13.0).pr(11.0).gap(8.0).center_y().radius(4.0).border(1.0, if active || open { p().line2 } else { p().line });
+    if active { out.fill(p().active) } else { out.hover(Color::WHITE.alpha(0.03)) }
+}
+
+/// A toolbar's search: a magnifier and `field` in an outline that takes the width the pills
+/// leave.
+pub fn search_box(field: El, focused: bool) -> El {
+    row()
+        .h(32.0)
+        .grow(1.0)
+        .shrink()
+        .gap(8.0)
+        .px(13.0)
+        .center_y()
+        .radius(4.0)
+        .border(1.0, if focused { p().line2 } else { p().line })
+        .clip_rounded(4.0)
+        .cursor(Cursor::Text)
+        .child(glyph(&SEARCH, 16.0, p().faint))
+        .child(field)
+}
+
+/// A pill holding a brass checkbox and its label; pressing anywhere on it flips the box.
 pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
     let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
     let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
-    row()
-        .gap(8.0)
-        .center_y()
+    pill(false, false)
         .child(square)
         .child(text(label).font(theme::BODY).color(p().text))
         .role("checkbox")

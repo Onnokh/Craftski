@@ -10,10 +10,11 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::status::status;
-use super::{App, Dims, Load, SOLD_STEPS, message};
+use super::{App, Dims, Load, message};
 use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
+use crate::menu::SOLD_STEPS;
 use crate::merchants::{Catalog, Merchant};
 use crate::recipes::FileDataId;
 use crate::rows::{Hidden, Sort};
@@ -86,7 +87,7 @@ impl State {
 
     fn refilter(&mut self) {
         let Shelf::Ready(f) = &mut self.shelf else { return };
-        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text, supply: self.supply };
+        let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].min, query: &self.search.text, supply: self.supply };
         f.rows = flip_rows::visible(&f.flips, &f.catalog.merchants, &f.catalog.items, filter, self.sort);
         f.hidden = flip_rows::hidden(&f.flips, &f.catalog.merchants, &f.catalog.items, filter);
     }
@@ -108,7 +109,7 @@ impl State {
     /// The filters as the toolbar shows them, for the line that names what they hide.
     fn filter_name(&self, k: FilterKind) -> String {
         match k {
-            FilterKind::Sells => format!("Sells {}", SOLD_STEPS[self.min_sold].0),
+            FilterKind::Sells => SOLD_STEPS[self.min_sold].named(),
             FilterKind::Supply => format!("Supply {}", self.supply.label()),
             FilterKind::HideUnprofitable => "Hide unprofitable".to_string(),
         }

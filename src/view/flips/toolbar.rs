@@ -7,7 +7,8 @@ use crate::theme::{self, p};
 use crate::view::widgets::{CHEVRON_DOWN, SEARCH, Segment, checkbox, glyph, segmented};
 use crate::menu::Menu;
 use crate::view::menu::anchor;
-use crate::view::{App, Dims, SOLD_STEPS};
+use crate::menu::SOLD_STEPS;
+use crate::view::{App, Dims};
 
 pub fn toolbar(s: &App, d: Dims) -> El {
     let f = &s.flips;
@@ -31,7 +32,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
         s.flips.refilter();
     });
     let picks: [fn(&mut App); 4] = [|s| s.flips.set_min_sold(0), |s| s.flips.set_min_sold(1), |s| s.flips.set_min_sold(2), |s| s.flips.set_min_sold(3)];
-    let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: f.min_sold == i, pick }).collect();
+    let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, (step, pick))| Segment { label: step.value, on: f.min_sold == i, pick }).collect();
     let supply_picks: [fn(&mut App); 3] = [|s| s.flips.set_supply(Supply::All), |s| s.flips.set_supply(Supply::Endless), |s| s.flips.set_supply(Supply::Limited)];
     let supply = Supply::ALL.into_iter().zip(supply_picks).map(|(supply, pick)| Segment { label: supply.label(), on: f.supply == supply, pick }).collect();
     let labelled = |label: &str, control: El| row().gap(8.0).center_y().child(text(label).font(theme::BODY).color(p().muted)).child(control);

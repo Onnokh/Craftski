@@ -18,15 +18,13 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 
 use crate::icons;
 use crate::market::{self, Market};
-use crate::menu::Menu;
+use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
 use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
 use crate::theme::{self, p};
-
-const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -196,7 +194,7 @@ impl App {
         r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs(self.source))).collect();
         let filter = Filter {
             hide_unpriced: self.hide_unpriced,
-            min_sold_per_day: SOLD_STEPS[self.min_sold].1,
+            min_sold_per_day: SOLD_STEPS[self.min_sold].min,
             max_skill: settings::parse_skill(&self.skill.text),
             query: &self.search.text,
         };
@@ -477,11 +475,17 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     }
 }
 
-/// `loaded` with Sells 5+, so the line under the table says what it hides.
+/// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
 pub fn scene_crafts_hidden(s: &mut App) {
     scene_loaded(s);
     s.min_sold = 2;
     s.refresh();
+}
+
+/// `crafts-hidden` with the Sold per day menu open.
+pub fn scene_crafts_sold(s: &mut App) {
+    scene_crafts_hidden(s);
+    s.menu = Some(Menu::CraftsSold);
 }
 
 /// `loaded` with the first listed recipe that uses a reagent cheapest to craft selected.
@@ -535,6 +539,14 @@ mod tests {
         s.toggle_menu(Menu::Zone);
         assert!(s.close_menu());
         assert!(!s.close_menu());
+    }
+
+    #[test]
+    fn choosing_a_sold_minimum_sets_the_recipe_filter_and_closes_the_menu() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::CraftsSold);
+        s.pick(Pick::CraftsSold(2));
+        assert_eq!((s.menu, s.min_sold), (None, 2));
     }
 
     #[test]

@@ -1,28 +1,34 @@
-//! Filters, the player's skill and search.
+//! Search, then one pill per filter: sold per day, the player's skill, and priced only.
 
-use rune::{Cursor, El, Key, KeyEvent, Tx, row, spacer, text, text_input};
+use rune::{Cursor, El, Key, KeyEvent, Tx, row, text, text_input};
 
-use super::widgets::{SEARCH, Segment, checkbox, glyph, segmented};
-use super::{App, Dims, SOLD_STEPS};
+use super::menu::trigger;
+use super::widgets::{TOOLBAR_GAP, checkbox, pill, search_box};
+use super::{App, Dims};
+use crate::menu::{Menu, SOLD_STEPS, skill_active, sold_active};
 use crate::settings;
 use crate::theme::{self, p};
 
 pub fn toolbar(s: &App, d: Dims) -> El {
-    let unpriced = checkbox("Hide unpriced", s.hide_unpriced, |s: &mut App| {
+    let sold = trigger(
+        s,
+        Menu::CraftsSold,
+        sold_active(s.min_sold),
+        format!("Sold per day: {}", SOLD_STEPS[s.min_sold].value),
+        vec![text("Sold per day").font(theme::BODY).color(p().muted), text(SOLD_STEPS[s.min_sold].value).font(theme::BODY).color(p().text)],
+    );
+    let priced = checkbox("Priced only", s.hide_unpriced, |s: &mut App| {
         s.hide_unpriced = !s.hide_unpriced;
         s.refresh();
     });
-    let picks: [fn(&mut App); 4] = [|s| s.set_min_sold(0), |s| s.set_min_sold(1), |s| s.set_min_sold(2), |s| s.set_min_sold(3)];
-    let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, ((label, _), pick))| Segment { label, on: s.min_sold == i, pick }).collect();
-    let sold = row().gap(8.0).center_y().child(text("Sold per day").font(theme::BODY).color(p().muted)).child(segmented("Minimum sold per day", steps));
-    row().w_full().h(64.0).px(d.pad).gap(d.gap).center_y().child(unpriced).child(sold).child(skill(s, d)).child(spacer()).child(search(s, d))
+    row().w_full().h(64.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(search(s)).child(sold).child(skill(s)).child(priced)
 }
 
-fn skill(s: &App, d: Dims) -> El {
+fn skill(s: &App) -> El {
     let field = text_input(&s.skill, theme::BODY)
         .key("skill")
         .single_line()
-        .w_full()
+        .w(28.0)
         .color(p().text)
         .placeholder("Any", p().faint)
         .caret(p().brass, p().brass.alpha(0.3))
@@ -32,11 +38,14 @@ fn skill(s: &App, d: Dims) -> El {
             settings::save_skill(&s.skill.text);
             s.refresh();
         });
-    let b = row().w(56.0).h(32.0).px(13.0).center_y().radius(4.0).border(1.0, if s.skill.focused { p().line2 } else { p().line }).clip_rounded(4.0).cursor(Cursor::Text).child(field);
-    row().gap(8.0).center_y().child(text(if d.compact { "Skill" } else { "Your skill" }).font(theme::BODY).color(p().muted)).child(b)
+    pill(skill_active(&s.skill.text), s.skill.focused)
+        .cursor(Cursor::Text)
+        .child(text("Your skill").font(theme::BODY).color(p().muted))
+        .child(field)
+        .on_press(|s: &mut App| s.skill.focused = true)
 }
 
-fn search(s: &App, d: Dims) -> El {
+fn search(s: &App) -> El {
     let field = text_input(&s.search, theme::BODY)
         .key("search")
         .single_line()
@@ -44,7 +53,7 @@ fn search(s: &App, d: Dims) -> El {
         .shrink()
         .min_w(0.0)
         .color(p().text)
-        .placeholder(if d.compact { "Search" } else { "Search recipes or reagents" }, p().faint)
+        .placeholder("Search recipes or reagents", p().faint)
         .caret(p().brass, p().brass.alpha(0.3))
         .label("Search recipes or reagents")
         .on_edit(|s: &mut App| &mut s.search)
@@ -59,23 +68,5 @@ fn search(s: &App, d: Dims) -> El {
             Key::Up => s.step(-1, tx),
             _ => false,
         });
-    let b = row()
-        .h(32.0)
-        .gap(8.0)
-        .px(13.0)
-        .center_y()
-        .radius(4.0)
-        .border(1.0, if s.search.focused { p().line2 } else { p().line })
-        .clip_rounded(4.0)
-        .cursor(Cursor::Text)
-        .child(glyph(&SEARCH, 16.0, p().faint))
-        .child(field);
-    if d.compact { b.grow(1.0).shrink().min_w(128.0).max_w(280.0) } else { b.w(280.0) }
-}
-
-impl App {
-    fn set_min_sold(&mut self, step: usize) {
-        self.min_sold = step;
-        self.refresh();
-    }
+    search_box(field, s.search.focused).min_w(200.0)
 }

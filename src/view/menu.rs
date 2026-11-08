@@ -3,7 +3,7 @@
 use rune::{Align, Color, Cursor, El, ScrollSpec, Side, col, el, row, spacer, text};
 
 use super::App;
-use super::widgets::{CHECK, glyph};
+use super::widgets::{CHECK, CHEVRON_DOWN, glyph, pill};
 use crate::menu::{self, Item, Menu, Pick};
 use crate::theme::{self, p};
 
@@ -12,20 +12,36 @@ const CHECK_SIZE: f32 = 14.0;
 /// The key of the pill a menu opens under.
 pub fn anchor(m: Menu) -> &'static str {
     match m {
+        Menu::CraftsSold => "crafts-sold-pill",
         Menu::Zone => "zone-pill",
     }
 }
 
 fn name(m: Menu) -> &'static str {
     match m {
+        Menu::CraftsSold => "Minimum sold per day",
         Menu::Zone => "Zone",
     }
 }
 
 fn width(m: Menu) -> f32 {
     match m {
+        Menu::CraftsSold => 184.0,
         Menu::Zone => 280.0,
     }
+}
+
+/// A pill that opens `m` under itself: `parts`, then a chevron.
+pub fn trigger(s: &App, m: Menu, active: bool, spoken: String, parts: Vec<El>) -> El {
+    let open = s.menu == Some(m);
+    parts
+        .into_iter()
+        .fold(pill(active, open).key(anchor(m)), |out, part| out.child(part))
+        .child(glyph(&CHEVRON_DOWN, 12.0, p().muted))
+        .role("button")
+        .label(spoken)
+        .cursor(Cursor::Pointer)
+        .on_press(move |s: &mut App| s.toggle_menu(m))
 }
 
 /// The open menu, if any, behind a scrim that closes it on a press anywhere outside.
@@ -84,6 +100,7 @@ impl App {
 
     fn menu_items(&self, m: Menu) -> Vec<Item> {
         match m {
+            Menu::CraftsSold => menu::sold(self.min_sold, Pick::CraftsSold),
             Menu::Zone => self.flips.zones().map_or_else(Vec::new, |zones| menu::zones(zones, self.flips.zone())),
         }
     }
@@ -92,6 +109,10 @@ impl App {
     pub(super) fn pick(&mut self, pick: Pick) {
         self.menu = None;
         match pick {
+            Pick::CraftsSold(step) => {
+                self.min_sold = step;
+                self.refresh();
+            }
             Pick::Zone(zone) => self.flips.pick_zone(zone),
         }
     }
