@@ -147,7 +147,7 @@ fn outline(out: El, active: bool, open: bool) -> El {
 /// A toolbar text field's frame, 32pt tall: the game's search border, or without it the flat
 /// pill, filled while `active` says its value narrows the rows.
 pub fn field_box(active: bool, focused: bool) -> El {
-    let out = row().h(32.0).px(12.0).gap(8.0).center_y().cursor(Cursor::Text);
+    let out = row().key("field-box").h(32.0).px(12.0).gap(8.0).center_y().cursor(Cursor::Text);
     match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
         Some(layers) => out.children(layers),
         None => outline(out, active, focused),
@@ -157,7 +157,7 @@ pub fn field_box(active: bool, focused: bool) -> El {
 /// A toolbar's search: a magnifier and `field` in the game's search border, 400pt wide while
 /// the pills leave room.
 pub fn search_box(field: El, focused: bool) -> El {
-    let out = row().h(32.0).w(400.0).shrink().gap(8.0).px(12.0).center_y().cursor(Cursor::Text);
+    let out = row().key("search-box").h(32.0).w(400.0).shrink().gap(8.0).px(12.0).center_y().cursor(Cursor::Text);
     let out = match skin::three_slice([Piece::SearchLeft, Piece::SearchMid, Piece::SearchRight], [12.8, 12.8]) {
         Some(layers) => out.children(layers),
         None => out.radius(4.0).border(1.0, if focused { p().line2 } else { p().line }).clip_rounded(4.0),
@@ -185,6 +185,7 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
         }
     };
     out.child(text(label).font(theme::BODY).color(p().text))
+        .key(label)
         .role("checkbox")
         .label(label)
         .checked(on)
@@ -208,7 +209,8 @@ pub fn red_button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon,
         None => out.radius(4.0).fill(p().red).border(1.0, p().bronze),
     };
     let (icon, font) = if height < 32.0 { (12.0, theme::LABEL) } else { (16.0, theme::BODY_MEDIUM) };
-    out.hover(Color::WHITE.alpha(0.06))
+    out.key(spoken)
+        .hover(Color::WHITE.alpha(0.06))
         .press(Color::BLACK.alpha(0.12))
         .child(glyph(leading, icon, p().gold))
         .child(text(label).font(font).color(p().gold))

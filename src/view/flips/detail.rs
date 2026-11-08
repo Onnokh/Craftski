@@ -47,7 +47,7 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
     }
     let body = auction_facts(body.child(band("Auction house")), flip);
     let actions = row().w_full().pt(16.0).child(wowhead::<App>(wowhead_url(flip.item)));
-    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions)
+    panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().key("detail-body").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
 /// The profit per item, or why there is none.

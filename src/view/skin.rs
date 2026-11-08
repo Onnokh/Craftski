@@ -93,12 +93,12 @@ fn layer(pixels: &Pixels) -> El {
 
 /// `piece` stretched over its parent's whole box.
 pub fn stretch(piece: Piece) -> Option<El> {
-    art(piece).map(|px| layer(px).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
+    art(piece).map(|px| layer(px).key(format!("{piece:?}")).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
 }
 
 /// `piece` covering its parent's box at its own aspect ratio, cropped away from `anchor`.
 pub fn cover(piece: Piece, anchor: (Align, Align)) -> Option<El> {
-    art(piece).map(|px| el().pixels_fit(px, SurfaceFit::Fill).surface_anchor(anchor.0, anchor.1).a11y_hidden().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
+    art(piece).map(|px| el().pixels_fit(px, SurfaceFit::Fill).surface_anchor(anchor.0, anchor.1).a11y_hidden().key(format!("{piece:?}")).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)))
 }
 
 /// `piece` around its parent's box: its corners `caps` points across (left, top, right,
