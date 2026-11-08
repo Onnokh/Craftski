@@ -1,10 +1,10 @@
 //! Small pieces every region draws: money with coins, framed icons, segmented controls, the
 //! toggle, labels and buttons.
 
-use rune::{Color, Cursor, El, Icon, Image, TextCase, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, El, Icon, Image, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::copper::{Coin, Copper, Lanes};
-use crate::theme::{self, CAPS, p};
+use crate::theme::{self, p};
 
 // Rune borders take no layout space, so boxes that CSS sizes around a 1pt border pad 1pt more.
 
@@ -84,14 +84,6 @@ pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
     el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden()
 }
 
-pub fn caps(label: &str, color: Color) -> El {
-    text(label).font(CAPS).color(color).text_case(TextCase::Uppercase)
-}
-
-pub fn section(label: &str) -> El {
-    caps(label, p().faint).mb(10.0)
-}
-
 /// One choice of a segmented control.
 pub struct Segment<S> {
     pub label: &'static str,
@@ -134,24 +126,18 @@ pub enum ButtonKind {
 }
 
 pub fn button<S: 'static>(label: &str, kind: ButtonKind, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    let b = row().grow(1.0).py(11.0).radius(10.0).justify_center().role("button").label(label).cursor(Cursor::Pointer);
+    let b = row().h(40.0).radius(4.0).center_y().justify_center().role("button").label(label).cursor(Cursor::Pointer);
     let (b, color) = match kind {
-        ButtonKind::Primary => (b.fill(p().brass).hover(Color::WHITE.alpha(0.10)).press(Color::BLACK.alpha(0.10)), p().on_brass),
-        ButtonKind::Ghost => (b.border(1.0, p().line2).hover(Color::WHITE.alpha(0.04)).press(Color::WHITE.alpha(0.07)), p().text),
+        ButtonKind::Primary => (b.grow(1.0).px(16.0).fill(p().brass).hover(Color::WHITE.alpha(0.10)).press(Color::BLACK.alpha(0.10)), p().on_brass),
+        ButtonKind::Ghost => (b.px(17.0).border(1.0, p().line).hover(Color::WHITE.alpha(0.04)).press(Color::WHITE.alpha(0.07)), p().text),
     };
-    b.child(text(label).font(theme::sans(13.0, 600.0)).color(color)).on_press_tx(act)
+    b.child(text(label).font(theme::BODY_MEDIUM).color(color)).on_press_tx(act)
 }
 
 pub static SEARCH: Icon = Icon {
     name: "tsm-search",
     view: 24.0,
     body: r#"<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
-
-pub static WARNING: Icon = Icon {
-    name: "tsm-warning",
-    view: 24.0,
-    body: r#"<path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
