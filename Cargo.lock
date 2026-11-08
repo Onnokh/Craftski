@@ -3413,6 +3413,7 @@ name = "tsm-crafts"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "image",
  "rune",
  "rune-kit",
  "serde",
