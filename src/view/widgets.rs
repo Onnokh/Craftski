@@ -5,7 +5,9 @@ use std::sync::OnceLock;
 
 use rune::{Color, Cursor, El, Icon, Image, ImageCache, TextStyle, Tx, col, el, icon, row, text};
 
+use crate::charts;
 use crate::copper::{Coin, Copper, Lanes};
+use crate::rows::per_day;
 use crate::theme::{self, p};
 
 // Rune borders take no layout space, so boxes that CSS sizes around a 1pt border pad 1pt more.
@@ -158,6 +160,8 @@ macro_rules! rune_icon {
 
 pub static SEARCH: Icon = rune_icon!("search");
 pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
+static ARROW_DOWN: Icon = rune_icon!("arrow-down");
+static ARROW_UP: Icon = rune_icon!("arrow-up");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()
@@ -166,6 +170,35 @@ pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
 /// A faint dash for what the data does not know.
 pub fn unknown() -> El {
     text("\u{2014}").font(theme::BODY).color(p().faint)
+}
+
+/// A column head's title; `descending` is Some on the sorted column, which reads brighter and
+/// ends in an arrow the way it sorts.
+pub fn column_title(title: &str, descending: Option<bool>) -> El {
+    let label = text(title).font(theme::LABEL).color(if descending.is_some() { p().text } else { p().muted });
+    match descending {
+        Some(down) => row().gap(4.0).center_y().child(label).child(glyph(if down { &ARROW_DOWN } else { &ARROW_UP }, 12.0, p().text)),
+        None => label,
+    }
+}
+
+/// Sales a day as three pips that light at 1, 5 and 20, then the figure; a dash with none.
+pub fn sold_per_day(sold: Option<f64>) -> El {
+    let Some(sold) = sold.filter(|&s| s > 0.0) else { return unknown() };
+    let lit = charts::pips_lit(sold);
+    let mut pips = row().h(12.0).gap(2.0).items_end().a11y_hidden();
+    for (i, height) in [6.0, 9.0, 12.0].into_iter().enumerate() {
+        pips = pips.child(el().w(4.0).h(height).radius(1.0).fill(p().text.alpha(if i < lit { 0.7 } else { 0.12 })));
+    }
+    row().gap(8.0).center_y().child(pips).child(row().min_w(28.0).justify_end().child(text(per_day(sold)).font(theme::BODY).color(p().muted)))
+}
+
+/// A horizontal bar `width` points long, brighter on the selected row; nothing without a width.
+pub fn bar(width: Option<f32>, selected: bool) -> El {
+    match width {
+        Some(w) => el().w(w).h(8.0).radius(2.0).fill(p().text.alpha(if selected { 0.5 } else { 0.3 })).a11y_hidden(),
+        None => el(),
+    }
 }
 
 /// The quiet line under a table that says what its filters hide, and a brass Show all that
