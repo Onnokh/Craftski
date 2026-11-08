@@ -6,6 +6,7 @@ mod flips;
 mod icons;
 mod items;
 mod market;
+mod menu;
 mod merchants;
 mod overview;
 mod prices;

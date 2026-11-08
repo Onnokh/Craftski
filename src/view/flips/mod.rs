@@ -29,7 +29,6 @@ pub struct State {
     /// visible, whichever merchant leads it; else this flip, kept while filters hide it.
     selected: Option<(u32, u32)>,
     pub search: TextEdit,
-    zone_menu: bool,
 }
 
 enum Shelf {
@@ -75,7 +74,6 @@ impl State {
             supply: Supply::All,
             selected: None,
             search: TextEdit::new(""),
-            zone_menu: false,
         }
     }
 
@@ -173,20 +171,19 @@ impl State {
         self.refilter();
     }
 
-    fn pick_zone(&mut self, zone: String) {
+    pub fn pick_zone(&mut self, zone: String) {
         self.zone = zone;
-        self.zone_menu = false;
         self.refilter();
         self.select_first();
     }
 
-    pub fn open_menu(&mut self) {
-        self.zone_menu = true;
+    pub fn zone(&self) -> &str {
+        &self.zone
     }
 
-    /// Closes the zone menu, saying whether it was open.
-    pub fn close_menu(&mut self) -> bool {
-        std::mem::replace(&mut self.zone_menu, false)
+    /// Every zone with something to flip, once the merchants are priced.
+    pub fn zones(&self) -> Option<&[Zone]> {
+        self.stocked().map(|f| f.zones.as_slice())
     }
 }
 
@@ -239,10 +236,3 @@ pub fn main(s: &App, d: Dims) -> El {
         .child(detail::detail(s, f, d))
 }
 
-/// The open zone menu, drawn over the whole window.
-pub fn overlay(s: &App) -> Vec<El> {
-    match s.flips.stocked() {
-        Some(f) if s.flips.zone_menu => toolbar::zone_menu(s, f),
-        _ => Vec::new(),
-    }
-}

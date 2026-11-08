@@ -1,6 +1,7 @@
 mod detail;
 mod flips;
 mod header;
+mod menu;
 mod rail;
 mod status;
 mod table;
@@ -17,6 +18,7 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 
 use crate::icons;
 use crate::market::{self, Market};
+use crate::menu::Menu;
 use crate::merchants::{self, Catalog};
 use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
@@ -48,6 +50,7 @@ pub struct App {
     /// The player's profession rank as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    menu: Option<Menu>,
     /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
     now: u64,
 }
@@ -144,6 +147,7 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
+            menu: None,
             now: unix_secs(SystemTime::now()),
         }
     }
@@ -341,9 +345,12 @@ fn drain(s: &mut App) -> bool {
     changed
 }
 
-/// Ctrl+K finds, Escape closes the zone menu or clears the search, and the arrow keys walk the
+/// Ctrl+K finds, Escape closes the open menu or clears the search, and the arrow keys walk the
 /// rows, all on the open tab.
 pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key == Key::Escape && s.close_menu() {
+        return true;
+    }
     if s.tab == Tab::Flips {
         let f = &mut s.flips;
         if ev.is_command('k') {
@@ -351,7 +358,6 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
         return match ev.key {
-            Key::Escape if f.close_menu() => true,
             Key::Escape if !f.search.text.is_empty() => {
                 f.clear_search();
                 true
@@ -401,7 +407,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             .child(detail::detail(s, r, d)),
     };
     let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
-    if s.tab == Tab::Flips { flips::overlay(s).into_iter().fold(root, |r, e| r.child(e)) } else { root }
+    menu::overlay(s).into_iter().fold(root, |r, e| r.child(e))
 }
 
 fn unix_secs(t: SystemTime) -> u64 {
@@ -448,7 +454,7 @@ pub fn scene_flips_hidden(s: &mut App) {
 /// The flips tab with the zone menu open.
 pub fn scene_zones(s: &mut App) {
     scene_flips(s);
-    s.flips.open_menu();
+    s.menu = Some(Menu::Zone);
 }
 
 fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
@@ -513,9 +519,30 @@ pub fn scene_reload_failed(s: &mut App) {
 mod tests {
     use super::*;
     use crate::copper::Copper;
+    use crate::menu::Pick;
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
+    }
+
+    #[test]
+    fn a_pill_toggles_its_menu_and_closing_says_whether_one_was_open() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::Zone);
+        assert_eq!(s.menu, Some(Menu::Zone));
+        s.toggle_menu(Menu::Zone);
+        assert_eq!(s.menu, None);
+        s.toggle_menu(Menu::Zone);
+        assert!(s.close_menu());
+        assert!(!s.close_menu());
+    }
+
+    #[test]
+    fn choosing_a_zone_moves_to_it_and_closes_the_menu() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::Zone);
+        s.pick(Pick::Zone("Mulgore".into()));
+        assert_eq!((s.menu, s.flips.zone()), (None, "Mulgore"));
     }
 
     #[test]

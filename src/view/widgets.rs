@@ -123,7 +123,7 @@ pub fn segmented<S: 'static>(name: &str, segments: Vec<Segment<S>>) -> El {
 
 pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
     let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
-    let square = if on { square.fill(p().brass).child(glyph(&CHECK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
+    let square = if on { square.fill(p().brass).child(glyph(&TICK, 16.0, p().on_brass)) } else { square.border(1.0, p().muted) };
     row()
         .gap(8.0)
         .center_y()
@@ -191,6 +191,7 @@ macro_rules! rune_icon {
 
 pub static SEARCH: Icon = rune_icon!("search");
 pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
+pub static CHECK: Icon = rune_icon!("check");
 static ARROW_DOWN: Icon = rune_icon!("arrow-down");
 static ARROW_UP: Icon = rune_icon!("arrow-up");
 pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");
@@ -265,7 +266,8 @@ pub fn flexible() -> El {
     col().grow(1.0).shrink().min_w(0.0)
 }
 
-pub static CHECK: Icon = Icon {
+/// The checkbox's tick, drawn to its 16pt square.
+static TICK: Icon = Icon {
     name: "tsm-check",
     view: 16.0,
     body: r#"<path d="m4.5 8.5 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
