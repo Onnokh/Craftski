@@ -1,34 +1,7 @@
 // A release build opens no console window beside its own; debug builds keep it for their logs.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod blp;
-mod breakdown;
-mod cache;
-mod charts;
-mod copper;
-mod flip_rows;
-mod flips;
-mod foreverdb;
-mod icons;
-mod items;
-mod market;
-mod menu;
-mod merchants;
-mod overview;
-mod prices;
-mod profit;
-mod public_data;
-mod recipes;
-mod rows;
-mod settings;
-mod sheets;
-mod skin;
-mod theme;
-mod tooltip;
-mod vendor;
-mod view;
-mod wow;
-
+use craftski::{cache, copper, flip_rows, flips, icons, market, merchants, profit, public_data, recipes, rows, settings, skin, theme, view, wow};
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 
 const SIZE: (f32, f32) = (1640.0, 1000.0);
