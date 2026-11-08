@@ -10,12 +10,12 @@ use std::collections::BTreeSet;
 use rune::{El, TextEdit, Tx, col, row};
 
 use super::{App, Dims, Load, SOLD_STEPS, message};
-use crate::flip_rows::{self, Column, Filter, Row, Summary, Supply, Zone};
+use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Summary, Supply, Zone};
 use crate::flips::{self, Flip};
 use crate::items::Item;
 use crate::merchants::{Catalog, Merchant};
 use crate::recipes::FileDataId;
-use crate::rows::Sort;
+use crate::rows::{Hidden, Sort};
 
 pub struct State {
     shelf: Shelf,
@@ -43,6 +43,7 @@ struct Stocked {
     zones: Vec<Zone>,
     summary: Summary,
     rows: Vec<Row>,
+    hidden: Option<Hidden<FilterKind>>,
 }
 
 impl Stocked {
@@ -90,6 +91,30 @@ impl State {
         let filter = Filter { zone: &self.zone, hide_unprofitable: self.hide_unprofitable, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text, supply: self.supply };
         f.summary = flip_rows::summary(&f.flips, &f.catalog.merchants, &self.zone);
         f.rows = flip_rows::visible(&f.flips, &f.catalog.merchants, &f.catalog.items, filter, self.sort);
+        f.hidden = flip_rows::hidden(&f.flips, &f.catalog.merchants, &f.catalog.items, filter);
+    }
+
+    /// Turns off the filters that hide flips the zone or search shows. The zone and the search
+    /// stay.
+    pub fn show_all(&mut self) {
+        let Some(h) = self.stocked().and_then(|f| f.hidden.clone()) else { return };
+        for k in h.by {
+            match k {
+                FilterKind::Sells => self.min_sold = 0,
+                FilterKind::Supply => self.supply = Supply::All,
+                FilterKind::HideUnprofitable => self.hide_unprofitable = false,
+            }
+        }
+        self.refilter();
+    }
+
+    /// The filters as the toolbar shows them, for the line that names what they hide.
+    fn filter_name(&self, k: FilterKind) -> String {
+        match k {
+            FilterKind::Sells => format!("Sells {}", SOLD_STEPS[self.min_sold].0),
+            FilterKind::Supply => format!("Supply {}", self.supply.label()),
+            FilterKind::HideUnprofitable => "Hide unprofitable".to_string(),
+        }
     }
 
     fn select_first(&mut self) {
@@ -99,6 +124,17 @@ impl State {
     /// Selects the first row with more than one merchant, for a snapshot scene.
     pub fn select_first_shared(&mut self) {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.iter().find(|r| !r.others.is_empty())?.flip)));
+    }
+
+    /// The state a user reported missing patterns in: "patter" searched at Sells 5+, an
+    /// endless supply and only profitable flips, for a snapshot scene.
+    pub fn search_patterns_narrowly(&mut self) {
+        self.search = TextEdit::new("patter");
+        self.min_sold = 2;
+        self.supply = Supply::Endless;
+        self.hide_unprofitable = true;
+        self.refilter();
+        self.select_first();
     }
 
     /// The selected item's position in the rows.
@@ -163,7 +199,7 @@ fn row_key(item: u32) -> String {
 impl App {
     pub(super) fn land_catalog(&mut self, result: Result<Catalog, String>) {
         self.flips.shelf = match result {
-            Ok(catalog) => Shelf::Ready(Box::new(Stocked { catalog, flips: Vec::new(), zones: Vec::new(), summary: flip_rows::summary(&[], &[], ""), rows: Vec::new() })),
+            Ok(catalog) => Shelf::Ready(Box::new(Stocked { catalog, flips: Vec::new(), zones: Vec::new(), summary: flip_rows::summary(&[], &[], ""), rows: Vec::new(), hidden: None })),
             Err(e) => Shelf::Failed(e),
         };
         self.reprice_flips();

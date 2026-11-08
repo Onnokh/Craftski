@@ -375,6 +375,12 @@ pub fn scene_flips_shared(s: &mut App) {
     s.flips.select_first_shared();
 }
 
+/// `flips` searched for patterns with filters that hide most of them.
+pub fn scene_flips_hidden(s: &mut App) {
+    scene_flips(s);
+    s.flips.search_patterns_narrowly();
+}
+
 /// The flips tab with the zone menu open.
 pub fn scene_zones(s: &mut App) {
     scene_flips(s);

@@ -7,9 +7,9 @@ use rune::{Color, Cursor, El, GrowthSpec, ScrollFade, ScrollSpec, col, el, row, 
 use super::{Stocked, row_key};
 use crate::copper::Copper;
 use crate::flip_rows::{Column, Row};
-use crate::rows::per_day;
+use crate::rows::{self, per_day};
 use crate::theme::{self, CAPS, p};
-use crate::view::widgets::{Money, flexible, icon_frame, unknown};
+use crate::view::widgets::{Money, flexible, hidden_hint, icon_frame, unknown};
 use crate::view::{App, Dims};
 
 const ROW: f32 = 54.0;
@@ -26,12 +26,27 @@ pub fn table(s: &App, f: &Stocked, d: Dims) -> El {
         |s: &App, i| s.flips.stocked().map_or(Cow::Borrowed(""), |f| Cow::Owned(row_key(f.flips[f.rows[i].flip].item))),
         move |s: &App, i| s.flips.stocked().map_or_else(el, |f| table_row(s, f, &f.rows[i], d)),
     );
-    let body = if f.rows.is_empty() {
-        col().grow(1.0).center().child(text("No flips match these filters.").font(theme::sans(13.0, 400.0)).color(p().muted))
-    } else {
-        col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(ScrollFade::strength(70.0).full_at(1.0).end_only().linear()).child(rows)
+    let hint = hint(s, f, d);
+    let body = match hint {
+        Some(hint) if f.rows.is_empty() => col().grow(1.0).center().child(hint),
+        None if f.rows.is_empty() => col().grow(1.0).center().child(text("No flips match these filters.").font(theme::sans(13.0, 400.0)).color(p().muted)),
+        hint => col()
+            .grow(1.0)
+            .min_h(0.0)
+            .scroll(ScrollSpec { stick_bottom: false })
+            .scroll_fade(ScrollFade::strength(70.0).full_at(1.0).end_only().linear())
+            .child(rows)
+            .children(hint),
     };
     col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label("Vendor flips")
+}
+
+/// What the filters hide that the zone or search shows, if anything.
+fn hint(s: &App, f: &Stocked, d: Dims) -> Option<El> {
+    let h = f.hidden.as_ref()?;
+    let names: Vec<String> = h.by.iter().map(|&k| s.flips.filter_name(k)).collect();
+    let line = rows::hint(h.count, &s.flips.search.text, &names, !f.rows.is_empty());
+    Some(hidden_hint(line, d.pad, |s: &mut App| s.flips.show_all()))
 }
 
 fn head(s: &App, d: Dims) -> El {

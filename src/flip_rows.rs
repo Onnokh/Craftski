@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::flips::{Flip, Paid};
 use crate::items::Item;
 use crate::merchants::Merchant;
-use crate::rows::{Sort, SortColumn, order};
+use crate::rows::{Hidden, Sort, SortColumn, order};
 
 pub const HOME: &str = "Thunder Bluff";
 
@@ -110,8 +110,51 @@ pub struct Row {
     pub others: Vec<usize>,
 }
 
+/// A filter beyond the zone and the search that can hide flips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterKind {
+    Sells,
+    Supply,
+    HideUnprofitable,
+}
+
+impl Filter<'_> {
+    fn on(&self) -> Vec<FilterKind> {
+        let on = [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::Supply, self.supply != Supply::All), (FilterKind::HideUnprofitable, self.hide_unprofitable)];
+        on.into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
+    }
+
+    fn without(self, off: &[FilterKind]) -> Self {
+        let mut f = self;
+        for k in off {
+            match k {
+                FilterKind::Sells => f.min_sold_per_day = 0.0,
+                FilterKind::Supply => f.supply = Supply::All,
+                FilterKind::HideUnprofitable => f.hide_unprofitable = false,
+            }
+        }
+        f
+    }
+}
+
 /// One row per item that passes `filter`, in order.
 pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, filter: Filter, sort: Sort<Column>) -> Vec<Row> {
+    let item_name = |f: &Flip| items.get(&f.item).map_or("", |i| i.name.as_str());
+    let by_name = |a: usize, b: usize| {
+        let (fa, fb) = (&flips[a], &flips[b]);
+        let item = item_name(fa).cmp(item_name(fb));
+        let vendor = merchants[fa.merchant].name.cmp(&merchants[fb.merchant].name);
+        let names = if sort.column == Column::Vendor { vendor.then(item) } else { item.then(vendor) };
+        names.then(fa.merchant.cmp(&fb.merchant)).then(fa.item.cmp(&fb.item))
+    };
+    let groups = grouped(flips, merchants, items, filter);
+    let mut at: Vec<usize> = (0..groups.len()).collect();
+    order(&mut at, sort, |g| sort.column.number(&flips[groups[g].flip]), |a, b| by_name(groups[a].flip, groups[b].flip));
+    at.into_iter().map(|g| groups[g].clone()).collect()
+}
+
+/// One row per item that passes `filter`, by item id.
+fn grouped(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, filter: Filter) -> Vec<Row> {
     let needle = filter.query.trim().to_lowercase();
     let item_name = |f: &Flip| items.get(&f.item).map_or("", |i| i.name.as_str());
     let kept: Vec<usize> = (0..flips.len())
@@ -123,17 +166,12 @@ pub fn visible(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item
             place && profitable && selling && filter.supply.admits(f.limit)
         })
         .collect();
-    let by_name = |a: usize, b: usize| {
-        let (fa, fb) = (&flips[a], &flips[b]);
-        let item = item_name(fa).cmp(item_name(fb));
-        let vendor = merchants[fa.merchant].name.cmp(&merchants[fb.merchant].name);
-        let names = if sort.column == Column::Vendor { vendor.then(item) } else { item.then(vendor) };
-        names.then(fa.merchant.cmp(&fb.merchant)).then(fa.item.cmp(&fb.item))
-    };
-    let groups = dedupe(flips, merchants, kept);
-    let mut at: Vec<usize> = (0..groups.len()).collect();
-    order(&mut at, sort, |g| sort.column.number(&flips[groups[g].flip]), |a, b| by_name(groups[a].flip, groups[b].flip));
-    at.into_iter().map(|g| groups[g].clone()).collect()
+    dedupe(flips, merchants, kept)
+}
+
+/// The items the zone and the search show but the filters hide, each counted once.
+pub fn hidden(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, filter: Filter) -> Option<Hidden<FilterKind>> {
+    Hidden::find(&filter.on(), |off| grouped(flips, merchants, items, filter.without(off)).len())
 }
 
 /// Groups the `kept` flips by item, each group led by its best offer.
@@ -315,6 +353,53 @@ mod tests {
         let twice: Vec<_> = seen.iter().filter(|(_, _, items)| items.iter().collect::<BTreeSet<_>>().len() != items.len()).collect();
         assert_eq!(twice, Vec::<&(&str, &str, Vec<u32>)>::new());
         assert_eq!(seen[1], ("All", "a", vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn names_the_one_filter_that_hides_an_item_the_zone_or_search_shows() {
+        let (f, m, i) = fixture();
+        assert_eq!(hidden(&f, &m, &i, Filter { hide_unprofitable: true, ..TB }), Some(Hidden { count: 2, by: vec![FilterKind::HideUnprofitable] }));
+        let endless_sellers = Filter { supply: Supply::Endless, min_sold_per_day: 1.0, ..TB };
+        assert_eq!(hidden(&f, &m, &i, Filter { query: "swiss", ..endless_sellers }), Some(Hidden { count: 1, by: vec![FilterKind::Sells] }));
+        assert_eq!(hidden(&f, &m, &i, Filter { query: "kuna", ..endless_sellers }), Some(Hidden { count: 1, by: vec![FilterKind::Sells, FilterKind::Supply] }));
+    }
+
+    #[test]
+    fn an_item_several_filters_hide_counts_once() {
+        let (f, m, i) = fixture();
+        // Sells hides the shortbow and the swiss, Supply the shortbow, Hide unprofitable the flux and the swiss.
+        let every = Filter { min_sold_per_day: 1.0, supply: Supply::Endless, hide_unprofitable: true, ..TB };
+        assert_eq!(visible(&f, &m, &i, every, BY_PROFIT), vec![]);
+        assert_eq!(hidden(&f, &m, &i, every), Some(Hidden { count: 3, by: vec![FilterKind::Sells, FilterKind::Supply, FilterKind::HideUnprofitable] }));
+    }
+
+    #[test]
+    fn an_item_another_merchant_still_shows_is_not_hidden() {
+        let (f, m, i) = fixture();
+        assert_eq!(hidden(&f, &m, &i, Filter { query: "flux", hide_unprofitable: true, ..TB }), None);
+        assert_eq!(hidden(&f, &m, &i, Filter { query: "flux", supply: Supply::Endless, min_sold_per_day: 5.0, ..TB }), None);
+        assert_eq!(hidden(&f, &m, &i, TB), None);
+    }
+
+    /// The user's report: searching "patter" at Sells 5+, an endless supply and only profitable
+    /// flips showed two rows, hiding the new armor kit patterns.
+    /// `cargo test -- --ignored --nocapture real_data`
+    #[test]
+    #[ignore = "reads this machine's TSM data and the merchant catalog"]
+    fn real_data_patterns_hidden_by_the_filters() {
+        let m = crate::market::load().unwrap();
+        let c = crate::merchants::load().unwrap();
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &m.book, crate::profit::PriceSource::Realm, &crate::flips::RULES);
+        let filter = Filter { zone: HOME, hide_unprofitable: true, min_sold_per_day: 5.0, query: "patter", supply: Supply::Endless };
+        let names = |filter| -> Vec<String> { visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| c.items[&flips[r.flip].item].name.clone()).collect() };
+        let shown = names(filter);
+        let h = hidden(&flips, &c.merchants, &c.items, filter).unwrap();
+        let all = names(filter.without(&h.by));
+        println!("shown {}: {shown:?}\nhidden {h:?}\nafter Show all {}: {all:?}", shown.len(), all.len());
+        assert_eq!(all.len(), shown.len() + h.count);
+        for pattern in ["Pattern: Mystic Medium Armor Kit", "Pattern: Forceful Heavy Armor Kit", "Pattern: Mystic Heavy Armor Kit"] {
+            assert!(!shown.iter().any(|n| n == pattern) && all.iter().any(|n| n == pattern), "{pattern}");
+        }
     }
 
     /// `cargo test -- --ignored --nocapture real_data`
