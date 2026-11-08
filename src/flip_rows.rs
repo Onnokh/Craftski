@@ -317,6 +317,33 @@ mod tests {
         assert_eq!(seen[1], ("All", "a", vec![1, 2, 3]));
     }
 
+    /// `cargo test -- --ignored --nocapture real_data`
+    #[test]
+    #[ignore = "reads this machine's TSM data and the merchant catalog"]
+    fn real_data_never_shows_an_item_twice() {
+        let m = crate::market::load().unwrap();
+        let c = crate::merchants::load().unwrap();
+        let flips = crate::flips::evaluate(&c.merchants, &c.items, &m.book, crate::profit::PriceSource::Realm, &crate::flips::RULES);
+        let mut twice = Vec::new();
+        for zone in zones(&flips, &c.merchants) {
+            for hide_unprofitable in [false, true] {
+                for supply in Supply::ALL {
+                    for query in ["", "a", "e", "flux", "weak", "thunder bluff", "kuna", "dye"] {
+                        let filter = Filter { zone: &zone.name, hide_unprofitable, min_sold_per_day: 0.0, query, supply };
+                        let items: Vec<u32> = visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| flips[r.flip].item).collect();
+                        if items.iter().collect::<BTreeSet<_>>().len() != items.len() {
+                            twice.push(format!("{} {hide_unprofitable} {} {query:?}", zone.name, supply.label()));
+                        }
+                        if zone.name == HOME && !hide_unprofitable {
+                            println!("{HOME}, {}, {query:?}: {} rows", supply.label(), items.len());
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(twice, Vec::<String>::new());
+    }
+
     #[test]
     fn lists_each_zone_with_its_merchants_that_have_flips() {
         let (f, m, _) = fixture();
