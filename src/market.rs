@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::prices::{self, PriceBook};
 use crate::profit::{CostBook, PriceSource};
@@ -7,16 +8,24 @@ use crate::vendor;
 
 pub struct Market {
     pub book: PriceBook,
+    pub read: Read,
     pub recipes: Vec<Recipe>,
     realm_costs: CostBook,
     region_costs: CostBook,
 }
 
+/// When the app last read AppData.lua, and the file's modified time as it read it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Read {
+    pub at: SystemTime,
+    pub modified: Option<SystemTime>,
+}
+
 impl Market {
-    pub fn new(book: PriceBook, recipes: Vec<Recipe>) -> Market {
+    pub fn new(book: PriceBook, read: Read, recipes: Vec<Recipe>) -> Market {
         let costs = |source| CostBook::new(&recipes, &book, source);
         let (realm_costs, region_costs) = (costs(PriceSource::Realm), costs(PriceSource::Region));
-        Market { book, recipes, realm_costs, region_costs }
+        Market { book, read, recipes, realm_costs, region_costs }
     }
 
     pub fn costs(&self, source: PriceSource) -> &CostBook {
@@ -36,11 +45,23 @@ pub fn appdata_path() -> PathBuf {
     flag.or_else(|| std::env::var_os("TSM_APPDATA").map(PathBuf::from)).unwrap_or_else(|| PathBuf::from(DEFAULT_APPDATA))
 }
 
+/// AppData.lua's modified time, None when the file or its time can't be read.
+pub fn modified(appdata: &Path) -> Option<SystemTime> {
+    std::fs::metadata(appdata).and_then(|m| m.modified()).ok()
+}
+
+/// TSM's prices from AppData.lua and its vendor prices from the files beside it.
+pub fn read_book(appdata: &Path) -> Result<(PriceBook, Read), String> {
+    // Taken before the read, so a write that lands during it still differs next check.
+    let modified = modified(appdata);
+    let mut book = prices::load(appdata)?;
+    book.vendor = vendor::load(appdata);
+    Ok((book, Read { at: SystemTime::now(), modified }))
+}
+
 /// Blocks on file IO and, without a recipe cache, the network.
 pub fn load() -> Result<Market, String> {
-    let appdata = appdata_path();
-    let mut book = prices::load(&appdata)?;
-    book.vendor = vendor::load(&appdata);
+    let (book, read) = read_book(&appdata_path())?;
     let recipes = recipes::load(&LEATHERWORKING)?;
-    Ok(Market::new(book, recipes))
+    Ok(Market::new(book, read, recipes))
 }

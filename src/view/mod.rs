@@ -2,6 +2,7 @@ mod detail;
 mod flips;
 mod header;
 mod rail;
+mod status;
 mod table;
 mod toolbar;
 mod widgets;
@@ -109,14 +110,16 @@ struct Dims {
     pad: f32,
     detail: f32,
     gap: f32,
+    /// The status bar's width at the last layout, which decides what it leaves out.
+    status: Option<f32>,
 }
 
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0 }
+            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, status: None }
         } else {
-            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0 }
+            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, status: None }
         }
     }
 }
@@ -325,7 +328,8 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let d = Dims::new(cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false));
+    let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
+    let d = Dims { status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
     let main = match &s.load {
         Load::Loading => message("Loading TSM prices and recipes..."),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
@@ -340,9 +344,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::header(s, r, d))
+                    .child(header::header(r, d))
                     .child(toolbar::toolbar(s, d))
-                    .child(table::table(s, r, d)),
+                    .child(table::table(s, r, d))
+                    .child(status::status(r, d)),
             )
             .child(detail::detail(s, r, d)),
     };
@@ -427,4 +432,14 @@ pub fn scene_crafted(s: &mut App) {
     let costs = r.market.costs(s.source);
     let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
     s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
+}
+
+/// `loaded` with realm prices five hours old and region prices thirty, so the status bar
+/// shows both stale colours.
+pub fn scene_stale(s: &mut App) {
+    scene_loaded(s);
+    let Load::Ready(r) = &mut s.load else { return };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    r.market.book.realm_updated = Some(now - 5 * 3600);
+    r.market.book.region_updated = Some(now - 30 * 3600);
 }
