@@ -7,6 +7,7 @@ mod prices;
 mod profit;
 mod recipes;
 mod rows;
+mod theme;
 mod view;
 
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
@@ -33,6 +34,9 @@ fn main() {
             scenes: &[("loaded", view::scene_loaded)],
             setup: Some(view::setup),
             poll: Some(view::poll),
+            on_key: Some(view::on_key),
+            fonts: theme::FONTS,
+            families: theme::FAMILIES,
             ..AppSpec::new("TSM Crafts", SIZE, view::App::new, view::view)
         };
         let window = WindowSpec::new("main", spec);

@@ -20,19 +20,6 @@ pub enum Column {
 impl Column {
     pub const ALL: [Column; 8] = [Column::Item, Column::Skill, Column::Cost, Column::Resale, Column::Profit, Column::Margin, Column::SoldPerDay, Column::Auctions];
 
-    pub fn id(self) -> &'static str {
-        match self {
-            Column::Item => "item",
-            Column::Skill => "skill",
-            Column::Cost => "cost",
-            Column::Resale => "resale",
-            Column::Profit => "profit",
-            Column::Margin => "margin",
-            Column::SoldPerDay => "sold",
-            Column::Auctions => "auctions",
-        }
-    }
-
     pub fn title(self) -> &'static str {
         match self {
             Column::Item => "Item",
@@ -44,10 +31,6 @@ impl Column {
             Column::SoldPerDay => "Sold/day",
             Column::Auctions => "Listed",
         }
-    }
-
-    pub fn from_id(id: &str) -> Option<Column> {
-        Column::ALL.into_iter().find(|c| c.id() == id)
     }
 
     fn number(self, r: &Recipe, e: &Evaluation) -> Option<f64> {
@@ -122,6 +105,21 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
     rows
 }
 
+/// Sales a day with one decimal, or none once the count is large enough not to need it.
+pub fn per_day(d: f64) -> String {
+    if d >= 100.0 { format!("{d:.0}") } else { format!("{d:.1}") }
+}
+
+/// Margin as a whole percent, as in `379%`.
+pub fn percent(margin: f32) -> String {
+    format!("{:.0}%", margin * 100.0)
+}
+
+/// How much of the margin bar to fill: full at 250%, so typical margins still differ.
+pub fn margin_fill(margin: f32) -> f32 {
+    (margin.abs() / 2.5).min(1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +182,13 @@ mod tests {
         assert_eq!(profit_desc.clicked(Column::Profit), Sort { column: Column::Profit, descending: false });
         assert_eq!(profit_desc.clicked(Column::Item), Sort { column: Column::Item, descending: false });
         assert_eq!(Sort { column: Column::Item, descending: false }.clicked(Column::Margin), Sort { column: Column::Margin, descending: true });
+    }
+
+    #[test]
+    fn numbers_read_as_the_table_prints_them() {
+        assert_eq!((per_day(23.46), per_day(7.0), per_day(0.04), per_day(140.6)), ("23.5".into(), "7.0".into(), "0.0".into(), "141".into()));
+        assert_eq!((percent(3.79), percent(-0.124), percent(0.0)), ("379%".into(), "-12%".into(), "0%".into()));
+        assert_eq!((margin_fill(1.25), margin_fill(3.79), margin_fill(-0.5)), (0.5, 1.0, 0.2));
     }
 
     #[test]
