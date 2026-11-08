@@ -96,7 +96,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let body = match &s.load {
         Load::Loading(_) => message(k, "Loading TSM prices and recipes..."),
         Load::Failed(e) => message(k, &format!("Could not load data: {e}")),
-        Load::Ready(r) => row().w_full().grow(1.0).child(col().grow(1.0).h_full().child(table(s, k))).child(detail(s, r, k)),
+        Load::Ready(r) => row().w_full().grow(1.0).min_h(0.0).child(col().grow(1.0).h_full().min_h(0.0).child(table(s, k).grow(1.0).min_h(0.0))).child(detail(s, r, k)),
     };
     col().w_full().h_full().fill(k.c.bg_base).child(toolbar(s, k)).child(body)
 }

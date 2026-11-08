@@ -33,7 +33,6 @@ pub struct Recipe {
     pub reagents: Vec<Reagent>,
 }
 
-/// Raw CSV text of the four DB2 tables the join reads.
 pub struct Tables {
     pub skill_line_ability: String,
     pub spell_effect: String,
