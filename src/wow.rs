@@ -79,8 +79,7 @@ pub fn locate() -> Option<AppData> {
 }
 
 fn usual_dirs() -> impl Iterator<Item = PathBuf> {
-    let drives = (b'A'..=b'Z').map(|letter| PathBuf::from(format!("{}:\\", letter as char))).filter(|drive| drive.is_dir());
-    drives.flat_map(|drive| [r"Program Files (x86)\World of Warcraft", r"Program Files\World of Warcraft", "World of Warcraft", r"Games\World of Warcraft"].map(|dir| drive.join(dir)))
+    drives::local().into_iter().flat_map(|drive| [r"Program Files (x86)\World of Warcraft", r"Program Files\World of Warcraft", "World of Warcraft", r"Games\World of Warcraft"].map(|dir| drive.join(dir)))
 }
 
 /// The install folders in Blizzard's registry entries. Its `InstallPath` names a game folder
@@ -137,6 +136,44 @@ mod registry {
         }
         let text = String::from_utf16_lossy(&data[..bytes as usize / 2]);
         Some(text.trim_end_matches('\0').to_string()).filter(|t| !t.is_empty())
+    }
+}
+
+#[cfg(windows)]
+mod drives {
+    use std::path::PathBuf;
+
+    const DRIVE_REMOVABLE: u32 = 2;
+    const DRIVE_FIXED: u32 = 3;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLogicalDrives() -> u32;
+        fn GetDriveTypeW(root: *const u16) -> u32;
+    }
+
+    /// The roots of this machine's own disks. Network drives are left out because a
+    /// disconnected one stalls any look inside it, and this runs before the window opens.
+    pub fn local() -> Vec<PathBuf> {
+        // SAFETY: takes no arguments and returns a bitmask.
+        let mask = unsafe { GetLogicalDrives() };
+        (0..26u8)
+            .filter(|i| mask & (1 << i) != 0)
+            .map(|i| format!("{}:\\", char::from(b'A' + i)))
+            .filter(|root| {
+                let wide: Vec<u16> = root.encode_utf16().chain([0]).collect();
+                // SAFETY: `wide` is a NUL-terminated root path.
+                matches!(unsafe { GetDriveTypeW(wide.as_ptr()) }, DRIVE_REMOVABLE | DRIVE_FIXED)
+            })
+            .map(PathBuf::from)
+            .collect()
+    }
+}
+
+#[cfg(not(windows))]
+mod drives {
+    pub fn local() -> Vec<std::path::PathBuf> {
+        Vec::new()
     }
 }
 
