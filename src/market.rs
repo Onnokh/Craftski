@@ -1,0 +1,25 @@
+use std::path::PathBuf;
+
+use crate::prices::{self, PriceBook};
+use crate::recipes::{self, LEATHERWORKING, Recipe};
+
+pub struct Market {
+    pub book: PriceBook,
+    pub recipes: Vec<Recipe>,
+}
+
+const DEFAULT_APPDATA: &str = r"C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\TradeSkillMaster_AppHelper\AppData.lua";
+
+/// `--appdata PATH`, else `TSM_APPDATA`, else the default Forever install.
+pub fn appdata_path() -> PathBuf {
+    let args: Vec<String> = std::env::args().collect();
+    let flag = args.iter().position(|a| a == "--appdata").and_then(|i| args.get(i + 1)).map(PathBuf::from);
+    flag.or_else(|| std::env::var_os("TSM_APPDATA").map(PathBuf::from)).unwrap_or_else(|| PathBuf::from(DEFAULT_APPDATA))
+}
+
+/// Blocks on file IO and, without a recipe cache, the network.
+pub fn load() -> Result<Market, String> {
+    let book = prices::load(&appdata_path())?;
+    let recipes = recipes::load(&LEATHERWORKING)?;
+    Ok(Market { book, recipes })
+}
