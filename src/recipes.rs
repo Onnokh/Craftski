@@ -171,9 +171,20 @@ pub struct Tables {
     pub spell_effect: String,
     pub spell_reagents: String,
     pub item_sparse: String,
+    pub icons: IconTables,
+}
+
+/// The tables that name an item's icon.
+pub struct IconTables {
     pub item: String,
     pub item_modified_appearance: String,
     pub item_appearance: String,
+}
+
+impl IconTables {
+    pub fn fetch() -> Result<IconTables, String> {
+        Ok(IconTables { item: fetch("Item")?, item_modified_appearance: fetch("ItemModifiedAppearance")?, item_appearance: fetch("ItemAppearance")? })
+    }
 }
 
 const CREATE_ITEM: u32 = 24;
@@ -250,7 +261,7 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         }
         Ok(())
     })?;
-    let icon = icons(t, &wanted)?;
+    let icon = icons(&t.icons, &wanted)?;
     let unknown = |id: u32| ItemFacts { name: format!("Item #{id}"), quality: Quality::Common, slot: None };
     for r in &mut recipes {
         let f = facts.get(&r.item_id).cloned().unwrap_or_else(|| unknown(r.item_id));
@@ -274,7 +285,7 @@ struct ItemFacts {
 
 /// Each wanted item's icon: its own, else its base appearance's, as the client resolves it.
 /// Forever leaves `Item.IconFileDataID` 0 on most of its added armor.
-fn icons(t: &Tables, wanted: &BTreeSet<u32>) -> Result<HashMap<u32, FileDataId>, String> {
+pub fn icons(t: &IconTables, wanted: &BTreeSet<u32>) -> Result<HashMap<u32, FileDataId>, String> {
     let mut icons: HashMap<u32, FileDataId> = HashMap::new();
     each_row(&t.item, "Item", ["ID", "IconFileDataID"], |[id, icon]| {
         let (id, icon) = (num(id)?, num(icon)?);
@@ -312,7 +323,7 @@ fn icons(t: &Tables, wanted: &BTreeSet<u32>) -> Result<HashMap<u32, FileDataId>,
     Ok(icons)
 }
 
-fn each_row<const N: usize>(text: &str, table: &str, cols: [&str; N], mut f: impl FnMut([&str; N]) -> Result<(), String>) -> Result<(), String> {
+pub fn each_row<const N: usize>(text: &str, table: &str, cols: [&str; N], mut f: impl FnMut([&str; N]) -> Result<(), String>) -> Result<(), String> {
     let mut reader = csv::Reader::from_reader(text.as_bytes());
     let header = reader.headers().map_err(|e| format!("{table} header: {e}"))?.clone();
     let mut at = [0usize; N];
@@ -326,7 +337,7 @@ fn each_row<const N: usize>(text: &str, table: &str, cols: [&str; N], mut f: imp
     Ok(())
 }
 
-fn num<T: FromStr>(s: &str) -> Result<T, String> {
+pub fn num<T: FromStr>(s: &str) -> Result<T, String> {
     s.trim().parse().map_err(|_| format!("not a number: {s:?}"))
 }
 
@@ -340,9 +351,13 @@ struct Cache {
     recipes: Vec<Recipe>,
 }
 
+/// Where downloads and joined data are kept between runs.
+pub fn cache_dir() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts"))
+}
+
 fn cache_path(profession: &Profession) -> Option<PathBuf> {
-    let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts");
-    Some(dir.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.name.to_lowercase())))
+    Some(cache_dir()?.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.name.to_lowercase())))
 }
 
 /// Recipes from the cache, or downloaded, joined and cached when the cache lacks this build.
@@ -357,14 +372,12 @@ pub fn load(profession: &Profession) -> Result<Vec<Recipe>, String> {
         spell_effect: fetch("SpellEffect")?,
         spell_reagents: fetch("SpellReagents")?,
         item_sparse: fetch("ItemSparse")?,
-        item: fetch("Item")?,
-        item_modified_appearance: fetch("ItemModifiedAppearance")?,
-        item_appearance: fetch("ItemAppearance")?,
+        icons: IconTables::fetch()?,
     };
     let recipes = join(&tables, profession)?;
     if let Some(path) = path {
         let cache = Cache { build: BUILD.into(), profession: profession.name.into(), recipes };
-        if let Err(e) = write_cache(&path, &cache) {
+        if let Err(e) = write_json(&path, &cache) {
             eprintln!("recipe cache not written to {}: {e}", path.display());
         }
         return Ok(cache.recipes);
@@ -372,14 +385,14 @@ pub fn load(profession: &Profession) -> Result<Vec<Recipe>, String> {
     Ok(recipes)
 }
 
-fn write_cache(path: &std::path::Path, cache: &Cache) -> std::io::Result<()> {
+pub fn write_json(path: &std::path::Path, value: &impl Serialize) -> std::io::Result<()> {
     std::fs::create_dir_all(path.parent().expect("cache path has a parent"))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(cache)?)?;
+    std::fs::write(&tmp, serde_json::to_vec(value)?)?;
     std::fs::rename(tmp, path)
 }
 
-fn fetch(table: &str) -> Result<String, String> {
+pub fn fetch(table: &str) -> Result<String, String> {
     let url = format!("https://wago.tools/db2/{table}/csv?build={BUILD}");
     let mut response = ureq::get(&url).call().map_err(|e| format!("{url}: {e}"))?;
     response.body_mut().with_config().limit(64 << 20).read_to_string().map_err(|e| format!("{url}: {e}"))
@@ -420,6 +433,12 @@ mod tests {
                           8171,,\"Rugged Hide\",0,2\n\
                           8170,,\"Light Leather\",0,9\n"
                 .into(),
+            icons: icon_tables(),
+        }
+    }
+
+    fn icon_tables() -> IconTables {
+        IconTables {
             item: "ID,ClassID,IconFileDataID\n\
                    4234,7,134256\n\
                    2319,7,134254\n\

@@ -15,9 +15,9 @@ pub fn origin(scope: Option<&str>, source: PriceSource, age_secs: Option<u64>) -
     format!("WoW Forever{realm}. TSM {source} prices{age}.")
 }
 
-/// "116 of 592 recipes shown."
-pub fn shown(shown: usize, total: usize) -> String {
-    format!("{shown} of {total} recipe{} shown.", if total == 1 { "" } else { "s" })
+/// "116 of 592 recipes shown." for `noun` "recipe".
+pub fn shown(shown: usize, total: usize, noun: &str) -> String {
+    format!("{shown} of {total} {noun}{} shown.", if total == 1 { "" } else { "s" })
 }
 
 /// How long ago a snapshot was taken, in its largest unit.
@@ -36,8 +36,8 @@ mod tests {
 
     #[test]
     fn the_count_says_how_many_recipes_the_filters_leave() {
-        assert_eq!(shown(116, 592), "116 of 592 recipes shown.");
-        assert_eq!(shown(1, 1), "1 of 1 recipe shown.");
+        assert_eq!(shown(116, 592, "recipe"), "116 of 592 recipes shown.");
+        assert_eq!(shown(1, 1, "recipe"), "1 of 1 recipe shown.");
     }
 
     #[test]

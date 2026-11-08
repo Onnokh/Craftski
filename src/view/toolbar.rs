@@ -82,9 +82,10 @@ fn search(s: &App, d: Dims) -> El {
 }
 
 impl App {
-    fn set_source(&mut self, source: PriceSource) {
+    pub(super) fn set_source(&mut self, source: PriceSource) {
         self.source = source;
         self.refresh();
+        self.reprice_flips();
     }
 
     fn set_min_sold(&mut self, step: usize) {

@@ -4,9 +4,10 @@ use std::borrow::Cow;
 
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
-use super::widgets::{Money, flexible, icon_frame, unknown};
-use super::{App, Dims, Ready, recipe_at};
-use crate::rows::{Column, per_day, percent};
+use super::widgets::{Money, flexible, hidden_hint, icon_frame, unknown};
+use super::{App, Dims, Ready, SOLD_STEPS, recipe_at};
+use crate::rows::{self, Column, FilterKind, per_day, percent};
+use crate::settings;
 use crate::theme::{self, p};
 
 const ROW: f32 = 32.0;
@@ -18,12 +19,28 @@ pub fn table(s: &App, r: &Ready, d: Dims) -> El {
         |s: &App, i| s.ready().map_or(Cow::Borrowed(""), |r| Cow::Owned(r.market.recipes[r.rows[i]].spell_id.to_string())),
         move |s: &App, i| s.ready().map_or_else(el, |r| table_row(s, r, r.rows[i], d)),
     );
-    let body = if r.rows.is_empty() {
-        col().grow(1.0).center().child(text("No recipes match these filters.").font(theme::BODY).color(p().muted))
-    } else {
-        col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)
+    let body = match hint(s, r, d) {
+        Some(hint) if r.rows.is_empty() => col().grow(1.0).center().child(hint),
+        None if r.rows.is_empty() => col().grow(1.0).center().child(text("No recipes match these filters.").font(theme::BODY).color(p().muted)),
+        hint => col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows).children(hint),
     };
     col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label("Leatherworking recipes")
+}
+
+/// What the filters hide that the search finds, if anything.
+fn hint(s: &App, r: &Ready, d: Dims) -> Option<El> {
+    let h = r.hidden.as_ref()?;
+    let names: Vec<String> = h
+        .by
+        .iter()
+        .map(|k| match k {
+            FilterKind::Sells => format!("Sells {}", SOLD_STEPS[s.min_sold].0),
+            FilterKind::HideUnpriced => "Hide unpriced".to_string(),
+            FilterKind::Skill => format!("Skill {}", settings::parse_skill(&s.skill.text).unwrap_or_default()),
+        })
+        .collect();
+    let line = rows::hint(h.count, &s.search.text, &names, !r.rows.is_empty());
+    Some(hidden_hint(line, d.pad, |s: &mut App| s.show_all()))
 }
 
 fn head(s: &App, d: Dims) -> El {

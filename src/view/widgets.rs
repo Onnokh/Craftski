@@ -163,6 +163,29 @@ pub fn unknown() -> El {
     text("\u{2014}").font(theme::BODY).color(p().faint)
 }
 
+/// The quiet line under a table that says what its filters hide, and a brass Show all that
+/// turns those filters off.
+pub fn hidden_hint<S: 'static>(line: String, pad: f32, show_all: impl Fn(&mut S) + 'static) -> El {
+    let action = text("Show all")
+        .font(theme::LABEL)
+        .color(p().brass)
+        .key("show-all")
+        .role("button")
+        .label("Show all")
+        .cursor(Cursor::Pointer)
+        .on_press(show_all);
+    row()
+        .key("hidden-hint")
+        .w_full()
+        .px(pad)
+        .py(12.0)
+        .gap(8.0)
+        .center_y()
+        .child(text(line).font(theme::CAPTION).color(p().muted).truncate().shrink().min_w(0.0))
+        .child(text("·").font(theme::CAPTION).color(p().faint).a11y_hidden())
+        .child(action)
+}
+
 /// A column that takes the leftover width and lets its text truncate.
 pub fn flexible() -> El {
     col().grow(1.0).shrink().min_w(0.0)

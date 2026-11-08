@@ -1,6 +1,9 @@
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Copper(pub u64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

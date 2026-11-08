@@ -1,7 +1,11 @@
 mod breakdown;
 mod copper;
+mod flip_rows;
+mod flips;
 mod icons;
+mod items;
 mod market;
+mod merchants;
 mod overview;
 mod prices;
 mod profit;
@@ -9,6 +13,7 @@ mod recipes;
 mod rows;
 mod settings;
 mod theme;
+mod vendor;
 mod view;
 
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
@@ -19,6 +24,7 @@ fn main() {
     let cli = std::env::args().find_map(|a| match a.as_str() {
         "--dump" => Some(dump as fn() -> Result<(), String>),
         "--fetch-icons" => Some(fetch_icons),
+        "--flips" => Some(flips),
         _ => None,
     });
     if let Some(run) = cli {
@@ -32,7 +38,7 @@ fn main() {
     }
     rune::run_windows(|displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("crafts-hidden", view::scene_crafts_hidden), ("flips-hidden", view::scene_flips_hidden)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
@@ -58,9 +64,19 @@ fn dump() -> Result<(), String> {
     use profit::PriceSource;
     use rows::{Column, Filter, Sort};
     let m = market::load()?;
-    let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, PriceSource::Realm)).collect();
+    let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs(source))).collect::<Vec<_>>();
+    let evals = evals_for(PriceSource::Realm);
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
-    println!("{} recipes, {} realm-priced items, {} region-priced items, {} fully priced (realm)", m.recipes.len(), m.book.realm.len(), m.book.region.len(), rows.len());
+    let v = &m.book.vendor;
+    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
+    println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
+    let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
+    for (name, source, evals) in [("realm", PriceSource::Realm, &evals), ("region", PriceSource::Region, &evals_for(PriceSource::Region))] {
+        let priced = evals.iter().filter(|e| e.profit.is_some()).count();
+        let missing = evals.iter().filter(|e| !e.unpriced.is_empty()).count();
+        let crafted = reagents.iter().filter(|&&item| m.costs(source).get(item).is_some_and(|p| matches!(p.origin, profit::PriceOrigin::Crafted { .. }))).count();
+        println!("fully priced ({name}): {priced}/{}, {missing} miss a reagent price, {crafted} reagents cheapest to craft", evals.len());
+    }
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
     for &i in rows.iter().take(15) {
@@ -76,6 +92,53 @@ fn dump() -> Result<(), String> {
             e.margin.map_or_else(na, |m| format!("{:.1}%", m * 100.0)),
             e.sold_per_day.map_or_else(na, |d| format!("{d:.2}")),
             e.auctions.map_or_else(na, |n| n.to_string()),
+        );
+    }
+    Ok(())
+}
+
+/// `--flips [ZONE]`: the zone's 20 most profitable vendor flips at realm prices.
+fn flips() -> Result<(), String> {
+    use flip_rows::{Column, Filter};
+    let args: Vec<String> = std::env::args().collect();
+    let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
+    let m = market::load()?;
+    let c = merchants::load()?;
+    let all = flips::evaluate(&c.merchants, &c.items, &m.book, profit::PriceSource::Realm, &flips::RULES);
+    let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
+    let rows = flip_rows::visible(&all, &c.merchants, &c.items, filter, rows::Sort { column: Column::Profit, descending: true });
+    let offers: Vec<usize> = rows.iter().flat_map(|r| std::iter::once(r.flip).chain(r.others.iter().copied())).collect();
+    let merchants: std::collections::BTreeSet<usize> = offers.iter().map(|&i| all[i].merchant).collect();
+    let profitable = rows.iter().filter(|r| all[r.flip].profit.is_some_and(|p| p > 0)).count();
+    let from_tsm = rows.iter().filter(|r| matches!(all[r.flip].paid, Some(flips::Paid::Tsm(_)))).count();
+    let shared = rows.iter().filter(|r| !r.others.is_empty()).count();
+    println!(
+        "{zone}: {} merchants, {} flips from {} offers ({shared} items sold by more than one merchant), {profitable} profitable, {from_tsm} paid at TSM's price; realm {}",
+        merchants.len(),
+        rows.len(),
+        offers.len(),
+        m.book.realm_scope.as_deref().unwrap_or("?")
+    );
+    let by_supply: Vec<String> = flip_rows::Supply::ALL.iter().map(|&supply| format!("{} {}", supply.label(), flip_rows::visible(&all, &c.merchants, &c.items, Filter { supply, ..filter }, rows::Sort { column: Column::Profit, descending: true }).len())).collect();
+    println!("flips by supply: {}", by_supply.join(", "));
+    println!("{:<34} {:<24} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} Stock", "Item", "Vendor", "Paid", "From", "Sells", "Deposit", "Profit", "Rate", "Sold/d", "Limit");
+    let na = || "n/a".to_string();
+    for r in rows.iter().take(20) {
+        let (f, v) = (&all[r.flip], &c.merchants[all[r.flip].merchant]);
+        let vendor: String = v.name.chars().take(20).collect();
+        println!(
+            "{:<34} {:<24} {:>10} {:<9} {:>11} {:>8} {:>11} {:>5} {:>7} {:>5} {}",
+            c.items.get(&f.item).map_or_else(|| format!("Item #{}", f.item), |it| it.name.chars().take(34).collect()),
+            if r.others.is_empty() { vendor } else { format!("{vendor} +{}", r.others.len()) },
+            f.paid.map_or_else(na, |p| p.copper().to_string()),
+            f.paid.map_or_else(na, flips::Paid::origin),
+            f.sale.map_or_else(na, |s| s.unit.to_string()),
+            f.deposit.loss.map_or_else(|| "?".into(), |l| copper::Copper(l.round() as u64).to_string()),
+            f.profit.map_or_else(na, copper::signed),
+            f.sale_rate.map_or_else(na, |r| format!("{:.0}%", r * 100.0)),
+            f.sold_per_day.map_or_else(na, |d| format!("{d:.1}")),
+            f.limit.map_or_else(|| "-".into(), |l| l.to_string()),
+            v.source.label(),
         );
     }
     Ok(())

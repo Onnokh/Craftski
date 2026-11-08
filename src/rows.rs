@@ -57,22 +57,116 @@ pub struct Filter<'a> {
     pub query: &'a str,
 }
 
+/// A filter beyond the search that can hide recipes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sort {
-    pub column: Column,
+pub enum FilterKind {
+    Sells,
+    HideUnpriced,
+    Skill,
+}
+
+impl Filter<'_> {
+    fn on(&self) -> Vec<FilterKind> {
+        [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::HideUnpriced, self.hide_unpriced), (FilterKind::Skill, self.max_skill.is_some())].into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
+    }
+
+    fn without(self, off: &[FilterKind]) -> Self {
+        let mut f = self;
+        for k in off {
+            match k {
+                FilterKind::Sells => f.min_sold_per_day = 0.0,
+                FilterKind::HideUnpriced => f.hide_unpriced = false,
+                FilterKind::Skill => f.max_skill = None,
+            }
+        }
+        f
+    }
+}
+
+/// Rows the filters hide that the search would otherwise show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hidden<K> {
+    /// The rows that show once every filter in `by` is off.
+    pub count: usize,
+    /// The filters that hide at least one of them, in the order `on` lists them.
+    pub by: Vec<K>,
+}
+
+impl<K: Copy> Hidden<K> {
+    /// `on` lists the filters that are on, and `shown(off)` counts the rows that show with the
+    /// filters in `off` turned off. A filter counts as hiding when turning it off shows more,
+    /// with or without some of the others off too, so two filters that each hide one row are
+    /// both named. None when turning them all off shows nothing more.
+    pub fn find(on: &[K], shown: impl Fn(&[K]) -> usize) -> Option<Hidden<K>> {
+        let subset = |mask: usize| -> Vec<K> { on.iter().enumerate().filter(|(i, _)| mask >> i & 1 == 1).map(|(_, &k)| k).collect() };
+        let counts: Vec<usize> = (0..1 << on.len()).map(|mask| shown(&subset(mask))).collect();
+        let count = counts[counts.len() - 1] - counts[0];
+        let hides = |i: usize| (0..counts.len()).any(|mask| mask >> i & 1 == 1 && counts[mask] > counts[mask ^ 1 << i]);
+        (count > 0).then(|| Hidden { count, by: (0..on.len()).filter(|&i| hides(i)).map(|i| on[i]).collect() })
+    }
+}
+
+/// The line under the table that says what the filters hide, as in `6 more match “patter” but
+/// are hidden by Sells 5+ and Hide unprofitable`. `names` are the hiding filters as the toolbar
+/// shows them; `more` says the table shows some rows already.
+pub fn hint(count: usize, query: &str, names: &[String], more: bool) -> String {
+    let list = match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let more = if more { " more" } else { "" };
+    let (verb, be) = if count == 1 { ("matches", "is") } else { ("match", "are") };
+    match query.trim() {
+        "" => format!("{count}{more} {be} hidden by {list}"),
+        q => format!("{count}{more} {verb} “{q}” but {be} hidden by {list}"),
+    }
+}
+
+/// A column a table sorts by: by name, or by a number.
+pub trait SortColumn: Copy + PartialEq {
+    fn by_name(self) -> bool;
+}
+
+impl SortColumn for Column {
+    fn by_name(self) -> bool {
+        self == Column::Item
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sort<C> {
+    pub column: C,
     pub descending: bool,
 }
 
-impl Sort {
+impl<C: SortColumn> Sort<C> {
     /// The sort after a click on `column`'s header: the same column flips, a new one starts
     /// with names A to Z and numbers largest first.
-    pub fn clicked(self, column: Column) -> Sort {
+    pub fn clicked(self, column: C) -> Sort<C> {
         if column == self.column {
             Sort { column, descending: !self.descending }
         } else {
-            Sort { column, descending: column != Column::Item }
+            Sort { column, descending: !column.by_name() }
         }
     }
+}
+
+/// Orders `rows` under `sort`: a name column by `by_name`, a number column by `number` with
+/// unknown values last whichever way it sorts and ties by `by_name`.
+pub fn order<C: SortColumn>(rows: &mut [usize], sort: Sort<C>, number: impl Fn(usize) -> Option<f64>, by_name: impl Fn(usize, usize) -> Ordering) {
+    let directed = |o: Ordering| if sort.descending { o.reverse() } else { o };
+    rows.sort_by(|&a, &b| {
+        if sort.column.by_name() {
+            return directed(by_name(a, b));
+        }
+        match (number(a), number(b)) {
+            (Some(x), Some(y)) => directed(x.total_cmp(&y)).then_with(|| by_name(a, b)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => by_name(a, b),
+        }
+    });
 }
 
 fn matches(recipe: &Recipe, needle: &str) -> bool {
@@ -81,9 +175,16 @@ fn matches(recipe: &Recipe, needle: &str) -> bool {
 
 /// Indices into `recipes` (and the parallel `evals`) to show, in order. Unknown values sort
 /// last whichever way the column sorts.
-pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: Sort) -> Vec<usize> {
+pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: Sort<Column>) -> Vec<usize> {
+    let mut rows = kept(recipes, evals, filter);
+    let by_name = |a: usize, b: usize| recipes[a].item_name.cmp(&recipes[b].item_name).then(recipes[a].spell_id.cmp(&recipes[b].spell_id));
+    order(&mut rows, sort, |i| sort.column.number(&recipes[i], &evals[i]), by_name);
+    rows
+}
+
+fn kept(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Vec<usize> {
     let needle = filter.query.trim().to_lowercase();
-    let mut rows: Vec<usize> = (0..recipes.len())
+    (0..recipes.len())
         .filter(|&i| {
             let e = &evals[i];
             let priced = !filter.hide_unpriced || e.profit.is_some();
@@ -91,21 +192,12 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
             let learnable = filter.max_skill.is_none_or(|max| recipes[i].skill.is_none_or(|s| s.learn <= max));
             priced && selling && learnable && matches(&recipes[i], &needle)
         })
-        .collect();
-    let directed = |o: Ordering| if sort.descending { o.reverse() } else { o };
-    rows.sort_by(|&a, &b| {
-        let by_name = || recipes[a].item_name.cmp(&recipes[b].item_name).then(recipes[a].spell_id.cmp(&recipes[b].spell_id));
-        if sort.column == Column::Item {
-            return directed(by_name());
-        }
-        match (sort.column.number(&recipes[a], &evals[a]), sort.column.number(&recipes[b], &evals[b])) {
-            (Some(x), Some(y)) => directed(x.total_cmp(&y)).then_with(by_name),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => by_name(),
-        }
-    });
-    rows
+        .collect()
+}
+
+/// The recipes that the search matches but the filters hide.
+pub fn hidden(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Option<Hidden<FilterKind>> {
+    Hidden::find(&filter.on(), |off| kept(recipes, evals, filter.without(off)).len())
 }
 
 /// Sales a day with one decimal, or none once the count is large enough not to need it.
@@ -182,6 +274,50 @@ mod tests {
         assert_eq!(find("  kit "), vec![0]);
         assert_eq!(find(""), vec![0, 1, 2, 3]);
         assert_eq!(find("mithril"), Vec::<usize>::new());
+    }
+
+    const SELLING_PRICED: Filter = Filter { hide_unpriced: true, min_sold_per_day: 1.0, max_skill: None, query: "" };
+
+    #[test]
+    fn names_only_the_filter_that_hides_what_the_search_finds() {
+        let (r, e) = fixture();
+        assert_eq!(hidden(&r, &e, Filter { query: "boots", ..SELLING_PRICED }), Some(Hidden { count: 1, by: vec![FilterKind::HideUnpriced] }));
+        assert_eq!(hidden(&r, &e, Filter { query: "drums", ..SELLING_PRICED }), Some(Hidden { count: 1, by: vec![FilterKind::Sells] }));
+    }
+
+    #[test]
+    fn a_row_two_filters_hide_counts_once() {
+        let (mut r, mut e) = fixture();
+        r.push(recipe(5, "Elixir", 300));
+        e.push(eval(None, None));
+        // Sells hides the cloak, drums and elixir, Hide unpriced the boots and elixir.
+        assert_eq!(hidden(&r, &e, SELLING_PRICED), Some(Hidden { count: 4, by: vec![FilterKind::Sells, FilterKind::HideUnpriced] }));
+        assert_eq!(hidden(&r, &e, Filter { query: "elixir", ..SELLING_PRICED }), Some(Hidden { count: 1, by: vec![FilterKind::Sells, FilterKind::HideUnpriced] }));
+    }
+
+    #[test]
+    fn a_skill_below_a_found_recipe_is_named() {
+        let (r, e) = fixture();
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), query: "kit", ..ALL }), Some(Hidden { count: 1, by: vec![FilterKind::Skill] }));
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), query: "boots", ..ALL }), None);
+        assert_eq!(hidden(&r, &e, Filter { max_skill: Some(124), ..SELLING_PRICED }), Some(Hidden { count: 4, by: vec![FilterKind::Sells, FilterKind::HideUnpriced, FilterKind::Skill] }));
+    }
+
+    #[test]
+    fn nothing_hidden_is_none() {
+        let (r, e) = fixture();
+        assert_eq!(hidden(&r, &e, Filter { query: "kit", ..SELLING_PRICED }), None);
+        assert_eq!(hidden(&r, &e, ALL), None);
+        assert_eq!(hidden(&r, &e, Filter { min_sold_per_day: 1.0, ..ALL }), Some(Hidden { count: 2, by: vec![FilterKind::Sells] }));
+    }
+
+    #[test]
+    fn the_hint_says_how_many_and_why() {
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(hint(6, " patter ", &names(&["Sells 5+", "Hide unprofitable"]), true), "6 more match “patter” but are hidden by Sells 5+ and Hide unprofitable");
+        assert_eq!(hint(212, "", &names(&["Sells 5+"]), true), "212 more are hidden by Sells 5+");
+        assert_eq!(hint(1, "flux", &names(&["Sells 1+", "Supply Endless", "Hide unprofitable"]), false), "1 matches “flux” but is hidden by Sells 1+, Supply Endless and Hide unprofitable");
+        assert_eq!(hint(3, "", &names(&["Hide unpriced"]), false), "3 are hidden by Hide unpriced");
     }
 
     #[test]

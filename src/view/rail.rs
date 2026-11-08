@@ -1,11 +1,12 @@
-//! The profession rail. Only leatherworking is covered; the rest show what is to come.
+//! The rail: the professions, of which only leatherworking is covered, then vendor flips.
 
-use rune::{El, col, el};
+use rune::{Color, Cursor, El, col, el};
 
-use super::App;
+use super::{App, Tab};
 use crate::theme::p;
 
 pub const ACTIVE: &str = "trade_leatherworking";
+pub const COIN: &str = "inv_misc_coin_01";
 
 pub const ICONS: [(&str, &str); 6] = [
     ("Leatherworking", ACTIVE),
@@ -17,13 +18,19 @@ pub const ICONS: [(&str, &str); 6] = [
 ];
 
 pub fn rail(s: &App) -> El {
-    let profession = |label: &str, name: &str| {
+    let icon = |label: &str, name: &str| {
         let picture = el().w(32.0).h(32.0).radius(4.0).label(label);
         match s.icons.rail.get(name) {
             Some(i) => picture.pixels(i.pixels()),
             None => picture.fill(p().surface),
         }
     };
+    let tab = |label: &str, name: &str, tab: Tab| {
+        let on = s.tab == tab;
+        let out = icon(label, name).role("button").checked(on).cursor(Cursor::Pointer).on_press(move |s: &mut App| s.tab = tab);
+        if on { out.child(el().absolute(-14.0, 4.0).w(2.0).h(24.0).fill(p().brass)) } else { out.hover(Color::WHITE.alpha(0.04)) }
+    };
+    let separator = || el().w(32.0).h(1.0).my(8.0).fill(p().line);
     let (label, name) = ICONS[0];
     let mut out = col()
         .w(60.0)
@@ -33,9 +40,9 @@ pub fn rail(s: &App) -> El {
         .items_center()
         .fill(p().rail)
         .border_sides([0.0, 1.0, 0.0, 0.0], p().rule)
-        .child(profession(label, name).child(el().absolute(-14.0, 4.0).w(2.0).h(24.0).fill(p().brass)).role("button").checked(true));
+        .child(tab(label, name, Tab::Crafts));
     for (label, name) in &ICONS[1..] {
-        out = out.child(profession(&format!("{label}, not covered yet"), name));
+        out = out.child(icon(&format!("{label}, not covered yet"), name));
     }
-    out
+    out.child(separator()).child(tab("Vendor flips", COIN, Tab::Flips))
 }
