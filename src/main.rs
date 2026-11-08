@@ -13,6 +13,7 @@ fn main() {
         "--fetch-icons" => Some(fetch_icons),
         "--fetch-skin" => Some(fetch_skin),
         "--flips" => Some(flips),
+        "--icon-names" => Some(icon_names),
         _ => None,
     });
     if cli.is_some() {
@@ -188,6 +189,28 @@ fn fetch_icons() -> Result<(), String> {
     );
     for (id, e) in &report.failed {
         println!("  {}: {e}", id.0);
+    }
+    Ok(())
+}
+
+/// Writes the Wowhead name of every icon the browser build shows, the recipes' of every
+/// profession and the merchants' goods, to the path after `--icon-names`. Icons not yet cached
+/// are fetched first, as `--fetch-icons` does. Its output is checked in as web/site/icon-names.json
+/// and rerun when `recipes::BUILD` changes, so a deploy never looks names up on wago.tools.
+fn icon_names() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().collect();
+    let path = args.iter().position(|a| a == "--icon-names").and_then(|i| args.get(i + 1)).ok_or("--icon-names needs the path to write")?;
+    let each = recipes::load_each(&recipes::Profession::ALL)?;
+    let catalog = merchants::load()?;
+    let ids: std::collections::BTreeSet<_> = each.iter().flat_map(|recipes| icons::referenced(recipes)).chain(catalog.items.values().filter_map(|i| i.icon)).collect();
+    let report = icons::prefetch(&ids, |_, _| {})?;
+    let known = icons::known_names();
+    let names: std::collections::BTreeMap<u32, &String> = ids.iter().filter_map(|id| Some((id.0, known.get(&id.0)?))).collect();
+    let json = serde_json::to_string(&names).map_err(|e| e.to_string())?;
+    std::fs::write(path, json + "\n").map_err(|e| format!("{path}: {e}"))?;
+    println!("{} of {} icons named in {path}, {} downloaded, {} failed", names.len(), ids.len(), report.downloaded, report.failed.len());
+    for id in ids.iter().filter(|id| !names.contains_key(&id.0)) {
+        println!("  no name for {}", id.0);
     }
     Ok(())
 }
