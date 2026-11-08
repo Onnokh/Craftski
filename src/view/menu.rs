@@ -55,15 +55,15 @@ fn side(m: Menu) -> Side {
 
 /// A toolbar pill that opens `m` under itself.
 pub fn trigger(s: &App, m: Menu, active: bool, spoken: String, parts: Vec<El>) -> El {
-    opener(pill(active, s.menu == Some(m)), m, spoken, parts)
+    opener(pill(active, s.menu == Some(m)), m, p().gold, spoken, parts)
 }
 
-/// `base` holding `parts` and a gold chevron, opening `m` on a press.
-pub fn opener(base: El, m: Menu, spoken: String, parts: Vec<El>) -> El {
+/// `base` holding `parts` and a chevron, opening `m` on a press.
+pub fn opener(base: El, m: Menu, chevron: Color, spoken: String, parts: Vec<El>) -> El {
     parts
         .into_iter()
         .fold(base.key(anchor(m)), |out, part| out.child(part))
-        .child(glyph(&CHEVRON_DOWN, CHEVRON, p().gold))
+        .child(glyph(&CHEVRON_DOWN, CHEVRON, chevron))
         .pr(ARROW_ROOM - DROPDOWN_GAP - CHEVRON)
         .role("button")
         .label(spoken)

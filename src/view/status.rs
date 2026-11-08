@@ -4,10 +4,10 @@
 use std::time::UNIX_EPOCH;
 
 use rune::time::LocalTime;
-use rune::{Color, El, Span, el, rich, row, text};
+use rune::{Color, Cursor, El, Span, el, rich, row, text};
 
 use super::menu::opener;
-use super::widgets::{ARROW_ROOM, REFRESH, dropdown, red_button};
+use super::widgets::{ARROW_ROOM, DROPDOWN_GAP, REFRESH, glyph};
 use super::{App, Dims, Ready};
 use crate::market;
 use crate::menu::Menu;
@@ -16,13 +16,13 @@ use crate::theme::{self, p};
 
 const GAME: &str = "WoW Forever";
 const PRICES: &str = "Prices";
-const HEIGHT: f32 = 40.0;
+const HEIGHT: f32 = 32.0;
 const LEFT: f32 = 16.0;
 const RIGHT: f32 = 12.0;
 const GAP: f32 = 12.0;
-/// The two-line groove between the game and its prices.
-const DIVIDER: f32 = 2.0;
-const RELOAD: (f32, f32) = (104.0, 28.0);
+/// The rule between the game and its prices.
+const DIVIDER: f32 = 1.0;
+const RELOAD: (f32, f32) = (84.0, 24.0);
 /// The width a failed reload's message keeps before the region feed goes.
 const NOTE_KEPT: f32 = 200.0;
 const DOT: f32 = 6.0;
@@ -30,9 +30,9 @@ const DOT: f32 = 6.0;
 const DOT_GAP: f32 = 6.0;
 /// Between "Prices" and the realm it names.
 const LABEL_GAP: f32 = 8.0;
-/// The realm dropdown, a size down from the toolbar's.
-const PILL: f32 = 28.0;
-const PILL_LEFT: f32 = 10.0;
+/// The realm dropdown, a size down from the toolbar's and framed only while open.
+const PILL: f32 = 24.0;
+const PILL_LEFT: f32 = 8.0;
 
 /// What the bar shows at a width: the region feed or not, and the read time or not. The read
 /// time goes first, then the region feed; the last fit truncates the realm when even it
@@ -51,8 +51,8 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let (region, note) = fit.unwrap_or(&fits[2]);
     let squeeze = fit.is_none();
 
-    let prices = row().gap(LABEL_GAP).center_y().child(caption(PRICES, p().muted)).child(realm_pill(s, &realm, squeeze));
-    let groove = row().h(20.0).a11y_hidden().child(el().w(1.0).h_full().fill(Color::BLACK)).child(el().w(1.0).h_full().fill(p().bevel.alpha(0.14)));
+    let prices = row().gap(LABEL_GAP).center_y().child(caption(PRICES, p().faint)).child(realm_pill(s, &realm, squeeze));
+    let rule = el().w(DIVIDER).h(14.0).fill(p().rule).a11y_hidden();
     let mut bar = row()
         .key("status")
         .w_full()
@@ -61,15 +61,13 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
         .pr(RIGHT)
         .gap(GAP)
         .center_y()
-        .fill(p().status[1])
-        .linear_gradient(std::f32::consts::PI, [(0.0, p().status[0]), (1.0, p().status[1])])
-        .border_sides([1.0, 0.0, 0.0, 0.0], Color::BLACK)
-        .child(el().pin(Some(0.0), Some(1.0), Some(0.0), None).h(1.0).fill(p().bevel.alpha(0.12)).a11y_hidden())
-        .child(caption(GAME, p().gold))
-        .child(groove)
+        .fill(p().ground)
+        .border_sides([1.0, 0.0, 0.0, 0.0], p().rule)
+        .child(caption(GAME, p().faint))
+        .child(rule)
         .child(if squeeze { prices.shrink().min_w(0.0) } else { prices });
     if let Some(region) = region {
-        bar = bar.child(row().gap(DOT_GAP).center_y().label(region.line()).children(feed(region, p().muted, false)));
+        bar = bar.child(row().gap(DOT_GAP).center_y().label(region.line()).children(feed(region, p().faint, false)));
     }
     bar = bar.child(el().grow(1.0));
     if let Some(note) = note {
@@ -78,7 +76,7 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
         bar = bar.child(match (error.is_some(), squeeze) {
             (true, true) => error_note().max_w(NOTE_KEPT),
             (true, false) => error_note(),
-            (false, _) => caption(note, p().muted),
+            (false, _) => caption(note, p().faint),
         });
     }
     bar.child(reload())
@@ -86,17 +84,19 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
 
 /// The realm prices come from, as a small dropdown that opens the list of realms in AppData.lua.
 fn realm_pill(s: &App, realm: &Feed, squeeze: bool) -> El {
-    let base = dropdown(PILL, PILL_LEFT, false, s.menu == Some(Menu::Realm));
+    let open = s.menu == Some(Menu::Realm);
+    let base = quiet(row().h(PILL).pl(PILL_LEFT).gap(DROPDOWN_GAP), open);
     let base = if squeeze { base.shrink().min_w(0.0) } else { base };
-    opener(base, Menu::Realm, format!("Prices from {}", realm.line()), feed(realm, p().text, squeeze))
+    opener(base, Menu::Realm, p().faint, format!("Prices from {}", realm.line()), feed(realm, p().muted, squeeze))
 }
 
 /// A dot and the feed's words, which truncate only when `squeeze` says nothing else fits.
 fn feed(f: &Feed, color: Color, squeeze: bool) -> Vec<El> {
     let line = f.line();
     let words = match &f.age {
-        // Past fresh, the age words take the dot's colour, so the warning reads without the dot.
-        Some((ago, fresh)) if *fresh != Freshness::Fresh => rich(line.clone(), vec![Span::new(line.len() - ago.len(), line.len()).color(tint(*fresh))]),
+        // Stale, the age words take the dot's colour too, so the warning reads without the dot.
+        // Aging shows in the dot alone: region prices update daily, so they are aging most hours.
+        Some((ago, fresh)) if *fresh == Freshness::Stale => rich(line.clone(), vec![Span::new(line.len() - ago.len(), line.len()).color(tint(*fresh))]),
         _ => text(line),
     };
     let words = words.font(theme::CAPTION).color(color).truncate();
@@ -105,7 +105,20 @@ fn feed(f: &Feed, color: Color, squeeze: bool) -> Vec<El> {
 }
 
 fn reload() -> El {
-    red_button("Reload", "Reload TSM prices", &REFRESH, Some(RELOAD.0), RELOAD.1, |s: &mut App, _| s.reload(&market::appdata_path())).key("reload")
+    quiet(row().w(RELOAD.0).h(RELOAD.1).gap(6.0).justify_center(), false)
+        .key("reload")
+        .child(glyph(&REFRESH, 12.0, p().faint))
+        .child(caption("Reload", p().muted))
+        .role("button")
+        .label("Reload TSM prices")
+        .cursor(Cursor::Pointer)
+        .on_press(|s: &mut App| s.reload(&market::appdata_path()))
+}
+
+/// A control that stays bare until hovered, framed as the toolbar's while `open`.
+fn quiet(out: El, open: bool) -> El {
+    let out = out.radius(4.0).center_y().hover(Color::WHITE.alpha(0.05));
+    if open { out.fill(Color::BLACK.alpha(0.45)).border(1.0, p().brass) } else { out }
 }
 
 fn tint(f: Freshness) -> Color {
