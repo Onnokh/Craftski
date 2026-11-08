@@ -89,9 +89,9 @@ impl State {
     /// The tooltip of the flip at `i` in the flips list.
     pub fn tip(&self, i: usize, book: &PriceBook) -> Option<Card> {
         let f = self.stocked().filter(|f| i < f.flips.len())?;
-        let (flip, merchant, item) = f.at(i);
+        let (flip, _, item) = f.at(i);
         let name = item.map_or_else(|| format!("Item #{}", flip.item), |i| i.name.clone());
-        Some(tooltip::flip(name, flip, merchant, item, book))
+        Some(tooltip::flip(name, flip, item, book))
     }
 
     fn refilter(&mut self) {

@@ -1,15 +1,15 @@
 //! The hover tooltip, drawn as the game draws GameTooltip: its border and dark blue ground, the
-//! name in its quality colour, then the card's lines.
+//! name in its quality colour, then the card's figures.
 
-use rune::{Align, El, Side, Span, col, el, row, text};
+use rune::{Align, El, Side, col, el, row, text};
 
 use super::{App, Ready, skin};
 use crate::skin::Piece;
 use crate::theme::{self, p};
-use crate::tooltip::{self, Card, Line, Tip, Value};
+use crate::tooltip::{self, Card, Tip, Value};
 use crate::view::widgets::Money;
 
-const WIDTH: f32 = 300.0;
+const WIDTH: f32 = 250.0;
 const EDGE: f32 = 7.0;
 const FRAME: [Piece; 8] = [Piece::TipTopLeft, Piece::TipTop, Piece::TipTopRight, Piece::TipLeft, Piece::TipRight, Piece::TipBottomLeft, Piece::TipBottom, Piece::TipBottomRight];
 
@@ -46,21 +46,16 @@ fn card(s: &App, r: &Ready, tip: Tip) -> Option<Card> {
         Tip::Reagent(item) => {
             let (r, i) = s.picked()?;
             let reagent = r.market.recipes[i].reagents.iter().find(|x| x.item_id == item)?;
-            Some(tooltip::reagent(reagent, r.market.costs().get(item), book))
+            Some(tooltip::reagent(reagent, book))
         }
         Tip::Flip(index) => s.flips.tip(index, book),
     }
 }
 
 fn body(panel: El, card: Card) -> El {
-    let title = text(&card.name).font(theme::BODY_STRONG).color(p().quality(card.quality)).wrap();
-    card.lines.into_iter().fold(panel.child(title), |out, line| {
-        out.child(match line {
-            Line::Text(t) => text(t).font(theme::CAPTION).color(p().text).wrap().mt(2.0),
-            Line::Pair(label, value) => row().w_full().h(18.0).gap(12.0).justify_between().center_y().child(text(label).font(theme::CAPTION).color(p().text)).child(figure(value)),
-            Line::Skill(k) => skill(k),
-            Line::Gap => el().h(8.0),
-        })
+    let title = text(&card.name).font(theme::BODY_STRONG).color(p().quality(card.quality)).wrap().mb(4.0);
+    card.lines.into_iter().fold(panel.child(title), |out, (label, value)| {
+        out.child(row().w_full().h(18.0).gap(12.0).justify_between().center_y().child(text(label).font(theme::CAPTION).color(p().text)).child(figure(value)))
     })
 }
 
@@ -69,21 +64,6 @@ fn figure(value: Value) -> El {
     match value {
         Value::Money(c) => money.show(c),
         Value::Signed(v) => money.color(p().skill[1]).signed(v),
-        Value::Count(c) => text(c).font(theme::CAPTION).color(p().text),
+        Value::Percent(v) => text(format!("{:.0}%", v * 100.0)).font(theme::CAPTION).color(p().text),
     }
-}
-
-/// "Skill 120 135 150", each rank in the colour the craft turns there.
-fn skill(k: crate::recipes::Skill) -> El {
-    let ranks = [k.learn, k.green(), k.grey].map(|r| r.to_string());
-    let line = format!("Skill  {}  {}  {}", ranks[0], ranks[1], ranks[2]);
-    let mut at = "Skill".len();
-    // The skill grey is a bar fill, too dark for text on the tooltip's blue.
-    let [yellow, green, _] = p().skill;
-    let spans = ranks.iter().zip([yellow, green, p().muted]).map(|(r, color)| {
-        let start = line[at..].find(r.as_str()).map_or(at, |o| at + o);
-        at = start + r.len();
-        Span::new(start, at).color(color)
-    });
-    text(&line).font(theme::CAPTION).color(p().text).spans(spans.collect::<Vec<_>>()).mt(2.0)
 }
