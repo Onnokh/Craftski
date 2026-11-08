@@ -1,4 +1,5 @@
 mod copper;
+mod icons;
 mod market;
 mod prices;
 mod profit;
@@ -11,8 +12,13 @@ use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 const SIZE: (f32, f32) = (1280.0, 800.0);
 
 fn main() {
-    if std::env::args().any(|a| a == "--dump") {
-        std::process::exit(match dump() {
+    let cli = std::env::args().find_map(|a| match a.as_str() {
+        "--dump" => Some(dump as fn() -> Result<(), String>),
+        "--fetch-icons" => Some(fetch_icons),
+        _ => None,
+    });
+    if let Some(run) = cli {
+        std::process::exit(match run() {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("{e}");
@@ -64,6 +70,28 @@ fn dump() -> Result<(), String> {
             e.sold_per_day.map_or_else(na, |d| format!("{d:.2}")),
             e.auctions.map_or_else(na, |n| n.to_string()),
         );
+    }
+    Ok(())
+}
+
+fn fetch_icons() -> Result<(), String> {
+    let recipes = recipes::load(&recipes::LEATHERWORKING)?;
+    let ids = icons::referenced(&recipes);
+    let started = std::time::Instant::now();
+    let report = icons::prefetch(&ids, |_, _| {})?;
+    let dir = icons::dir().unwrap_or_default();
+    println!(
+        "{} icons in {}: {} cached, {} downloaded ({} bytes), {} failed, {:.2}s",
+        report.icons,
+        dir.display(),
+        report.cached,
+        report.downloaded,
+        report.bytes,
+        report.failed.len(),
+        started.elapsed().as_secs_f64()
+    );
+    for (id, e) in &report.failed {
+        println!("  {}: {e}", id.0);
     }
     Ok(())
 }

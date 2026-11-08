@@ -113,7 +113,7 @@ mod tests {
     use crate::copper::Copper;
 
     fn recipe(spell_id: u32, name: &str, skill: u16) -> Recipe {
-        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quantity: 1.0, skill, grey_at: skill + 10, reagents: vec![] }
+        Recipe { spell_id, item_id: spell_id, item_name: name.into(), icon: None, quantity: 1.0, skill, grey_at: skill + 10, reagents: vec![] }
     }
 
     fn eval(profit: Option<i64>, sold: Option<f64>) -> Evaluation {

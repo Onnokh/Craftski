@@ -17,10 +17,16 @@ pub const LEATHERWORKING: Profession = Profession { name: "Leatherworking", skil
 /// The installed WoW: Forever build. Downloads pin it so the cache key names what was fetched.
 pub const BUILD: &str = "1.60.1.70862";
 
+/// A CASC file data id, here always an item's icon texture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FileDataId(pub u32);
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Reagent {
     pub item_id: u32,
     pub item_name: String,
+    pub icon: Option<FileDataId>,
     pub count: u32,
 }
 
@@ -29,6 +35,7 @@ pub struct Recipe {
     pub spell_id: u32,
     pub item_id: u32,
     pub item_name: String,
+    pub icon: Option<FileDataId>,
     pub quantity: f32,
     /// Rank needed to learn it.
     pub skill: u16,
@@ -48,6 +55,9 @@ pub struct Tables {
     pub spell_effect: String,
     pub spell_reagents: String,
     pub item_sparse: String,
+    pub item: String,
+    pub item_modified_appearance: String,
+    pub item_appearance: String,
 }
 
 const CREATE_ITEM: u32 = 24;
@@ -104,8 +114,8 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         .iter()
         .filter_map(|(&spell_id, &(skill, grey_at))| {
             let (_, item_id, quantity) = *creates.get(&spell_id)?;
-            let reagents = reagents.remove(&spell_id)?.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: String::new(), count }).collect();
-            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), quantity, skill, grey_at, reagents })
+            let reagents = reagents.remove(&spell_id)?.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: String::new(), icon: None, count }).collect();
+            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), icon: None, quantity, skill, grey_at, reagents })
         })
         .collect();
 
@@ -118,14 +128,57 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         }
         Ok(())
     })?;
+    let icon = icons(t, &wanted)?;
     let name = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("Item #{id}"));
     for r in &mut recipes {
         r.item_name = name(r.item_id);
+        r.icon = icon.get(&r.item_id).copied();
         for g in &mut r.reagents {
             g.item_name = name(g.item_id);
+            g.icon = icon.get(&g.item_id).copied();
         }
     }
     Ok(recipes)
+}
+
+/// Each wanted item's icon: its own, else its base appearance's, as the client resolves it.
+/// Forever leaves `Item.IconFileDataID` 0 on most of its added armor.
+fn icons(t: &Tables, wanted: &BTreeSet<u32>) -> Result<HashMap<u32, FileDataId>, String> {
+    let mut icons: HashMap<u32, FileDataId> = HashMap::new();
+    each_row(&t.item, "Item", ["ID", "IconFileDataID"], |[id, icon]| {
+        let (id, icon) = (num(id)?, num(icon)?);
+        if wanted.contains(&id) && icon != 0 {
+            icons.insert(id, FileDataId(icon));
+        }
+        Ok(())
+    })?;
+    let mut appearance: HashMap<u32, ((u32, u32), u32)> = HashMap::new();
+    each_row(&t.item_modified_appearance, "ItemModifiedAppearance", ["ItemID", "ItemAppearanceModifierID", "OrderIndex", "ItemAppearanceID"], |[item, modifier, order, id]| {
+        let item = num(item)?;
+        if wanted.contains(&item) && !icons.contains_key(&item) {
+            let candidate = ((num(modifier)?, num(order)?), num(id)?);
+            let slot = appearance.entry(item).or_insert(candidate);
+            if candidate.0 < slot.0 {
+                *slot = candidate;
+            }
+        }
+        Ok(())
+    })?;
+    let mut appearance_icon: HashMap<u32, FileDataId> = HashMap::new();
+    let used: BTreeSet<u32> = appearance.values().map(|&(_, id)| id).collect();
+    each_row(&t.item_appearance, "ItemAppearance", ["ID", "DefaultIconFileDataID"], |[id, icon]| {
+        let (id, icon) = (num(id)?, num(icon)?);
+        if used.contains(&id) && icon != 0 {
+            appearance_icon.insert(id, FileDataId(icon));
+        }
+        Ok(())
+    })?;
+    for (item, (_, id)) in appearance {
+        if let Some(&icon) = appearance_icon.get(&id) {
+            icons.insert(item, icon);
+        }
+    }
+    Ok(icons)
 }
 
 fn each_row<const N: usize>(text: &str, table: &str, cols: [&str; N], mut f: impl FnMut([&str; N]) -> Result<(), String>) -> Result<(), String> {
@@ -147,7 +200,7 @@ fn num<T: FromStr>(s: &str) -> Result<T, String> {
 }
 
 /// Bump when `Recipe` changes shape, so a file an older version wrote is never read.
-const CACHE_SCHEMA: &str = "v2";
+const CACHE_SCHEMA: &str = "v3";
 
 #[derive(Serialize, Deserialize)]
 struct Cache {
@@ -173,6 +226,9 @@ pub fn load(profession: &Profession) -> Result<Vec<Recipe>, String> {
         spell_effect: fetch("SpellEffect")?,
         spell_reagents: fetch("SpellReagents")?,
         item_sparse: fetch("ItemSparse")?,
+        item: fetch("Item")?,
+        item_modified_appearance: fetch("ItemModifiedAppearance")?,
+        item_appearance: fetch("ItemAppearance")?,
     };
     let recipes = join(&tables, profession)?;
     if let Some(path) = path {
@@ -229,31 +285,52 @@ mod tests {
                           15407,,\"Cured Rugged Hide\"\n\
                           8171,,\"Rugged Hide\"\n"
                 .into(),
+            item: "ID,ClassID,IconFileDataID\n\
+                   4234,7,134256\n\
+                   2319,7,134254\n\
+                   15407,7,0\n\
+                   8171,7,134257\n\
+                   8170,7,134251\n"
+                .into(),
+            item_modified_appearance: "ID,ItemID,ItemAppearanceModifierID,ItemAppearanceID,OrderIndex\n\
+                                       1,15407,0,501,1\n\
+                                       2,15407,0,500,0\n\
+                                       3,15407,1,503,0\n\
+                                       4,4234,0,502,0\n"
+                .into(),
+            item_appearance: "ID,DisplayType,DefaultIconFileDataID\n\
+                              500,9,134255\n\
+                              501,9,999\n\
+                              502,9,777\n\
+                              503,9,888\n"
+                .into(),
         }
     }
 
     #[test]
-    fn joins_create_item_effects_with_reagents_for_the_profession() {
+    fn joins_create_item_effects_with_reagents_and_icons_for_the_profession() {
         let recipes = join(&tables(), &LEATHERWORKING).unwrap();
-        let reagent = |item_id, name: &str, count| Reagent { item_id, item_name: name.into(), count };
+        let reagent = |item_id, name: &str, icon: Option<u32>, count| Reagent { item_id, item_name: name.into(), icon: icon.map(FileDataId), count };
         assert_eq!(recipes, vec![
             Recipe {
                 spell_id: 3818,
                 item_id: 4234,
                 item_name: "Heavy Leather".into(),
+                icon: Some(FileDataId(134256)),
                 quantity: 1.0,
                 skill: 125,
                 grey_at: 135,
-                reagents: vec![reagent(2319, "Medium Leather", 5)],
+                reagents: vec![reagent(2319, "Medium Leather", Some(134254), 5)],
             },
             Recipe {
                 spell_id: 19047,
                 item_id: 15407,
                 item_name: "Cured Rugged Hide".into(),
+                icon: Some(FileDataId(134255)),
                 quantity: 2.0,
                 skill: 250,
                 grey_at: 270,
-                reagents: vec![reagent(8171, "Rugged Hide", 1), reagent(15409, "Item #15409", 1)],
+                reagents: vec![reagent(8171, "Rugged Hide", Some(134257), 1), reagent(15409, "Item #15409", None, 1)],
             },
         ]);
     }
