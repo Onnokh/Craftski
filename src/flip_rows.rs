@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::flips::{Flip, Paid};
 use crate::items::Item;
 use crate::merchants::Merchant;
-use crate::rows::{Hidden, Sort, SortColumn, order};
+use crate::rows::{Hidden, Sort, SortColumn, order, sells};
 
 pub const HOME: &str = "Thunder Bluff";
 
@@ -62,7 +62,8 @@ impl SortColumn for Column {
 pub struct Filter<'a> {
     pub zone: &'a str,
     pub hide_unprofitable: bool,
-    pub min_sold_per_day: f64,
+    /// The fewest sales a day that show, any above none; `None` shows those without sales too.
+    pub min_sold_per_day: Option<f64>,
     /// Matches the item, merchant or zone by name, ignoring case, in every zone. Blank keeps
     /// to `zone`.
     pub query: &'a str,
@@ -118,7 +119,7 @@ pub enum FilterKind {
 
 impl Filter<'_> {
     fn on(&self) -> Vec<FilterKind> {
-        let on = [(FilterKind::Sells, self.min_sold_per_day > 0.0), (FilterKind::Supply, self.supply != Supply::All), (FilterKind::HideUnprofitable, self.hide_unprofitable)];
+        let on = [(FilterKind::Sells, self.min_sold_per_day.is_some()), (FilterKind::Supply, self.supply != Supply::All), (FilterKind::HideUnprofitable, self.hide_unprofitable)];
         on.into_iter().filter_map(|(k, on)| on.then_some(k)).collect()
     }
 
@@ -126,7 +127,7 @@ impl Filter<'_> {
         let mut f = self;
         for k in off {
             match k {
-                FilterKind::Sells => f.min_sold_per_day = 0.0,
+                FilterKind::Sells => f.min_sold_per_day = None,
                 FilterKind::Supply => f.supply = Supply::All,
                 FilterKind::HideUnprofitable => f.hide_unprofitable = false,
             }
@@ -160,7 +161,7 @@ fn grouped(flips: &[Flip], merchants: &[Merchant], items: &HashMap<u32, Item>, f
             let (f, m) = (&flips[i], &merchants[flips[i].merchant]);
             let place = if needle.is_empty() { m.zone == filter.zone } else { [item_name(f), &m.name, &m.zone].iter().any(|n| n.to_lowercase().contains(&needle)) };
             let profitable = !filter.hide_unprofitable || f.profit.is_some_and(|p| p > 0);
-            let selling = filter.min_sold_per_day <= 0.0 || f.sold_per_day.is_some_and(|s| s >= filter.min_sold_per_day);
+            let selling = sells(f.sold_per_day, filter.min_sold_per_day);
             place && profitable && selling && filter.supply.admits(f.limit)
         })
         .collect();
@@ -235,7 +236,7 @@ mod tests {
         (flips, merchants, items)
     }
 
-    const TB: Filter = Filter { zone: HOME, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: Supply::All };
+    const TB: Filter = Filter { zone: HOME, hide_unprofitable: false, min_sold_per_day: None, query: "", supply: Supply::All };
     const BY_PROFIT: Sort<Column> = Sort { column: Column::Profit, descending: true };
 
     /// The flip leading each row.
@@ -261,7 +262,7 @@ mod tests {
     fn hides_losses_unpriced_flips_and_slow_sellers() {
         let (f, m, i) = fixture();
         assert_eq!(leads(visible(&f, &m, &i, Filter { hide_unprofitable: true, ..TB }, BY_PROFIT)), vec![0]);
-        assert_eq!(leads(visible(&f, &m, &i, Filter { min_sold_per_day: 1.0, ..TB }, BY_PROFIT)), vec![1]);
+        assert_eq!(leads(visible(&f, &m, &i, Filter { min_sold_per_day: Some(1.0), ..TB }, BY_PROFIT)), vec![1]);
         assert_eq!(leads(visible(&f, &m, &i, TB, BY_PROFIT)), vec![0, 1, 2]);
     }
 
@@ -329,7 +330,7 @@ mod tests {
     fn names_the_one_filter_that_hides_an_item_the_zone_or_search_shows() {
         let (f, m, i) = fixture();
         assert_eq!(hidden(&f, &m, &i, Filter { hide_unprofitable: true, ..TB }), Some(Hidden { count: 2, by: vec![FilterKind::HideUnprofitable] }));
-        let endless_sellers = Filter { supply: Supply::Endless, min_sold_per_day: 1.0, ..TB };
+        let endless_sellers = Filter { supply: Supply::Endless, min_sold_per_day: Some(1.0), ..TB };
         assert_eq!(hidden(&f, &m, &i, Filter { query: "swiss", ..endless_sellers }), Some(Hidden { count: 1, by: vec![FilterKind::Sells] }));
         assert_eq!(hidden(&f, &m, &i, Filter { query: "kuna", ..endless_sellers }), Some(Hidden { count: 1, by: vec![FilterKind::Sells, FilterKind::Supply] }));
     }
@@ -338,7 +339,7 @@ mod tests {
     fn an_item_several_filters_hide_counts_once() {
         let (f, m, i) = fixture();
         // Sells hides the shortbow and the swiss, Supply the shortbow, Hide unprofitable the flux and the swiss.
-        let every = Filter { min_sold_per_day: 1.0, supply: Supply::Endless, hide_unprofitable: true, ..TB };
+        let every = Filter { min_sold_per_day: Some(1.0), supply: Supply::Endless, hide_unprofitable: true, ..TB };
         assert_eq!(visible(&f, &m, &i, every, BY_PROFIT), vec![]);
         assert_eq!(hidden(&f, &m, &i, every), Some(Hidden { count: 3, by: vec![FilterKind::Sells, FilterKind::Supply, FilterKind::HideUnprofitable] }));
     }
@@ -347,7 +348,7 @@ mod tests {
     fn an_item_another_merchant_still_shows_is_not_hidden() {
         let (f, m, i) = fixture();
         assert_eq!(hidden(&f, &m, &i, Filter { query: "flux", hide_unprofitable: true, ..TB }), None);
-        assert_eq!(hidden(&f, &m, &i, Filter { query: "flux", supply: Supply::Endless, min_sold_per_day: 5.0, ..TB }), None);
+        assert_eq!(hidden(&f, &m, &i, Filter { query: "flux", supply: Supply::Endless, min_sold_per_day: Some(5.0), ..TB }), None);
         assert_eq!(hidden(&f, &m, &i, TB), None);
     }
 
@@ -361,7 +362,7 @@ mod tests {
         book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
         let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
-        let filter = Filter { zone: HOME, hide_unprofitable: true, min_sold_per_day: 5.0, query: "patter", supply: Supply::Endless };
+        let filter = Filter { zone: HOME, hide_unprofitable: true, min_sold_per_day: Some(5.0), query: "patter", supply: Supply::Endless };
         let names = |filter| -> Vec<String> { visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| c.items[&flips[r.flip].item].name.clone()).collect() };
         let shown = names(filter);
         let h = hidden(&flips, &c.merchants, &c.items, filter).unwrap();
@@ -386,7 +387,7 @@ mod tests {
             for hide_unprofitable in [false, true] {
                 for supply in Supply::ALL {
                     for query in ["", "a", "e", "flux", "weak", "thunder bluff", "kuna", "dye"] {
-                        let filter = Filter { zone: &zone.name, hide_unprofitable, min_sold_per_day: 0.0, query, supply };
+                        let filter = Filter { zone: &zone.name, hide_unprofitable, min_sold_per_day: None, query, supply };
                         let items: Vec<u32> = visible(&flips, &c.merchants, &c.items, filter, BY_PROFIT).iter().map(|r| flips[r.flip].item).collect();
                         if items.iter().collect::<BTreeSet<_>>().len() != items.len() {
                             twice.push(format!("{} {hide_unprofitable} {} {query:?}", zone.name, supply.label()));

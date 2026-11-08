@@ -9,7 +9,7 @@ use crate::settings;
 pub struct SoldStep {
     pub value: &'static str,
     pub item: &'static str,
-    pub min: f64,
+    pub min: Option<f64>,
 }
 
 impl SoldStep {
@@ -19,11 +19,12 @@ impl SoldStep {
     }
 }
 
-pub const SOLD_STEPS: [SoldStep; 4] = [
-    SoldStep { value: "Any", item: "Any", min: 0.0 },
-    SoldStep { value: "1+", item: "1+ a day", min: 1.0 },
-    SoldStep { value: "5+", item: "5+ a day", min: 5.0 },
-    SoldStep { value: "20+", item: "20+ a day", min: 20.0 },
+pub const SOLD_STEPS: [SoldStep; 5] = [
+    SoldStep { value: "Any", item: "Any", min: None },
+    SoldStep { value: ">0", item: ">0 a day", min: Some(0.0) },
+    SoldStep { value: "1+", item: "1+ a day", min: Some(1.0) },
+    SoldStep { value: "5+", item: "5+ a day", min: Some(5.0) },
+    SoldStep { value: "20+", item: "20+ a day", min: Some(20.0) },
 ];
 
 /// A toolbar menu, at most one open at a time.
@@ -123,20 +124,20 @@ mod tests {
 
     #[test]
     fn the_sold_menu_lists_each_minimum_a_day_and_marks_the_current_one() {
-        let items = sold(2, Pick::CraftsSold);
+        let items = sold(3, Pick::CraftsSold);
         let seen: Vec<(&str, bool, Pick)> = items.iter().map(|i| (i.label.as_str(), i.on, i.pick.clone())).collect();
         assert_eq!(
             seen,
-            vec![("Any", false, Pick::CraftsSold(0)), ("1+ a day", false, Pick::CraftsSold(1)), ("5+ a day", true, Pick::CraftsSold(2)), ("20+ a day", false, Pick::CraftsSold(3))]
+            vec![("Any", false, Pick::CraftsSold(0)), (">0 a day", false, Pick::CraftsSold(1)), ("1+ a day", false, Pick::CraftsSold(2)), ("5+ a day", true, Pick::CraftsSold(3)), ("20+ a day", false, Pick::CraftsSold(4))]
         );
-        assert_eq!((items[2].hint.clone(), items[2].spoken.as_str()), (None, "5+ a day"));
+        assert_eq!((items[3].hint.clone(), items[3].spoken.as_str()), (None, "5+ a day"));
     }
 
     #[test]
     fn the_sold_pill_shows_the_short_value_and_the_hint_names_it_in_words() {
         let values: Vec<&str> = SOLD_STEPS.iter().map(|s| s.value).collect();
-        assert_eq!(values, ["Any", "1+", "5+", "20+"]);
-        assert_eq!(SOLD_STEPS[2].named(), "Sold 5+ a day");
+        assert_eq!(values, ["Any", ">0", "1+", "5+", "20+"]);
+        assert_eq!(SOLD_STEPS[3].named(), "Sold 5+ a day");
     }
 
     #[test]

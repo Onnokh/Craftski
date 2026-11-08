@@ -142,6 +142,9 @@ enum Recipes {
 struct Dims {
     compact: bool,
     pad: f32,
+    /// The table's margin from the rail and the detail panel. Its cells pad by the rest of
+    /// `pad`, so their text lines up with the title and toolbar above.
+    inset: f32,
     detail: f32,
     gap: f32,
     /// The status bar's width at the last layout, which decides what it leaves out.
@@ -151,10 +154,15 @@ struct Dims {
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, status: None }
+            Dims { compact, pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, status: None }
         } else {
-            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, status: None }
+            Dims { compact, pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, status: None }
         }
+    }
+
+    /// A table cell's side padding, inside the table's inset.
+    fn cell_pad(self) -> f32 {
+        self.pad - self.inset
     }
 }
 
@@ -595,7 +603,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
 /// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
 pub fn scene_crafts_hidden(s: &mut App) {
     scene_loaded(s);
-    s.min_sold = 2;
+    s.min_sold = 3;
     s.refresh();
 }
 
@@ -672,16 +680,16 @@ mod tests {
     fn choosing_a_sold_minimum_sets_the_recipe_filter_and_closes_the_menu() {
         let mut s = App::new();
         s.toggle_menu(Menu::CraftsSold);
-        s.pick(Pick::CraftsSold(2));
-        assert_eq!((s.menu, s.min_sold), (None, 2));
+        s.pick(Pick::CraftsSold(3));
+        assert_eq!((s.menu, s.min_sold), (None, 3));
     }
 
     #[test]
     fn the_flips_menus_set_the_flips_filters_and_leave_the_recipes_alone() {
         let mut s = App::new();
         s.toggle_menu(Menu::FlipsSold);
-        s.pick(Pick::FlipsSold(3));
-        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 3, 0));
+        s.pick(Pick::FlipsSold(4));
+        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 4, 0));
         s.toggle_menu(Menu::Supply);
         s.pick(Pick::Supply(Supply::Limited));
         assert_eq!((s.menu, s.flips.supply()), (None, Supply::Limited));

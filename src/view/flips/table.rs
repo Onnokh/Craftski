@@ -46,7 +46,7 @@ pub fn table(s: &App, f: &Stocked, d: Dims) -> El {
         None if f.rows.is_empty() => col().grow(1.0).center().child(text("No flips match these filters.").font(theme::BODY).color(p().muted)),
         hint => col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows).children(hint),
     };
-    col().grow(1.0).min_h(0.0).w_full().child(head(s, d)).child(body).role("table").label("Vendor flips")
+    col().grow(1.0).min_h(0.0).w_full().px(d.inset).child(head(s, d)).child(body).role("table").label("Vendor flips")
 }
 
 /// What the filters hide that the zone or search shows, if anything.
@@ -54,12 +54,12 @@ fn hint(s: &App, f: &Stocked, d: Dims) -> Option<El> {
     let h = f.hidden.as_ref()?;
     let names: Vec<String> = h.by.iter().map(|&k| s.flips.filter_name(k)).collect();
     let line = rows::hint(h.count, &s.flips.search.text, &names, !f.rows.is_empty());
-    Some(hidden_hint(line, d.pad, |s: &mut App| s.flips.show_all()))
+    Some(hidden_hint(line, d.cell_pad(), |s: &mut App| s.flips.show_all()))
 }
 
 fn head(s: &App, d: Dims) -> El {
     let sort = s.flips.sort;
-    let mut out = row().w_full().h(ROW).px(d.pad).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze);
+    let mut out = row().w_full().h(ROW).px(d.cell_pad()).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze);
     for (column, width) in columns(d) {
         let descending = (sort.column == column).then_some(sort.descending);
         out = out.child(cell(column, width).child(column_title(column.title(), descending)).role("columnheader").cursor(Cursor::Pointer).on_press(move |s: &mut App| {
@@ -90,7 +90,7 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
     let number = |v: String| text(v).font(theme::BODY).color(p().text);
     let mut out = selectable_row(selected)
         .h(ROW)
-        .px(d.pad)
+        .px(d.cell_pad())
         .gap(d.gap)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
