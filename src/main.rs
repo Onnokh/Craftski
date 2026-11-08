@@ -57,9 +57,12 @@ fn dump() -> Result<(), String> {
     use profit::PriceSource;
     use rows::{Column, Filter, Sort};
     let m = market::load()?;
-    let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, PriceSource::Realm)).collect();
+    let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, source)).collect::<Vec<_>>();
+    let (evals, region) = (evals_for(PriceSource::Realm), evals_for(PriceSource::Region));
+    let priced = |evals: &[profit::Evaluation]| evals.iter().filter(|e| e.profit.is_some()).count();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, Sort { column: Column::Profit, descending: true });
-    println!("{} recipes, {} realm-priced items, {} region-priced items, {} fully priced (realm)", m.recipes.len(), m.book.realm.len(), m.book.region.len(), rows.len());
+    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
+    println!("fully priced: {}/{} realm, {}/{} region", priced(&evals), m.recipes.len(), priced(&region), m.recipes.len());
     println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
     for &i in rows.iter().take(15) {
