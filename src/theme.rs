@@ -64,8 +64,6 @@ pub struct Palette {
     pub gold: Color,
     /// The rule under column heads and section bands.
     pub bronze: Color,
-    /// A red button's face where its art is missing.
-    pub red: Color,
     /// The profit bar's gradient, top to bottom, and the selected row's.
     pub bar: [Color; 2],
     pub bar_selected: [Color; 2],
@@ -99,7 +97,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         brass: c("#D8A443"),
         gold: c("#FFD100"),
         bronze: c("#6E5536"),
-        red: c("#6B1610"),
         bar: [c("#C9A24E"), c("#8A6A2A")],
         bar_selected: [c("#FFE07A"), c("#C99A32")],
         pip: c("#E8C66A"),

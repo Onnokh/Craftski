@@ -185,27 +185,13 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
         .on_press(move |s: &mut S| flip(s))
 }
 
-/// The game's red button, `height` tall and `width` wide or taking the width its row leaves,
-/// with `leading` before a gold label; without the art, a dark red one.
-pub fn red_button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, width: Option<f32>, height: f32, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    let out = row().h(height).px(12.0).gap(if height < 32.0 { 6.0 } else { 8.0 }).center_y().justify_center();
-    let out = match width {
-        Some(w) => out.w(w),
-        None => out.grow(1.0),
-    };
-    // The art's caps keep their shape at any height; a button too narrow for both shrinks them.
-    let caps = [114.0 / 128.0 * height, 292.0 / 128.0 * height];
-    let fit = width.map_or(1.0, |w| (w / (caps[0] + caps[1])).min(1.0));
-    let out = match skin::three_slice([Piece::RedLeft, Piece::RedMid, Piece::RedRight], caps.map(|c| c * fit)) {
-        Some(layers) => out.children(layers),
-        None => out.radius(4.0).fill(p().red).border(1.0, p().bronze),
-    };
-    let (icon, font) = if height < 32.0 { (12.0, theme::LABEL) } else { (16.0, theme::BODY_MEDIUM) };
-    out.key(spoken)
-        .hover(Color::WHITE.alpha(0.06))
-        .press(Color::BLACK.alpha(0.12))
-        .child(glyph(leading, icon, p().gold))
-        .child(text(label).font(font).color(p().gold))
+/// A button in the toolbar controls' bronze frame: `leading` in gold before its label.
+pub fn button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    frame(row().h(CONTROL).px(12.0).gap(8.0).center_y().justify_center(), false, false)
+        .key(spoken)
+        .press(Color::BLACK.alpha(0.2))
+        .child(glyph(leading, 16.0, p().gold))
+        .child(text(label).font(theme::BODY).color(p().text))
         .role("button")
         .label(spoken)
         .cursor(Cursor::Pointer)
@@ -214,7 +200,7 @@ pub fn red_button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon,
 
 /// A "Wowhead" button that opens `url` in the browser, marked as leaving the app.
 pub fn wowhead<S: 'static>(url: String) -> El {
-    red_button("Wowhead", "Open on Wowhead", &EXTERNAL, Some(112.0), 36.0, move |_: &mut S, tx: &mut Tx| {
+    button("Wowhead", "Open on Wowhead", &EXTERNAL, move |_: &mut S, tx: &mut Tx| {
         if let Err(e) = tx.open_url(&url) {
             eprintln!("{url}: {e}");
         }

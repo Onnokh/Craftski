@@ -4,7 +4,7 @@
 use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Shadow, Span, Tx, col, el, row, text};
 
 use super::skin;
-use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, red_button, unknown, wowhead};
+use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, button, unknown, wowhead};
 use super::{App, Dims, Ready, recipe_at, tooltip};
 use crate::breakdown::{Caution, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, wowhead_url};
 use crate::charts;
@@ -49,8 +49,8 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         .w_full()
         .gap(8.0)
         .pt(16.0)
-        .child(red_button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, None, 36.0, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())))
-        .child(wowhead::<App>(wowhead_url(recipe.item_id)));
+        .child(button("Copy shopping list", "Copy shopping list", &CLIPBOARD_LIST, move |_: &mut App, tx: &mut Tx| tx.copy(list.clone())).w(0.0).grow(1.0))
+        .child(wowhead::<App>(wowhead_url(recipe.item_id)).w(0.0).grow(1.0));
     panel.px(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
