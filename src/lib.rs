@@ -16,6 +16,7 @@ pub mod market;
 pub mod menu;
 pub mod merchants;
 pub mod overview;
+pub mod platform;
 pub mod prices;
 pub mod profit;
 pub mod public_data;

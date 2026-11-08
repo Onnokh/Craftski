@@ -8,13 +8,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cache;
 use crate::copper::Copper;
 use crate::market::Read;
 use crate::merchants::Side;
 use crate::overview;
+use crate::platform::{unix, unix_now};
 use crate::prices::{PriceBook, RealmBook, RealmPrice, RegionPrice};
 
 const BASE: &str = "https://public-data.tradeskillmaster.com/forever";
@@ -277,7 +277,7 @@ pub fn load(house: PublicHouse, side: Side, refresh: Refresh) -> Result<(PriceBo
     let region = fetch(&dir, &house.region_file(), refresh, now, &mut hold, &mut stale)?;
     let (region, region_updated) = parse_region(&region).map_err(|e| format!("TSM public data, {}: {e}", house.region_file().name))?;
     let realm = parse_realm(&realm).map_err(|e| format!("TSM public data, {}: {e}", house.realm_file(side).name))?;
-    Ok((book(house, side, realm, region, region_updated), Read { at: SystemTime::now(), modified: None, warning: stale.map(|s: Stale| s.words(now)) }))
+    Ok((book(house, side, realm, region, region_updated), Read { at: crate::platform::now(), modified: None, warning: stale.map(|s: Stale| s.words(now)) }))
 }
 
 fn book(house: PublicHouse, side: Side, realm: RealmBook, region: HashMap<u32, RegionPrice>, region_updated: Option<u64>) -> PriceBook {
@@ -336,14 +336,6 @@ fn read_hold(dir: &Path) -> Option<Hold> {
 fn age(path: &Path, now: u64) -> Option<u64> {
     let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
     Some(now.saturating_sub(unix(modified)))
-}
-
-fn unix(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-fn unix_now() -> u64 {
-    unix(SystemTime::now())
 }
 
 /// A realm's `items.csv`: `itemId,name,marketValue,minBuyout,recent,historical,updatedAt`.
