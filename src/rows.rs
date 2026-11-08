@@ -51,6 +51,8 @@ impl Column {
 pub struct Filter<'a> {
     pub hide_unpriced: bool,
     pub min_sold_per_day: f64,
+    /// The player's rank: recipes learned above it hide, recipes without a known rank stay.
+    pub max_skill: Option<u16>,
     /// Matches the crafted item or any reagent by name, ignoring case. Blank matches all.
     pub query: &'a str,
 }
@@ -86,7 +88,8 @@ pub fn visible(recipes: &[Recipe], evals: &[Evaluation], filter: Filter, sort: S
             let e = &evals[i];
             let priced = !filter.hide_unpriced || e.profit.is_some();
             let selling = filter.min_sold_per_day <= 0.0 || e.sold_per_day.is_some_and(|s| s >= filter.min_sold_per_day);
-            priced && selling && matches(&recipes[i], &needle)
+            let learnable = filter.max_skill.is_none_or(|max| recipes[i].skill.is_none_or(|s| s.learn <= max));
+            priced && selling && learnable && matches(&recipes[i], &needle)
         })
         .collect();
     let directed = |o: Ordering| if sort.descending { o.reverse() } else { o };
@@ -136,7 +139,7 @@ mod tests {
         )
     }
 
-    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: 0.0, query: "" };
+    const ALL: Filter = Filter { hide_unpriced: false, min_sold_per_day: 0.0, max_skill: None, query: "" };
 
     #[test]
     fn unknown_values_sort_last_in_both_directions() {
@@ -151,9 +154,19 @@ mod tests {
     fn filters_hide_unpriced_rows_and_slow_sellers() {
         let (r, e) = fixture();
         let by_name = Sort { column: Column::Item, descending: false };
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, by_name), vec![0, 2, 3]);
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: false, min_sold_per_day: 1.0, query: "" }, by_name), vec![0, 1]);
-        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0, query: "" }, by_name), vec![0]);
+        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, ..ALL }, by_name), vec![0, 2, 3]);
+        assert_eq!(visible(&r, &e, Filter { min_sold_per_day: 1.0, ..ALL }, by_name), vec![0, 1]);
+        assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0, ..ALL }, by_name), vec![0]);
+    }
+
+    #[test]
+    fn a_skill_hides_recipes_learned_above_it_and_keeps_those_without_a_rank() {
+        let (mut r, e) = fixture();
+        r[1].skill = None;
+        let by_name = Sort { column: Column::Item, descending: false };
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(225), ..ALL }, by_name), vec![0, 1, 2, 3]);
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(125), ..ALL }, by_name), vec![0, 1, 3]);
+        assert_eq!(visible(&r, &e, Filter { max_skill: Some(124), ..ALL }, by_name), vec![1]);
     }
 
     #[test]

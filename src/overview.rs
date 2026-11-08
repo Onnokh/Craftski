@@ -1,18 +1,7 @@
-//! The page header's meta line and the toolbar's count, for a whole profession under one price
-//! source. UI-free.
+//! The page header's meta line: where the prices come from and how many recipes the filters
+//! leave. UI-free.
 
-use crate::profit::{Evaluation, PriceSource};
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Overview {
-    /// Recipes with a known profit.
-    pub priced: usize,
-    pub total: usize,
-}
-
-pub fn overview(evals: &[Evaluation]) -> Overview {
-    Overview { priced: evals.iter().filter(|e| e.profit.is_some()).count(), total: evals.len() }
-}
+use crate::profit::PriceSource;
 
 /// "WoW Forever, PvP-Horde. TSM realm prices, 9 minutes old." The realm and the age drop out
 /// when the snapshot does not record them.
@@ -24,6 +13,11 @@ pub fn origin(scope: Option<&str>, source: PriceSource, age_secs: Option<u64>) -
     };
     let age = age_secs.map_or_else(|| " of unknown age".into(), |s| format!(", {} old", age(s)));
     format!("WoW Forever{realm}. TSM {source} prices{age}.")
+}
+
+/// "116 of 592 recipes shown."
+pub fn shown(shown: usize, total: usize) -> String {
+    format!("{shown} of {total} recipe{} shown.", if total == 1 { "" } else { "s" })
 }
 
 /// How long ago a snapshot was taken, in its largest unit.
@@ -39,15 +33,11 @@ fn age(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::copper::Copper;
-
-    fn eval(profit: Option<i64>) -> Evaluation {
-        Evaluation { cost: profit.map(|_| Copper(100)), unpriced: vec![], resale: None, profit, margin: None, sold_per_day: None, auctions: None }
-    }
 
     #[test]
-    fn counts_the_recipes_with_a_known_profit() {
-        assert_eq!(overview(&[eval(Some(38_173)), eval(None), eval(Some(-500))]), Overview { priced: 2, total: 3 });
+    fn the_count_says_how_many_recipes_the_filters_leave() {
+        assert_eq!(shown(116, 592), "116 of 592 recipes shown.");
+        assert_eq!(shown(1, 1), "1 of 1 recipe shown.");
     }
 
     #[test]

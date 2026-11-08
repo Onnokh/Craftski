@@ -14,10 +14,10 @@ use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, r
 
 use crate::icons;
 use crate::market::{self, Market};
-use crate::overview::{Overview, overview};
 use crate::profit::{self, Evaluation, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, Sort};
+use crate::settings;
 use crate::theme::{self, p};
 
 const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
@@ -34,6 +34,8 @@ pub struct App {
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,
+    /// The player's profession rank as typed; blank shows every rank.
+    skill: TextEdit,
 }
 
 enum Load {
@@ -85,7 +87,6 @@ impl Icons {
 struct Ready {
     market: Market,
     evals: Vec<Evaluation>,
-    overview: Overview,
     rows: Vec<usize>,
 }
 
@@ -122,12 +123,13 @@ impl App {
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
             search: TextEdit::new(""),
+            skill: TextEdit::new(settings::load_skill()),
         }
     }
 
     fn land(&mut self, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), overview: overview(&[]), rows: Vec::new() })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new() })),
             Err(e) => Load::Failed(e),
         };
         self.refresh();
@@ -139,8 +141,12 @@ impl App {
     fn refresh(&mut self) {
         let Load::Ready(r) = &mut self.load else { return };
         r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, self.source)).collect();
-        r.overview = overview(&r.evals);
-        let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text };
+        let filter = Filter {
+            hide_unpriced: self.hide_unpriced,
+            min_sold_per_day: SOLD_STEPS[self.min_sold].1,
+            max_skill: settings::parse_skill(&self.skill.text),
+            query: &self.search.text,
+        };
         r.rows = rows::visible(&r.market.recipes, &r.evals, filter, self.sort);
     }
 
@@ -278,7 +284,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .min_w(0.0)
                     .h_full()
                     .child(header::header(s, r, d))
-                    .child(toolbar::toolbar(s, r, d))
+                    .child(toolbar::toolbar(s, d))
                     .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
