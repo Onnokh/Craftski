@@ -182,9 +182,7 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    if s.icons.cache.is_none() {
-        s.icons.cache = Some(ImageCache::new(wake.clone()));
-    }
+    widgets::load_coins(s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone())));
     if !matches!(s.load, Load::Loading) || s.inbox.is_some() {
         return;
     }
@@ -307,7 +305,7 @@ pub fn scene_loaded(s: &mut App) {
         eprintln!("icons not fetched: {e}");
     }
     drop(tx);
-    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
+    let coins = widgets::load_coins(s.icons.cache.insert(ImageCache::new(Arc::new(|| {}))));
     for (id, path) in rx {
         s.icons.show(id, &path);
     }
@@ -316,7 +314,7 @@ pub fn scene_loaded(s: &mut App) {
     for (name, image) in rail.into_inner() {
         s.icons.show_rail(name, image);
     }
-    for image in s.icons.items.values().chain(s.icons.rail.values()) {
+    for image in s.icons.items.values().chain(s.icons.rail.values()).chain(coins) {
         let _ = image.wait();
     }
 }

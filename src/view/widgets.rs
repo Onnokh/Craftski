@@ -1,7 +1,9 @@
 //! Small pieces every region draws: money with coins, framed icons, segmented controls, the
 //! toggle, labels and buttons.
 
-use rune::{Color, Cursor, El, Icon, Image, TextStyle, Tx, col, el, icon, row, text};
+use std::sync::OnceLock;
+
+use rune::{Color, Cursor, El, Icon, Image, ImageCache, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::copper::{Coin, Copper, Lanes};
 use crate::theme::{self, p};
@@ -21,12 +23,12 @@ pub struct Money {
 
 impl Money {
     pub fn new(font: TextStyle, color: Color) -> Money {
-        Money { font, color, coin: 6.0, lane: 32.0, units: Copper::lanes }
+        Money { font, color, coin: 12.0, lane: 36.0, units: Copper::lanes }
     }
 
     /// The hero figure's bigger coins and wider lanes.
     pub fn large(self) -> Money {
-        Money { coin: 8.0, lane: 52.0, ..self }
+        Money { coin: 16.0, lane: 56.0, ..self }
     }
 
     /// The two largest units only, as table cells show them.
@@ -61,7 +63,7 @@ impl Money {
         for (digits, coin) in lanes.into_iter().zip(Coin::ALL) {
             let lane = if coin == Coin::Gold { row() } else { row().w(self.lane) }.justify_end().center_y();
             out = out.child(match digits {
-                Some(digits) => lane.child(text(digits).font(self.font).color(self.color)).child(coin_dot(coin, self.coin).ml(4.0)),
+                Some(digits) => lane.child(text(digits).font(self.font).color(self.color)).child(coin_icon(coin, self.coin).ml(4.0)),
                 None => lane,
             });
         }
@@ -69,8 +71,20 @@ impl Money {
     }
 }
 
-pub fn coin_dot(coin: Coin, size: f32) -> El {
-    el().w(size).h(size).radius(size / 2.0).fill(p().coin(coin)).a11y_hidden()
+static COINS: OnceLock<[Image; 3]> = OnceLock::new();
+
+/// The game's 13 px money icons, gold first, decoded once per process.
+pub fn load_coins(cache: &ImageCache) -> &'static [Image; 3] {
+    let files: [&'static [u8]; 3] = [include_bytes!("../../assets/coins/gold.png"), include_bytes!("../../assets/coins/silver.png"), include_bytes!("../../assets/coins/copper.png")];
+    COINS.get_or_init(|| files.map(|bytes| cache.load(bytes)))
+}
+
+fn coin_icon(coin: Coin, size: f32) -> El {
+    let slot = el().w(size).h(size).a11y_hidden();
+    match COINS.get() {
+        Some(coins) => slot.pixels(coins[coin as usize].pixels()),
+        None => slot,
+    }
 }
 
 /// An item icon in a 1px frame of its quality colour. A missing or undecoded image leaves the

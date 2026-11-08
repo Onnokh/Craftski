@@ -5,7 +5,6 @@ use std::sync::LazyLock;
 use rune::color::hex;
 use rune::{Color, TextStyle};
 
-use crate::copper::Coin;
 use crate::recipes::Quality;
 
 pub const FONTS: &[&[u8]] = &[
@@ -33,7 +32,6 @@ pub struct Palette {
     /// Skill-up bands: still yellow, green, then grey.
     pub skill: [Color; 3],
     quality: [Color; 5],
-    coin: [Color; 3],
 }
 
 static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
@@ -55,7 +53,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         loss: c("#E57560"),
         skill: [c("#E0C24A"), c("#5FB86A"), c("#5E574E")],
         quality: [c("#9D9D9D"), c("#EEE4D2"), c("#4BD461"), c("#4F9CFF"), c("#B469FF")],
-        coin: [c("#E2B650"), c("#C8CDD5"), c("#C27A48")],
     }
 });
 
@@ -68,10 +65,6 @@ impl Palette {
     /// reaches them.
     pub fn quality(&self, q: Quality) -> Color {
         self.quality[(q as usize).min(4)]
-    }
-
-    pub fn coin(&self, coin: Coin) -> Color {
-        self.coin[coin as usize]
     }
 }
 
