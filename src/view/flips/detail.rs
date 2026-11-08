@@ -17,7 +17,7 @@ const PAD: f32 = 26.0;
 
 pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
     let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
-    let Some((_, index, _)) = s.flips.picked() else {
+    let Some((_, index, others)) = s.flips.picked() else {
         return panel.padding(PAD).child(text("Select a flip to see where its money goes.").font(theme::sans(13.0, 400.0)).color(p().muted).wrap());
     };
     let (flip, merchant, item) = f.at(index);
@@ -32,7 +32,11 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
                 .child(text(&name).font(theme::display(24.0).lh(26.4)).color(quality).wrap())
                 .child(text(format!("{} · {}", merchant.name, merchant.role)).font(theme::sans(12.5, 400.0)).color(p().muted).mt(5.0)),
         );
-    let body = col().w_full().gap(20.0).child(title).child(profit_card(flip, s.source)).child(money_flow(flip)).child(merchant_facts(flip, merchant)).child(auction_facts(flip));
+    let mut body = col().w_full().gap(20.0).child(title).child(profit_card(flip, s.source)).child(money_flow(flip)).child(merchant_facts(flip, merchant));
+    if !others.is_empty() {
+        body = body.child(other_merchants(f, others));
+    }
+    let body = body.child(auction_facts(flip));
     let url = wowhead_url(flip.item);
     let actions = row().w_full().px(PAD).pt(16.0).pb(22.0).child(button("Open on Wowhead", ButtonKind::Ghost, move |_: &mut App, tx: &mut Tx| {
         if let Err(e) = tx.open_url(&url) {
@@ -112,6 +116,21 @@ fn merchant_facts(flip: &Flip, m: &Merchant) -> El {
         .child(fact("Stock from", m.source.label().to_string()))
         .child(fact("Supply", flip.limit.map_or_else(|| "Endless".to_string(), |l| format!("{l} until the merchant restocks"))))
         .child(fact("Price", price))
+}
+
+
+/// The other merchants selling the item that pass the filters, best first.
+fn other_merchants(f: &Stocked, others: &[usize]) -> El {
+    let mut out = col().w_full().child(section("Other merchants"));
+    for &i in others {
+        let (flip, m, _) = f.at(i);
+        let price = flip.paid.map_or_else(|| unknown("no price"), |paid| Money::new(theme::mono(12.5, 400.0), p().text).show(paid.copper()));
+        let supply = flip.limit.map_or_else(|| "Endless".to_string(), |l| format!("{l} in stock"));
+        let name = row().w_full().gap(12.0).center_y().child(text(&m.name).font(theme::sans(13.0, 500.0)).color(p().text).truncate().shrink().min_w(0.0)).child(rune::spacer()).child(price);
+        let place = text(format!("{} · {} {:.1}, {:.1} · {supply}", m.role, m.zone, m.at.0, m.at.1)).font(theme::sans(12.0, 400.0)).color(p().muted).mt(2.0).wrap();
+        out = out.child(col().w_full().py(6.0).border_sides([0.0, 0.0, 1.0, 0.0], p().rule).child(name).child(place));
+    }
+    out
 }
 
 fn auction_facts(flip: &Flip) -> El {

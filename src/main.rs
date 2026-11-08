@@ -37,7 +37,7 @@ fn main() {
     }
     rune::run_windows(|displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("zones", view::scene_zones)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared),("zones", view::scene_zones)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),

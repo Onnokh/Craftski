@@ -94,6 +94,11 @@ impl State {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.first()?.flip)));
     }
 
+    /// Selects the first row with more than one merchant, for a snapshot scene.
+    pub fn select_first_shared(&mut self) {
+        self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.iter().find(|r| !r.others.is_empty())?.flip)));
+    }
+
     /// The selected item's position in the rows.
     fn selected_row(&self) -> Option<usize> {
         let (f, (_, item)) = (self.stocked()?, self.selected?);

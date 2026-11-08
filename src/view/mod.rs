@@ -355,6 +355,12 @@ pub fn scene_flips(s: &mut App) {
     show_icons(s, ids);
 }
 
+/// `flips` with the first listed item that more than one merchant sells selected.
+pub fn scene_flips_shared(s: &mut App) {
+    scene_flips(s);
+    s.flips.select_first_shared();
+}
+
 /// The flips tab with the zone menu open.
 pub fn scene_zones(s: &mut App) {
     scene_flips(s);
