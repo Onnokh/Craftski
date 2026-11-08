@@ -75,7 +75,7 @@ mod tests {
 
     fn cured_rugged_hide() -> Recipe {
         let reagent = |item_id, count| Reagent { item_id, item_name: String::new(), count };
-        Recipe { spell_id: 19047, item_id: 15407, item_name: "Cured Rugged Hide".into(), quantity: 2.0, reagents: vec![reagent(8171, 2), reagent(15409, 1)] }
+        Recipe { spell_id: 19047, item_id: 15407, item_name: "Cured Rugged Hide".into(), quantity: 2.0, skill: 250, grey_at: 270, reagents: vec![reagent(8171, 2), reagent(15409, 1)] }
     }
 
     #[test]

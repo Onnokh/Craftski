@@ -30,7 +30,17 @@ pub struct Recipe {
     pub item_id: u32,
     pub item_name: String,
     pub quantity: f32,
+    /// Rank needed to learn it.
+    pub skill: u16,
+    /// Rank at which it turns grey and stops raising skill.
+    pub grey_at: u16,
     pub reagents: Vec<Reagent>,
+}
+
+impl Recipe {
+    pub fn green_at(&self) -> u16 {
+        self.skill.midpoint(self.grey_at)
+    }
 }
 
 pub struct Tables {
@@ -44,10 +54,11 @@ const CREATE_ITEM: u32 = 24;
 const REAGENT_SLOTS: usize = 8;
 
 pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> {
-    let mut spells = BTreeSet::new();
-    each_row(&t.skill_line_ability, "SkillLineAbility", ["SkillLine", "Spell"], |[line, spell]| {
+    // MinSkillLineRank is 1 on every Forever row; the trainer gates a recipe at its trivial-low rank.
+    let mut spells: BTreeMap<u32, (u16, u16)> = BTreeMap::new();
+    each_row(&t.skill_line_ability, "SkillLineAbility", ["SkillLine", "Spell", "TrivialSkillLineRankLow", "TrivialSkillLineRankHigh"], |[line, spell, low, high]| {
         if profession.skill_lines.contains(&num(line)?) {
-            spells.insert(num::<u32>(spell)?);
+            spells.entry(num(spell)?).or_insert((num(low)?, num(high)?));
         }
         Ok(())
     })?;
@@ -55,7 +66,7 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
     let mut creates: HashMap<u32, (u32, u32, f32)> = HashMap::new();
     each_row(&t.spell_effect, "SpellEffect", ["SpellID", "Effect", "EffectIndex", "EffectItemType", "EffectBasePointsF"], |[spell, effect, index, item, qty]| {
         let spell = num(spell)?;
-        if !spells.contains(&spell) || num::<u32>(effect)? != CREATE_ITEM {
+        if !spells.contains_key(&spell) || num::<u32>(effect)? != CREATE_ITEM {
             return Ok(());
         }
         let candidate = (num(index)?, num(item)?, num(qty)?);
@@ -72,7 +83,7 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
     let mut reagents: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
     each_row(&t.spell_reagents, "SpellReagents", cols, |row| {
         let spell = num(row[0])?;
-        if !spells.contains(&spell) {
+        if !spells.contains_key(&spell) {
             return Ok(());
         }
         let (ids, counts) = row[1..].split_at(REAGENT_SLOTS);
@@ -89,13 +100,16 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         Ok(())
     })?;
 
-    let joined: Vec<(u32, (u32, u32, f32), Vec<(u32, u32)>)> = spells
+    let mut recipes: Vec<Recipe> = spells
         .iter()
-        .filter_map(|s| Some((*s, *creates.get(s)?, reagents.remove(s)?)))
-        .filter(|(_, (_, item, _), _)| *item != 0)
+        .filter_map(|(&spell_id, &(skill, grey_at))| {
+            let (_, item_id, quantity) = *creates.get(&spell_id)?;
+            let reagents = reagents.remove(&spell_id)?.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: String::new(), count }).collect();
+            (item_id != 0).then(|| Recipe { spell_id, item_id, item_name: String::new(), quantity, skill, grey_at, reagents })
+        })
         .collect();
 
-    let wanted: BTreeSet<u32> = joined.iter().flat_map(|(_, (_, item, _), rs)| std::iter::once(*item).chain(rs.iter().map(|r| r.0))).collect();
+    let wanted: BTreeSet<u32> = recipes.iter().flat_map(|r| std::iter::once(r.item_id).chain(r.reagents.iter().map(|g| g.item_id))).collect();
     let mut names: BTreeMap<u32, String> = BTreeMap::new();
     each_row(&t.item_sparse, "ItemSparse", ["ID", "Display_lang"], |[id, name]| {
         let id = num(id)?;
@@ -105,17 +119,13 @@ pub fn join(t: &Tables, profession: &Profession) -> Result<Vec<Recipe>, String> 
         Ok(())
     })?;
     let name = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("Item #{id}"));
-
-    Ok(joined
-        .into_iter()
-        .map(|(spell_id, (_, item_id, quantity), rs)| Recipe {
-            spell_id,
-            item_id,
-            item_name: name(item_id),
-            quantity,
-            reagents: rs.into_iter().map(|(item_id, count)| Reagent { item_id, item_name: name(item_id), count }).collect(),
-        })
-        .collect())
+    for r in &mut recipes {
+        r.item_name = name(r.item_id);
+        for g in &mut r.reagents {
+            g.item_name = name(g.item_id);
+        }
+    }
+    Ok(recipes)
 }
 
 fn each_row<const N: usize>(text: &str, table: &str, cols: [&str; N], mut f: impl FnMut([&str; N]) -> Result<(), String>) -> Result<(), String> {
@@ -136,6 +146,9 @@ fn num<T: FromStr>(s: &str) -> Result<T, String> {
     s.trim().parse().map_err(|_| format!("not a number: {s:?}"))
 }
 
+/// Bump when `Recipe` changes shape, so a file an older version wrote is never read.
+const CACHE_SCHEMA: &str = "v2";
+
 #[derive(Serialize, Deserialize)]
 struct Cache {
     build: String,
@@ -145,7 +158,7 @@ struct Cache {
 
 fn cache_path(profession: &Profession) -> Option<PathBuf> {
     let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts");
-    Some(dir.join(format!("recipes-{}-{BUILD}.json", profession.name.to_lowercase())))
+    Some(dir.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.name.to_lowercase())))
 }
 
 /// Recipes from the cache, or downloaded, joined and cached when the cache lacks this build.
@@ -191,7 +204,13 @@ mod tests {
 
     fn tables() -> Tables {
         Tables {
-            skill_line_ability: "ID,SkillLine,Spell\n1,165,3818\n2,2945,19047\n3,164,2660\n4,165,9999\n5,165,7777\n".into(),
+            skill_line_ability: "ID,SkillLine,Spell,MinSkillLineRank,TrivialSkillLineRankHigh,TrivialSkillLineRankLow\n\
+                                 1,165,3818,1,135,125\n\
+                                 2,2945,19047,1,270,250\n\
+                                 3,164,2660,1,30,1\n\
+                                 4,165,9999,1,40,20\n\
+                                 5,165,7777,1,40,20\n"
+                .into(),
             spell_effect: "ID,EffectIndex,Effect,EffectItemType,EffectBasePointsF,SpellID\n\
                            10,0,24,4234,1,3818\n\
                            11,1,24,15407,2,19047\n\
@@ -218,12 +237,22 @@ mod tests {
         let recipes = join(&tables(), &LEATHERWORKING).unwrap();
         let reagent = |item_id, name: &str, count| Reagent { item_id, item_name: name.into(), count };
         assert_eq!(recipes, vec![
-            Recipe { spell_id: 3818, item_id: 4234, item_name: "Heavy Leather".into(), quantity: 1.0, reagents: vec![reagent(2319, "Medium Leather", 5)] },
+            Recipe {
+                spell_id: 3818,
+                item_id: 4234,
+                item_name: "Heavy Leather".into(),
+                quantity: 1.0,
+                skill: 125,
+                grey_at: 135,
+                reagents: vec![reagent(2319, "Medium Leather", 5)],
+            },
             Recipe {
                 spell_id: 19047,
                 item_id: 15407,
                 item_name: "Cured Rugged Hide".into(),
                 quantity: 2.0,
+                skill: 250,
+                grey_at: 270,
                 reagents: vec![reagent(8171, "Rugged Hide", 1), reagent(15409, "Item #15409", 1)],
             },
         ]);

@@ -180,8 +180,8 @@ fn table(s: &App, k: &Kit) -> El {
     for c in Column::ALL {
         let col = TableColumn::new(c.id(), c.title()).sortable();
         t = t.column(match c {
-            Column::Item => col.flex(1.0).min(200.0),
-            Column::Qty => col.width(56.0).align(Align::End),
+            Column::Item => col.flex(1.0).min(140.0),
+            Column::Skill | Column::Qty => col.width(56.0).align(Align::End),
             Column::Margin | Column::SoldPerDay | Column::Auctions => col.width(92.0).align(Align::End),
             _ => col.width(124.0).align(Align::End),
         });
@@ -194,6 +194,7 @@ fn table(s: &App, k: &Kit) -> El {
         let money = |c: Option<Copper>| c.map_or_else(na, |c| Cell::text(c.to_string()).mono());
         match Column::from_id(id) {
             Some(Column::Item) => Cell::text(&recipe.item_name),
+            Some(Column::Skill) => Cell::text(recipe.skill.to_string()).mono(),
             Some(Column::Qty) => Cell::text(format!("{}", recipe.quantity)).mono(),
             Some(Column::Cost) => money(e.cost),
             Some(Column::Resale) => money(e.resale),
@@ -221,7 +222,8 @@ fn detail(s: &App, r: &Ready, k: &Kit) -> El {
     let muted = |t: String| text(t).font(k.ty.text_small).color(k.c.text_muted);
     let mut panel = panel
         .child(text(recipe.item_name.clone()).font(k.ty.body_medium).color(k.c.text_strong).wrap())
-        .child(muted(format!("Makes {} per craft, spell {}", recipe.quantity, recipe.spell_id)));
+        .child(muted(format!("Makes {} per craft, spell {}", recipe.quantity, recipe.spell_id)))
+        .child(muted(format!("Skill {} (green {}, grey {})", recipe.skill, recipe.green_at(), recipe.grey_at)));
     for reagent in &recipe.reagents {
         let unit = profit::unit_price(&r.market.book, reagent.item_id, s.source);
         let line = unit.map(|Copper(c)| Copper(c * u64::from(reagent.count)));

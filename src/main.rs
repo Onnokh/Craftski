@@ -48,13 +48,14 @@ fn dump() -> Result<(), String> {
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, PriceSource::Realm)).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0 }, Sort { column: Column::Profit, descending: true });
     println!("{} recipes, {} realm-priced items, {} region-priced items, {} fully priced (realm)", m.recipes.len(), m.book.realm.len(), m.book.region.len(), rows.len());
-    println!("{:<36} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
+    println!("{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}", "Item", "Skill", "Qty", "Cost", "Resale", "Profit", "Margin", "Sold/day", "Auct");
     let na = || "n/a".to_string();
     for &i in rows.iter().take(15) {
         let (r, e) = (&m.recipes[i], &evals[i]);
         println!(
-            "{:<36} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}",
+            "{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}",
             r.item_name,
+            r.skill,
             r.quantity,
             e.cost.map_or_else(na, |c| c.to_string()),
             e.resale.map_or_else(na, |c| c.to_string()),

@@ -8,6 +8,7 @@ use crate::recipes::Recipe;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Column {
     Item,
+    Skill,
     Qty,
     Cost,
     Resale,
@@ -18,11 +19,12 @@ pub enum Column {
 }
 
 impl Column {
-    pub const ALL: [Column; 8] = [Column::Item, Column::Qty, Column::Cost, Column::Resale, Column::Profit, Column::Margin, Column::SoldPerDay, Column::Auctions];
+    pub const ALL: [Column; 9] = [Column::Item, Column::Skill, Column::Qty, Column::Cost, Column::Resale, Column::Profit, Column::Margin, Column::SoldPerDay, Column::Auctions];
 
     pub fn id(self) -> &'static str {
         match self {
             Column::Item => "item",
+            Column::Skill => "skill",
             Column::Qty => "qty",
             Column::Cost => "cost",
             Column::Resale => "resale",
@@ -36,6 +38,7 @@ impl Column {
     pub fn title(self) -> &'static str {
         match self {
             Column::Item => "Item",
+            Column::Skill => "Skill",
             Column::Qty => "Qty",
             Column::Cost => "Cost",
             Column::Resale => "Resale",
@@ -53,6 +56,7 @@ impl Column {
     fn number(self, r: &Recipe, e: &Evaluation) -> Option<f64> {
         match self {
             Column::Item => None,
+            Column::Skill => Some(f64::from(r.skill)),
             Column::Qty => Some(f64::from(r.quantity)),
             Column::Cost => e.cost.map(|c| c.0 as f64),
             Column::Resale => e.resale.map(|c| c.0 as f64),
@@ -108,8 +112,8 @@ mod tests {
     use super::*;
     use crate::copper::Copper;
 
-    fn recipe(spell_id: u32, name: &str) -> Recipe {
-        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quantity: 1.0, reagents: vec![] }
+    fn recipe(spell_id: u32, name: &str, skill: u16) -> Recipe {
+        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quantity: 1.0, skill, grey_at: skill + 10, reagents: vec![] }
     }
 
     fn eval(profit: Option<i64>, sold: Option<f64>) -> Evaluation {
@@ -118,7 +122,7 @@ mod tests {
 
     fn fixture() -> (Vec<Recipe>, Vec<Evaluation>) {
         (
-            vec![recipe(1, "Armor Kit"), recipe(2, "Boots"), recipe(3, "Cloak"), recipe(4, "Drums")],
+            vec![recipe(1, "Armor Kit", 125), recipe(2, "Boots", 20), recipe(3, "Cloak", 225), recipe(4, "Drums", 125)],
             vec![eval(Some(50), Some(2.0)), eval(None, Some(9.0)), eval(Some(-10), None), eval(Some(300), Some(0.5))],
         )
     }
@@ -141,5 +145,12 @@ mod tests {
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 0.0 }, by_name), vec![0, 2, 3]);
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: false, min_sold_per_day: 1.0 }, by_name), vec![0, 1]);
         assert_eq!(visible(&r, &e, Filter { hide_unpriced: true, min_sold_per_day: 1.0 }, by_name), vec![0]);
+    }
+
+    #[test]
+    fn skill_sorts_by_required_rank_then_name() {
+        let (r, e) = fixture();
+        assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Skill, descending: false }), vec![1, 0, 3, 2]);
+        assert_eq!(visible(&r, &e, ALL, Sort { column: Column::Skill, descending: true }), vec![2, 0, 3, 1]);
     }
 }
