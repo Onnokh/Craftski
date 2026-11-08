@@ -11,7 +11,7 @@ pub enum PriceSource {
 }
 
 /// The auction house keeps 5% of every sale. Kept as a percent so whole results divide exactly.
-const SELLER_PERCENT: f64 = 95.0;
+pub const SELLER_PERCENT: f64 = 95.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Evaluation {
