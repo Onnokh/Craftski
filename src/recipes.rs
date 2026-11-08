@@ -80,6 +80,11 @@ impl Profession {
         self.facts().icon
     }
 
+    /// Whether it is one a character learns besides its two primary professions.
+    pub fn secondary(self) -> bool {
+        matches!(self, Profession::Cooking | Profession::FirstAid)
+    }
+
     /// The profession `text` names by its slug or its name, in any case.
     pub fn parse(text: &str) -> Option<Profession> {
         let text = text.trim();
