@@ -3,35 +3,35 @@
 
 use rune::{Color, Cursor, El, Icon, Image, Shadow, TextCase, TextStyle, Tx, col, el, icon, row, text};
 
-use crate::copper::{Coin, Copper};
+use crate::copper::{Coin, Copper, Lanes};
 use crate::theme::{self, CAPS, p};
 
 // Rune borders take no layout space, so boxes that CSS sizes around a 1pt border pad 1pt more.
 
-/// How an amount draws: its digits' font and colour and its coins' size and spacing.
+/// How an amount draws: its digits' font and colour, its coins' size, the width of the silver
+/// and copper lanes, and which units it shows.
 #[derive(Clone, Copy)]
 pub struct Money {
-    pub font: TextStyle,
-    pub color: Color,
-    pub coin: f32,
-    /// Space between digits and their coin, and between a coin and the next digits.
-    pub before: f32,
-    pub after: f32,
-    /// Space between a sign and the digits.
-    pub sign_gap: f32,
+    font: TextStyle,
+    color: Color,
+    coin: f32,
+    lane: f32,
+    units: fn(Copper) -> Lanes,
 }
 
 impl Money {
     pub fn new(font: TextStyle, color: Color) -> Money {
-        Money { font, color, coin: 9.0, before: 5.0, after: 7.0, sign_gap: 0.0 }
+        Money { font, color, coin: 6.0, lane: 32.0, units: Copper::lanes }
     }
 
-    pub fn coin(self, size: f32, before: f32, after: f32) -> Money {
-        Money { coin: size, before, after, ..self }
+    /// The hero figure's bigger coins and wider lanes.
+    pub fn large(self) -> Money {
+        Money { coin: 8.0, lane: 52.0, ..self }
     }
 
-    pub fn sign_gap(self, sign_gap: f32) -> Money {
-        Money { sign_gap, ..self }
+    /// The two largest units only, as table cells show them.
+    pub fn short(self) -> Money {
+        Money { units: Copper::short_lanes, ..self }
     }
 
     pub fn color(self, color: Color) -> Money {
@@ -39,44 +39,38 @@ impl Money {
     }
 
     pub fn show(self, amount: Copper) -> El {
-        self.with_sign("", amount)
+        self.lanes("", amount)
     }
 
-    /// `sign` drawn tight against the first digits, as in `+3g` or `−25s`.
-    pub fn with_sign(self, sign: &str, amount: Copper) -> El {
-        let segments = amount.parts().segments();
-        let last = segments.len() - 1;
-        let mut out = row().center_y();
-        let spaced = self.sign_gap > 0.0 && !sign.is_empty();
-        if spaced {
-            out = out.child(text(sign).font(self.font).color(self.color).mr(self.sign_gap));
-        }
-        for (i, (digits, coin)) in segments.into_iter().enumerate() {
-            let digits = if i == 0 && !spaced { format!("{sign}{digits}") } else { digits };
-            let color = if coin == Coin::Copper { self.color.alpha(self.color.a * 0.5) } else { self.color };
-            out = out.child(text(digits).font(self.font).color(color)).child(coin_dot(coin, self.coin).ml(self.before).mr(if i == last { 0.0 } else { self.after }));
-        }
-        out.label(amount.to_string())
+    /// A deduction, drawn with a minus in the usual colour.
+    pub fn minus(self, amount: Copper) -> El {
+        self.lanes("\u{2212}", amount)
     }
 
-    /// A profit or loss: `+` in the profit colour, `−` in the loss colour.
+    /// A profit as is, or a loss with a minus in the loss colour.
     pub fn signed(self, amount: i64) -> El {
-        let (sign, color) = if amount < 0 { ("\u{2212}", p().loss) } else { ("+", p().profit) };
-        self.color(color).with_sign(sign, Copper(amount.unsigned_abs()))
+        if amount < 0 { self.color(p().loss).minus(Copper(amount.unsigned_abs())) } else { self.show(Copper(amount.unsigned_abs())) }
+    }
+
+    fn lanes(self, sign: &str, amount: Copper) -> El {
+        let mut lanes = (self.units)(amount);
+        if let Some(first) = lanes.iter_mut().flatten().next() {
+            first.insert_str(0, sign);
+        }
+        let mut out = row().center_y();
+        for (digits, coin) in lanes.into_iter().zip(Coin::ALL) {
+            let lane = if coin == Coin::Gold { row() } else { row().w(self.lane) }.justify_end().center_y();
+            out = out.child(match digits {
+                Some(digits) => lane.child(text(digits).font(self.font).color(self.color)).child(coin_dot(coin, self.coin).ml(4.0)),
+                None => lane,
+            });
+        }
+        out.label(format!("{sign}{amount}"))
     }
 }
 
-/// A coin lit from the top left, as the game's money frames draw them.
 pub fn coin_dot(coin: Coin, size: f32) -> El {
-    let [hi, body, rim] = p().coin(coin);
-    // CSS `circle at 35% 30%` reaches the farthest corner: 0.955 of the side.
-    el().w(size)
-        .h(size)
-        .radius(size / 2.0)
-        .fill(body)
-        .radial_gradient([0.35, 0.30], size * 0.955, [(0.0, hi), (0.55, body), (1.0, rim)])
-        .box_shadow(Shadow { spread: 1.0, color: Color::BLACK.alpha(0.33), inset: true, ..Shadow::default() })
-        .a11y_hidden()
+    el().w(size).h(size).radius(size / 2.0).fill(p().coin(coin)).a11y_hidden()
 }
 
 /// An item icon in a frame of its quality colour. A missing or undecoded image leaves the

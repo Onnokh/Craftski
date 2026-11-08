@@ -55,7 +55,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims) -> El {
     let (recipe, e) = recipe_at(r, index);
     let selected = s.selected == Some(recipe.spell_id);
     let quality = p().quality(recipe.quality);
-    let n = Money::new(theme::mono(13.0, 400.0), p().text);
+    let n = Money::new(theme::mono(13.0, 400.0), p().text).short();
     let money = |c: Option<Copper>| c.map_or_else(|| unknown("no price"), |c| n.show(c));
     let number = |v: String| text(v).font(theme::mono(13.0, 400.0)).color(p().text);
     let item = row()
@@ -80,7 +80,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims) -> El {
         recipe.skill.map_or_else(|| unknown("—"), |k| number(k.learn.to_string())),
         money(e.cost),
         money(e.resale),
-        e.profit.map_or_else(|| unknown("no price"), |pr| Money::new(theme::mono(13.0, 500.0), p().profit).signed(pr)),
+        e.profit.map_or_else(|| unknown("no price"), |pr| Money::new(theme::mono(13.0, 500.0), p().profit).short().signed(pr)),
         margin,
         e.sold_per_day.map_or_else(|| unknown("no data"), |v| number(per_day(v))),
         e.auctions.map_or_else(|| unknown("—"), |v| number(v.to_string())),

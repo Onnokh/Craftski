@@ -20,7 +20,7 @@ pub fn header(s: &App, r: &Ready, d: Dims) -> El {
         Some(pick) => {
             let recipe = &r.market.recipes[pick.index];
             let sales = pick.sold_per_day.map_or_else(|| "no sales data".into(), |s| format!("{} / day", per_day(s)));
-            tile(key, Money::new(theme::mono(15.0, 500.0), p().profit).sign_gap(6.0).signed(pick.profit), &format!("{} · {sales}", recipe.item_name), d)
+            tile(key, Money::new(theme::mono(15.0, 500.0), p().profit).signed(pick.profit), &format!("{} · {sales}", recipe.item_name), d)
         }
         None => tile(key, text("none priced").font(theme::sans(13.0, 400.0)).color(p().faint), "", d),
     };

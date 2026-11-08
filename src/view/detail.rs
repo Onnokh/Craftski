@@ -66,7 +66,7 @@ fn profit_card(e: &Evaluation, source: PriceSource) -> El {
         let why = if e.unpriced.is_empty() { "The crafted item has no price on the auction house." } else { "A reagent has no price, so the cost is unknown." };
         return card.child(text(why).font(theme::sans(13.0, 400.0)).color(p().muted).mt(10.0).wrap());
     };
-    let value = Money::new(theme::mono(30.0, 500.0).lh(30.0), p().profit).coin(13.0, 7.0, 11.0).signed(profit);
+    let value = Money::new(theme::mono(30.0, 500.0).lh(30.0), p().profit).large().signed(profit);
     let mut line = String::new();
     let mut bold = Vec::new();
     if let Some(m) = e.margin {
@@ -108,12 +108,12 @@ fn money_flow(e: &Evaluation, gross: Option<Copper>, cut: Option<Copper>, width:
             .child(row().w(track).h(8.0).radius(4.0).fill(p().track).child(el().w(bar.start * track)).child(el().w(bar.width * track).h_full().radius(4.0).fill(color)))
             .child(row().w(104.0).justify_end().child(value))
     };
-    let minus = |c: Copper| amount.with_sign("\u{2212}", c);
+    let minus = |c: Copper| amount.minus(c);
     let (profit_label, profit_color) = if profit < 0 { ("Loss", p().loss) } else { ("Profit", p().profit) };
     out.child(line("Sells for", p().muted, w.sells, p().sells_bar, amount.show(gross)))
         .child(line("AH cut 5%", p().muted, w.cut, p().loss, minus(cut)))
         .child(line("Mats", p().muted, w.mats, p().loss.alpha(0.75), minus(cost)))
-        .child(line(profit_label, p().text, w.profit, profit_color, amount.color(profit_color).with_sign(if profit < 0 { "\u{2212}" } else { "" }, Copper(profit.unsigned_abs()))))
+        .child(line(profit_label, p().text, w.profit, profit_color, amount.signed(profit)))
         .label(format!("Sells for {gross}, AH cut {cut}, mats {cost}, profit {}", signed(profit)))
 }
 
@@ -123,7 +123,7 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
     for (i, l) in lines.iter().enumerate() {
         let each = match l.unit {
             Some(unit) => {
-                let mut r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
+                let mut r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).show(unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
                 if let Some(n) = l.listed {
                     r = r.child(text(format!(" · {n} listed")).font(theme::sans(12.0, 400.0)).color(p().muted));
                 }

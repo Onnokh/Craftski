@@ -10,50 +10,43 @@ pub enum Coin {
     Copper,
 }
 
-/// An amount split into the denominations the game shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CoinParts {
-    pub gold: u64,
-    pub silver: u8,
-    pub copper: u8,
+impl Coin {
+    pub const ALL: [Coin; 3] = [Coin::Gold, Coin::Silver, Coin::Copper];
 }
+
+/// An amount's digits in one lane per coin, gold first. An empty lane draws nothing but keeps
+/// its width, so the digits of a column line up.
+pub type Lanes = [Option<String>; 3];
 
 impl Copper {
-    pub fn parts(self) -> CoinParts {
-        CoinParts { gold: self.0 / 10_000, silver: (self.0 / 100 % 100) as u8, copper: (self.0 % 100) as u8 }
+    /// Every unit from the largest non-zero one down, the units after the first padded to two
+    /// digits: `1g 00s 76c`, `63s 04c`, `7c`.
+    pub fn lanes(self) -> Lanes {
+        let (gold, silver, copper) = (self.0 / 10_000, self.0 / 100 % 100, self.0 % 100);
+        if gold > 0 {
+            [Some(gold.to_string()), Some(format!("{silver:02}")), Some(format!("{copper:02}"))]
+        } else if silver > 0 {
+            [None, Some(silver.to_string()), Some(format!("{copper:02}"))]
+        } else {
+            [None, None, Some(copper.to_string())]
+        }
     }
-}
 
-impl CoinParts {
-    /// The denominations to show, largest first: leading zero units are dropped and the units
-    /// after the first are padded to two digits, as in `1g 00s 76c` and `63s 04c`.
-    pub fn segments(self) -> Vec<(String, Coin)> {
-        let mut out = Vec::with_capacity(3);
-        if self.gold > 0 {
-            out.push((self.gold.to_string(), Coin::Gold));
+    /// The two largest units, as the table shows them: gold and silver rounded from the copper,
+    /// else silver and copper, else copper alone.
+    pub fn short_lanes(self) -> Lanes {
+        if self.0 < 10_000 {
+            return self.lanes();
         }
-        if !out.is_empty() {
-            out.push((format!("{:02}", self.silver), Coin::Silver));
-        } else if self.silver > 0 {
-            out.push((self.silver.to_string(), Coin::Silver));
-        }
-        let copper = if out.is_empty() { self.copper.to_string() } else { format!("{:02}", self.copper) };
-        out.push((copper, Coin::Copper));
-        out
+        let silver = (self.0 + 50) / 100;
+        [Some((silver / 100).to_string()), Some(format!("{:02}", silver % 100)), None]
     }
 }
 
 impl fmt::Display for Copper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, (digits, coin)) in self.parts().segments().into_iter().enumerate() {
-            let unit = match coin {
-                Coin::Gold => 'g',
-                Coin::Silver => 's',
-                Coin::Copper => 'c',
-            };
-            write!(f, "{}{digits}{unit}", if i > 0 { " " } else { "" })?;
-        }
-        Ok(())
+        let units = self.lanes().into_iter().zip(['g', 's', 'c']).filter_map(|(digits, unit)| Some(format!("{}{unit}", digits?)));
+        f.write_str(&units.collect::<Vec<_>>().join(" "))
     }
 }
 
@@ -82,13 +75,25 @@ mod tests {
         assert_eq!(signed(45), "45c");
     }
 
+    fn lanes(gold: Option<&str>, silver: Option<&str>, copper: Option<&str>) -> Lanes {
+        [gold.map(String::from), silver.map(String::from), copper.map(String::from)]
+    }
+
     #[test]
-    fn splits_into_coin_segments_for_the_coin_renderer() {
-        let seg = |c: u64| Copper(c).parts().segments();
-        assert_eq!(Copper(1_234_567).parts(), CoinParts { gold: 123, silver: 45, copper: 67 });
-        assert_eq!(seg(10_076), vec![("1".into(), Coin::Gold), ("00".into(), Coin::Silver), ("76".into(), Coin::Copper)]);
-        assert_eq!(seg(6_343), vec![("63".into(), Coin::Silver), ("43".into(), Coin::Copper)]);
-        assert_eq!(seg(604), vec![("6".into(), Coin::Silver), ("04".into(), Coin::Copper)]);
-        assert_eq!(seg(7), vec![("7".into(), Coin::Copper)]);
+    fn full_lanes_keep_every_unit_below_the_largest() {
+        assert_eq!(Copper(10_076).lanes(), lanes(Some("1"), Some("00"), Some("76")));
+        assert_eq!(Copper(6_343).lanes(), lanes(None, Some("63"), Some("43")));
+        assert_eq!(Copper(604).lanes(), lanes(None, Some("6"), Some("04")));
+        assert_eq!(Copper(7).lanes(), lanes(None, None, Some("7")));
+    }
+
+    #[test]
+    fn short_lanes_round_gold_amounts_to_the_silver() {
+        assert_eq!(Copper(38_173).short_lanes(), lanes(Some("3"), Some("82"), None));
+        assert_eq!(Copper(19_960).short_lanes(), lanes(Some("2"), Some("00"), None));
+        assert_eq!(Copper(10_049).short_lanes(), lanes(Some("1"), Some("00"), None));
+        assert_eq!(Copper(9_999).short_lanes(), lanes(None, Some("99"), Some("99")));
+        assert_eq!(Copper(6_343).short_lanes(), lanes(None, Some("63"), Some("43")));
+        assert_eq!(Copper(45).short_lanes(), lanes(None, None, Some("45")));
     }
 }
