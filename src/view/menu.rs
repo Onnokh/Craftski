@@ -13,20 +13,23 @@ const CHECK_SIZE: f32 = 14.0;
 pub fn anchor(m: Menu) -> &'static str {
     match m {
         Menu::CraftsSold => "crafts-sold-pill",
+        Menu::FlipsSold => "flips-sold-pill",
+        Menu::Supply => "supply-pill",
         Menu::Zone => "zone-pill",
     }
 }
 
 fn name(m: Menu) -> &'static str {
     match m {
-        Menu::CraftsSold => "Minimum sold per day",
+        Menu::CraftsSold | Menu::FlipsSold => "Minimum sold per day",
+        Menu::Supply => "Supply",
         Menu::Zone => "Zone",
     }
 }
 
 fn width(m: Menu) -> f32 {
     match m {
-        Menu::CraftsSold => 184.0,
+        Menu::CraftsSold | Menu::FlipsSold | Menu::Supply => 184.0,
         Menu::Zone => 280.0,
     }
 }
@@ -101,6 +104,8 @@ impl App {
     fn menu_items(&self, m: Menu) -> Vec<Item> {
         match m {
             Menu::CraftsSold => menu::sold(self.min_sold, Pick::CraftsSold),
+            Menu::FlipsSold => menu::sold(self.flips.min_sold(), Pick::FlipsSold),
+            Menu::Supply => menu::supply(self.flips.supply()),
             Menu::Zone => self.flips.zones().map_or_else(Vec::new, |zones| menu::zones(zones, self.flips.zone())),
         }
     }
@@ -113,6 +118,8 @@ impl App {
                 self.min_sold = step;
                 self.refresh();
             }
+            Pick::FlipsSold(step) => self.flips.set_min_sold(step),
+            Pick::Supply(supply) => self.flips.set_supply(supply),
             Pick::Zone(zone) => self.flips.pick_zone(zone),
         }
     }

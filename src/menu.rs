@@ -1,7 +1,7 @@
 //! The toolbars' filter pills and menus, free of UI: which menu is open, what each lists,
 //! what choosing an item changes, and when a pill reads as narrowing the rows.
 
-use crate::flip_rows::Zone;
+use crate::flip_rows::{Supply, Zone};
 use crate::settings;
 
 /// A minimum of sales a day: the pill's value, the menu's words and the threshold.
@@ -29,6 +29,8 @@ pub const SOLD_STEPS: [SoldStep; 4] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Menu {
     CraftsSold,
+    FlipsSold,
+    Supply,
     Zone,
 }
 
@@ -37,6 +39,9 @@ pub enum Menu {
 pub enum Pick {
     /// A step of `SOLD_STEPS` for the recipes.
     CraftsSold(usize),
+    /// A step of `SOLD_STEPS` for the flips.
+    FlipsSold(usize),
+    Supply(Supply),
     Zone(String),
 }
 
@@ -63,6 +68,11 @@ pub fn sold(current: usize, pick: fn(usize) -> Pick) -> Vec<Item> {
     SOLD_STEPS.iter().enumerate().map(|(i, step)| Item::plain(step.item, i == current, pick(i))).collect()
 }
 
+/// Which stock to show by how much of it a merchant has.
+pub fn supply(current: Supply) -> Vec<Item> {
+    Supply::ALL.into_iter().map(|s| Item::plain(s.label(), s == current, Pick::Supply(s))).collect()
+}
+
 /// Every zone with something to flip, each noting its merchants.
 pub fn zones(zones: &[Zone], current: &str) -> Vec<Item> {
     zones
@@ -77,12 +87,17 @@ pub fn zones(zones: &[Zone], current: &str) -> Vec<Item> {
         .collect()
 }
 
-// A pill fills while its filter hides rows a fresh look would show. "Priced only" never
-// does: it starts on, and an unpriced recipe has nothing to read.
+// A pill fills while its filter hides rows a fresh look would show. "Priced only" and
+// "Profitable only" never do: they start on, and what they hide has no profit to read.
 
 /// Any minimum above "Any", on either tab, though flips start at 1+.
 pub fn sold_active(step: usize) -> bool {
     step > 0
+}
+
+/// Endless or limited stock alone.
+pub fn supply_active(s: Supply) -> bool {
+    s != Supply::All
 }
 
 /// A typed rank that parses; anything else filters nothing.
@@ -113,6 +128,12 @@ mod tests {
     }
 
     #[test]
+    fn the_supply_menu_lists_all_endless_and_limited() {
+        let seen: Vec<(String, bool, Pick)> = supply(Supply::Endless).into_iter().map(|i| (i.label, i.on, i.pick)).collect();
+        assert_eq!(seen, vec![("All".into(), false, Pick::Supply(Supply::All)), ("Endless".into(), true, Pick::Supply(Supply::Endless)), ("Limited".into(), false, Pick::Supply(Supply::Limited))]);
+    }
+
+    #[test]
     fn the_zone_menu_lists_each_zone_with_its_merchants_and_marks_the_current_one() {
         let zones = zones(&[Zone { name: "Mulgore".into(), merchants: 4 }, Zone { name: "Thunder Bluff".into(), merchants: 37 }], "Thunder Bluff");
         assert_eq!(
@@ -127,6 +148,7 @@ mod tests {
     #[test]
     fn a_pill_fills_only_when_its_filter_is_past_its_widest() {
         assert_eq!((sold_active(0), sold_active(1), sold_active(3)), (false, true, true));
+        assert_eq!((supply_active(Supply::All), supply_active(Supply::Endless), supply_active(Supply::Limited)), (false, true, true));
         assert_eq!((skill_active(""), skill_active(" 225 "), skill_active("22a")), (false, true, false));
     }
 }

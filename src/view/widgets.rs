@@ -1,5 +1,5 @@
-//! Small pieces every region draws: money with coins, framed icons, segmented controls, the
-//! toggle, labels and buttons.
+//! Small pieces every region draws: money with coins, framed icons, toolbar pills, labels and
+//! buttons.
 
 use std::sync::OnceLock;
 
@@ -98,27 +98,6 @@ pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
         None => inner,
     };
     el().w(size).h(size).radius(4.0).fill(Color::BLACK).border(1.0, quality.alpha(0.7)).padding(1.0).child(inner).a11y_hidden()
-}
-
-/// One choice of a segmented control.
-pub struct Segment<S> {
-    pub label: &'static str,
-    pub on: bool,
-    pub pick: fn(&mut S),
-}
-
-pub fn segmented<S: 'static>(name: &str, segments: Vec<Segment<S>>) -> El {
-    let mut out = row().h(32.0).padding(1.0).radius(4.0).border(1.0, p().line).clip_rounded(4.0).role("radiogroup").label(name);
-    for (i, s) in segments.into_iter().enumerate() {
-        if i > 0 {
-            out = out.child(el().w(1.0).h_full().fill(p().line));
-        }
-        let item = row().h_full().px(12.0).center_y().child(text(s.label).font(theme::BODY).color(if s.on { p().text } else { p().muted }));
-        let item = if s.on { item.fill(p().active) } else { item.hover(Color::WHITE.alpha(0.03)) };
-        let pick = s.pick;
-        out = out.child(item.role("radio").label(s.label).checked(s.on).cursor(Cursor::Pointer).on_press(move |st: &mut S| pick(st)));
-    }
-    out
 }
 
 /// Between a toolbar's search and its pills.
@@ -220,6 +199,7 @@ macro_rules! rune_icon {
 pub static SEARCH: Icon = rune_icon!("search");
 pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
 pub static CHECK: Icon = rune_icon!("check");
+pub static MAP_PIN: Icon = rune_icon!("map-pin");
 static ARROW_DOWN: Icon = rune_icon!("arrow-down");
 static ARROW_UP: Icon = rune_icon!("arrow-up");
 pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");

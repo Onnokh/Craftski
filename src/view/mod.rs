@@ -455,6 +455,12 @@ pub fn scene_zones(s: &mut App) {
     s.menu = Some(Menu::Zone);
 }
 
+/// The flips tab with the Sold per day menu open.
+pub fn scene_flips_sold(s: &mut App) {
+    scene_flips(s);
+    s.menu = Some(Menu::FlipsSold);
+}
+
 fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     let (tx, rx) = mpsc::channel();
     prefetch(&ids, |id, path| {
@@ -524,6 +530,7 @@ mod tests {
     use super::*;
     use crate::copper::Copper;
     use crate::menu::Pick;
+    use crate::flip_rows::Supply;
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
@@ -547,6 +554,17 @@ mod tests {
         s.toggle_menu(Menu::CraftsSold);
         s.pick(Pick::CraftsSold(2));
         assert_eq!((s.menu, s.min_sold), (None, 2));
+    }
+
+    #[test]
+    fn the_flips_menus_set_the_flips_filters_and_leave_the_recipes_alone() {
+        let mut s = App::new();
+        s.toggle_menu(Menu::FlipsSold);
+        s.pick(Pick::FlipsSold(3));
+        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 3, 0));
+        s.toggle_menu(Menu::Supply);
+        s.pick(Pick::Supply(Supply::Limited));
+        assert_eq!((s.menu, s.flips.supply()), (None, Supply::Limited));
     }
 
     #[test]

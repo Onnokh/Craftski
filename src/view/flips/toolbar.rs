@@ -1,51 +1,47 @@
-//! The zone, filters and search, and the zone menu's pill.
+//! The zone's pill, search, then one pill per filter: sold per day, supply and profitable only.
 
-use rune::{Color, Cursor, El, Key, KeyEvent, Tx, col, row, spacer, text, text_input};
+use rune::{El, Key, KeyEvent, Tx, row, text, text_input};
 
-use crate::flip_rows::Supply;
+use crate::menu::{Menu, SOLD_STEPS, sold_active, supply_active};
 use crate::theme::{self, p};
-use crate::view::widgets::{CHEVRON_DOWN, SEARCH, Segment, checkbox, glyph, segmented};
-use crate::menu::Menu;
-use crate::view::menu::anchor;
-use crate::menu::SOLD_STEPS;
+use crate::view::menu::trigger;
+use crate::view::widgets::{MAP_PIN, TOOLBAR_GAP, checkbox, glyph, search_box};
 use crate::view::{App, Dims};
+
+/// The longest a zone's name draws in its pill before it truncates.
+const ZONE_NAME: f32 = 160.0;
 
 pub fn toolbar(s: &App, d: Dims) -> El {
     let f = &s.flips;
-    let zone = row()
-        .key(anchor(Menu::Zone))
-        .h(32.0)
-        .gap(8.0)
-        .px(13.0)
-        .center_y()
-        .radius(4.0)
-        .border(1.0, if s.menu == Some(Menu::Zone) { p().line2 } else { p().line })
-        .cursor(Cursor::Pointer)
-        .hover(Color::WHITE.alpha(0.03))
-        .child(text(&f.zone).font(theme::BODY).color(p().text))
-        .child(glyph(&CHEVRON_DOWN, 16.0, p().muted))
-        .role("button")
-        .label(format!("Zone: {}", f.zone))
-        .on_press(|s: &mut App| s.toggle_menu(Menu::Zone));
-    let unprofitable = checkbox("Hide unprofitable", f.hide_unprofitable, |s: &mut App| {
+    let zone = trigger(
+        s,
+        Menu::Zone,
+        false,
+        format!("Zone: {}", f.zone),
+        vec![glyph(&MAP_PIN, 14.0, p().muted), text(&f.zone).font(theme::BODY).color(p().text).truncate().shrink().min_w(0.0).max_w(ZONE_NAME)],
+    )
+    .shrink()
+    .min_w(96.0);
+    let step = SOLD_STEPS[f.min_sold].value;
+    let sold = trigger(
+        s,
+        Menu::FlipsSold,
+        sold_active(f.min_sold),
+        format!("Sold per day: {step}"),
+        vec![text(if d.compact { "Sold/day" } else { "Sold per day" }).font(theme::BODY).color(p().muted), text(step).font(theme::BODY).color(p().text)],
+    );
+    let supply = trigger(
+        s,
+        Menu::Supply,
+        supply_active(f.supply),
+        format!("Supply: {}", f.supply.label()),
+        vec![text("Supply").font(theme::BODY).color(p().muted), text(f.supply.label()).font(theme::BODY).color(p().text)],
+    );
+    let profitable = checkbox("Profitable only", f.hide_unprofitable, |s: &mut App| {
         s.flips.hide_unprofitable = !s.flips.hide_unprofitable;
         s.flips.refilter();
     });
-    let picks: [fn(&mut App); 4] = [|s| s.flips.set_min_sold(0), |s| s.flips.set_min_sold(1), |s| s.flips.set_min_sold(2), |s| s.flips.set_min_sold(3)];
-    let steps = SOLD_STEPS.iter().zip(picks).enumerate().map(|(i, (step, pick))| Segment { label: step.value, on: f.min_sold == i, pick }).collect();
-    let supply_picks: [fn(&mut App); 3] = [|s| s.flips.set_supply(Supply::All), |s| s.flips.set_supply(Supply::Endless), |s| s.flips.set_supply(Supply::Limited)];
-    let supply = Supply::ALL.into_iter().zip(supply_picks).map(|(supply, pick)| Segment { label: supply.label(), on: f.supply == supply, pick }).collect();
-    let labelled = |label: &str, control: El| row().gap(8.0).center_y().child(text(label).font(theme::BODY).color(p().muted)).child(control);
-    let place = row().w_full().h(32.0).gap(d.gap).center_y().child(zone).child(spacer()).child(search(s, d));
-    let filters = row()
-        .w_full()
-        .h(32.0)
-        .gap(d.gap)
-        .center_y()
-        .child(unprofitable)
-        .child(labelled("Sold per day", segmented("Minimum sold per day", steps)))
-        .child(labelled("Supply", segmented("Supply", supply)));
-    col().w_full().px(d.pad).py(16.0).gap(12.0).child(place).child(filters)
+    row().w_full().h(64.0).px(d.pad).gap(TOOLBAR_GAP).center_y().child(zone).child(search(s, d)).child(sold).child(supply).child(profitable)
 }
 
 fn search(s: &App, d: Dims) -> El {
@@ -71,28 +67,5 @@ fn search(s: &App, d: Dims) -> El {
             Key::Up => s.flips.step(-1, tx),
             _ => false,
         });
-    let b = row()
-        .h(32.0)
-        .gap(8.0)
-        .px(13.0)
-        .center_y()
-        .radius(4.0)
-        .border(1.0, if s.flips.search.focused { p().line2 } else { p().line })
-        .clip_rounded(4.0)
-        .cursor(Cursor::Text)
-        .child(glyph(&SEARCH, 16.0, p().faint))
-        .child(field);
-    if d.compact { b.grow(1.0).shrink().min_w(128.0).max_w(280.0) } else { b.w(280.0) }
-}
-
-impl super::State {
-    fn set_min_sold(&mut self, step: usize) {
-        self.min_sold = step;
-        self.refilter();
-    }
-
-    fn set_supply(&mut self, supply: Supply) {
-        self.supply = supply;
-        self.refilter();
-    }
+    search_box(field, s.flips.search.focused).min_w(if d.compact { 120.0 } else { 160.0 })
 }

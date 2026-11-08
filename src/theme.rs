@@ -21,7 +21,8 @@ pub struct Palette {
     /// Row dividers, a step quieter than `line`, which rules the column heads and bands.
     pub rule: Color,
     pub selected: Color,
-    /// The chosen segment of a segmented control.
+    /// The fill of what is chosen: a pill whose filter is on, a menu's current item, the
+    /// price feed in use.
     pub active: Color,
     pub text: Color,
     pub muted: Color,

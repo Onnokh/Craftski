@@ -111,7 +111,7 @@ impl State {
         match k {
             FilterKind::Sells => SOLD_STEPS[self.min_sold].named(),
             FilterKind::Supply => format!("Supply {}", self.supply.label()),
-            FilterKind::HideUnprofitable => "Hide unprofitable".to_string(),
+            FilterKind::HideUnprofitable => "Profitable only".to_string(),
         }
     }
 
@@ -124,8 +124,8 @@ impl State {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.iter().find(|r| !r.others.is_empty())?.flip)));
     }
 
-    /// The state a user reported missing patterns in: "patter" searched at Sells 5+, an
-    /// endless supply and only profitable flips, for a snapshot scene.
+    /// The state a user reported missing patterns in: "patter" searched at Sold 5+ a day,
+    /// an endless supply and only profitable flips, for a snapshot scene.
     pub fn search_patterns_narrowly(&mut self) {
         self.search = TextEdit::new("patter");
         self.min_sold = 2;
@@ -176,6 +176,24 @@ impl State {
         self.zone = zone;
         self.refilter();
         self.select_first();
+    }
+
+    pub fn min_sold(&self) -> usize {
+        self.min_sold
+    }
+
+    pub fn set_min_sold(&mut self, step: usize) {
+        self.min_sold = step;
+        self.refilter();
+    }
+
+    pub fn supply(&self) -> Supply {
+        self.supply
+    }
+
+    pub fn set_supply(&mut self, supply: Supply) {
+        self.supply = supply;
+        self.refilter();
     }
 
     pub fn zone(&self) -> &str {

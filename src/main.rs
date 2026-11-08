@@ -40,7 +40,7 @@ fn main() {
     }
     rune::run_windows(|displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("region", view::scene_region), ("reload-failed", view::scene_reload_failed)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("region", view::scene_region), ("reload-failed", view::scene_reload_failed)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
