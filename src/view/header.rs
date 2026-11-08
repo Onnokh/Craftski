@@ -14,7 +14,7 @@ pub fn header(s: &App, r: &Ready, d: Dims) -> El {
         .shrink()
         .min_w(0.0)
         .child(text("Leatherworking").font(theme::display(34.0).lh(34.0).tracking(-0.34)).color(p().text))
-        .child(row().mt(8.0).items_start().child(live_dot().mt(6.6)).child(origin(s, r).shrink().min_w(0.0)));
+        .child(row().mt(8.0).items_start().child(live_dot().mt(6.6)).child(origin(s, r, &format!("{} recipes", r.market.recipes.len())).shrink().min_w(0.0)));
     let o = &r.overview;
     let pick_tile = |key: &str, pick: Option<Pick>| match pick {
         Some(pick) => {
@@ -39,7 +39,7 @@ pub fn header(s: &App, r: &Ready, d: Dims) -> El {
 }
 
 /// A green dot: the snapshot loaded.
-fn live_dot() -> El {
+pub(super) fn live_dot() -> El {
     el().w(6.0)
         .h(6.0)
         .radius(3.0)
@@ -49,9 +49,9 @@ fn live_dot() -> El {
         .a11y_hidden()
 }
 
-/// "WoW Forever · PvP-Horde · TSM snapshot 9 min old · 592 recipes", with the realm and age
+/// "WoW Forever · PvP-Horde · TSM snapshot 9 min old · {tail}", with the realm and age
 /// picked out.
-fn origin(s: &App, r: &Ready) -> El {
+pub(super) fn origin(s: &App, r: &Ready, tail: &str) -> El {
     let book = &r.market.book;
     let (scope, updated) = match s.source {
         PriceSource::Realm => (book.realm_scope.as_deref(), book.realm_updated),
@@ -76,12 +76,13 @@ fn origin(s: &App, r: &Ready) -> El {
         }
         None => line.push_str("TSM snapshot of unknown age"),
     }
-    line.push_str(&format!(" · {} recipes", r.market.recipes.len()));
+    line.push_str(" · ");
+    line.push_str(tail);
     let spans: Vec<Span> = bold.into_iter().map(|(a, b)| Span::new(a, b).weight(500.0).color(p().text)).collect();
     text(line).font(theme::sans(13.0, 400.0)).color(p().muted).spans(spans).truncate()
 }
 
-fn tile(key: &str, value: El, sub: &str, d: Dims) -> El {
+pub(super) fn tile(key: &str, value: El, sub: &str, d: Dims) -> El {
     let tile = if d.compact { col().w(0.0).grow(1.0) } else { col() };
     tile
         .min_w(if d.compact { 0.0 } else { 178.0 })
