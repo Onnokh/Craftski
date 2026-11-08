@@ -165,7 +165,9 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
     let (square, left, gap) = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
         (Some(bx), Some(tick)) => {
             let square = el().w(22.0).h(22.0).pixels(bx).a11y_hidden();
-            (if on { square.child(el().absolute(0.0, -1.0).w(22.0).h(22.0).pixels(tick)) } else { square }, (CONTROL - 22.0) / 2.0, 7.0)
+            // The game draws its tick spilling out of the box, up and to the right. Smaller, and
+            // with the tick's bounds centred on the box's, it sits inside instead.
+            (if on { square.child(el().absolute(0.8, 4.0).w(18.0).h(18.0).pixels(tick)) } else { square }, (CONTROL - 22.0) / 2.0, 7.0)
         }
         _ => {
             let square = row().w(16.0).h(16.0).radius(4.0).a11y_hidden();
