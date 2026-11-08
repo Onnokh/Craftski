@@ -71,9 +71,6 @@ pub struct Palette {
     pub bar_selected: [Color; 2],
     /// A lit sales pip.
     pub pip: Color,
-    /// The status bar's gradient, top to bottom, and the warm light along its bevels.
-    pub status: [Color; 2],
-    pub bevel: Color,
     pub on_brass: Color,
     pub loss: Color,
     /// The caution icon beside a market figure the data cannot vouch for.
@@ -104,8 +101,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         bar: [c("#C9A24E"), c("#8A6A2A")],
         bar_selected: [c("#FFE07A"), c("#C99A32")],
         pip: c("#E8C66A"),
-        status: [c("#1C150E"), c("#0E0B08")],
-        bevel: c("#FFD28C"),
         on_brass: c("#1E1608"),
         loss: c("#E57560"),
         warn: c("#FFB733"),
