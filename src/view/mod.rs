@@ -162,6 +162,7 @@ impl App {
     /// Reads TSM's prices again and reprices every recipe and flip. The selection, filters,
     /// tab and scroll stay; a failed read keeps the old prices and says why in the status bar.
     pub(super) fn reload(&mut self, appdata: &Path) {
+        self.now = unix_secs(SystemTime::now());
         let Load::Ready(r) = &mut self.load else { return };
         match market::read_book(appdata) {
             Ok((book, read)) => {
