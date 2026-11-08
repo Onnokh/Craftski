@@ -63,7 +63,7 @@ pub struct AuctionPrice {
 pub fn auction_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<AuctionPrice> {
     let at = |unit: Option<Copper>, basis| unit.map(|unit| AuctionPrice { unit, basis });
     match source {
-        PriceSource::Realm => book.realm.get(&item).and_then(|p| at(p.min_buyout, AuctionBasis::MinBuyout).or(at(p.market_value, AuctionBasis::MarketValue))),
+        PriceSource::Realm => book.realm_price(item).and_then(|p| at(p.min_buyout, AuctionBasis::MinBuyout).or(at(p.market_value, AuctionBasis::MarketValue))),
         PriceSource::Region => book.region.get(&item).and_then(|p| at(p.market_value, AuctionBasis::Region)),
     }
 }
@@ -151,7 +151,7 @@ pub fn evaluate(recipe: &Recipe, book: &PriceBook, costs: &CostBook) -> Evaluati
         profit,
         margin,
         sold_per_day: book.region.get(&recipe.item_id).and_then(|p| p.sold_per_day),
-        auctions: book.realm.get(&recipe.item_id).and_then(|p| p.num_auctions),
+        auctions: book.realm_price(recipe.item_id).and_then(|p| p.num_auctions),
     }
 }
 
@@ -166,9 +166,9 @@ mod tests {
     fn book() -> PriceBook {
         let mut b = PriceBook::default();
         let realm = |mv: Option<u64>, mb: Option<u64>, n| RealmPrice { market_value: mv.map(Copper), min_buyout: mb.map(Copper), num_auctions: n, ..Default::default() };
-        b.realm.insert(15407, realm(Some(1000), None, Some(12)));
-        b.realm.insert(8171, realm(Some(300), Some(250), None));
-        b.realm.insert(15409, realm(None, Some(200), None));
+        b.realm_prices_mut().insert(15407, realm(Some(1000), None, Some(12)));
+        b.realm_prices_mut().insert(8171, realm(Some(300), Some(250), None));
+        b.realm_prices_mut().insert(15409, realm(None, Some(200), None));
         b.region.insert(15407, RegionPrice { market_value: Some(Copper(2000)), sold_per_day: Some(3.5), ..Default::default() });
         b.region.insert(8171, RegionPrice { market_value: Some(Copper(400)), ..Default::default() });
         b
@@ -251,9 +251,9 @@ mod tests {
     /// Rugged Hide and Refined Deeprock Salt listed on the realm, Cured Rugged Hide not at all.
     fn new_server() -> PriceBook {
         let mut b = PriceBook::default();
-        b.realm.insert(8171, RealmPrice { min_buyout: Some(Copper(250)), ..Default::default() });
-        b.realm.insert(15409, RealmPrice { min_buyout: Some(Copper(200)), ..Default::default() });
-        b.realm.insert(15062, RealmPrice { min_buyout: Some(Copper(5000)), ..Default::default() });
+        b.realm_prices_mut().insert(8171, RealmPrice { min_buyout: Some(Copper(250)), ..Default::default() });
+        b.realm_prices_mut().insert(15409, RealmPrice { min_buyout: Some(Copper(200)), ..Default::default() });
+        b.realm_prices_mut().insert(15062, RealmPrice { min_buyout: Some(Copper(5000)), ..Default::default() });
         b.region.insert(8171, RegionPrice { market_value: Some(Copper(300)), ..Default::default() });
         b
     }
@@ -286,7 +286,7 @@ mod tests {
         let recipes = hide_and_pants();
         let listed_at = |unit| {
             let mut b = new_server();
-            b.realm.insert(15407, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
+            b.realm_prices_mut().insert(15407, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
             CostBook::new(&recipes, &b, PriceSource::Realm).get(15407)
         };
         assert_eq!(listed_at(300), Some(ReagentPrice { unit: Copper(225), origin: PriceOrigin::Crafted { spell_id: 19047 } }));
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn a_recipe_making_two_halves_the_unit_cost_rounding_up() {
         let mut book = new_server();
-        book.realm.insert(15409, RealmPrice { min_buyout: Some(Copper(201)), ..Default::default() });
+        book.realm_prices_mut().insert(15409, RealmPrice { min_buyout: Some(Copper(201)), ..Default::default() });
         let costs = CostBook::new(&hide_and_pants(), &book, PriceSource::Realm);
         assert_eq!(costs.get(15407), Some(ReagentPrice { unit: Copper(226), origin: PriceOrigin::Crafted { spell_id: 19047 } }));
     }
@@ -313,7 +313,7 @@ mod tests {
     fn a_cycle_that_would_make_an_item_cheaper_than_itself_is_refused() {
         let split_and_join = [recipe(1, 101, 2.0, &[(102, 1)]), recipe(2, 102, 1.0, &[(101, 1)])];
         let mut book = PriceBook::default();
-        book.realm.insert(102, RealmPrice { min_buyout: Some(Copper(100)), ..Default::default() });
+        book.realm_prices_mut().insert(102, RealmPrice { min_buyout: Some(Copper(100)), ..Default::default() });
         let costs = CostBook::new(&split_and_join, &book, PriceSource::Realm);
         assert_eq!(costs.get(101), Some(ReagentPrice { unit: Copper(50), origin: PriceOrigin::Crafted { spell_id: 1 } }));
         assert_eq!(costs.get(102), Some(ReagentPrice { unit: Copper(100), origin: PriceOrigin::Auction }));

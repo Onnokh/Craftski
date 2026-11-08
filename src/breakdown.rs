@@ -210,9 +210,9 @@ mod tests {
     fn book() -> PriceBook {
         let mut b = PriceBook::default();
         let realm = |mv, n| RealmPrice { market_value: Some(Copper(mv)), num_auctions: n, ..Default::default() };
-        b.realm.insert(8195, realm(50_788, Some(3)));
-        b.realm.insert(4304, realm(647, Some(437)));
-        b.realm.insert(8343, realm(578, None));
+        b.realm_prices_mut().insert(8195, realm(50_788, Some(3)));
+        b.realm_prices_mut().insert(4304, realm(647, Some(437)));
+        b.realm_prices_mut().insert(8343, realm(578, None));
         b.region.insert(4304, RegionPrice { market_value: Some(Copper(700)), ..Default::default() });
         b
     }
@@ -231,7 +231,7 @@ mod tests {
         let mut recipe = nightscape_cloak();
         recipe.item_id = 4252;
         let mut book = book();
-        book.realm.insert(4252, RealmPrice { min_buyout: Some(Copper(2_900)), market_value: Some(Copper(6_586)), num_auctions: Some(57), ..Default::default() });
+        book.realm_prices_mut().insert(4252, RealmPrice { min_buyout: Some(Copper(2_900)), market_value: Some(Copper(6_586)), num_auctions: Some(57), ..Default::default() });
         let (eval, b) = priced(&recipe, &book, PriceSource::Realm);
         assert_eq!((b.sale, eval.resale), (Some(Sale { gross: Copper(2_900), cut: Copper(145), basis: AuctionBasis::MinBuyout }), Some(Copper(2_755))));
     }
@@ -292,7 +292,7 @@ mod tests {
         ];
         let mut book = PriceBook::default();
         for (item, unit) in [(8171, 250), (2934, 10), (2318, 50), (2319, 200)] {
-            book.realm.insert(item, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
+            book.realm_prices_mut().insert(item, RealmPrice { min_buyout: Some(Copper(unit)), ..Default::default() });
         }
         book.vendor = VendorBook::new(HashMap::new(), HashMap::from([(15409, Copper(200))]));
         let costs = CostBook::new(&recipes, &book, PriceSource::Realm);

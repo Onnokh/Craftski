@@ -68,7 +68,7 @@ impl Feed {
     pub fn both(book: &PriceBook, now: u64, short: bool) -> [Feed; 2] {
         let age = |updated: Option<u64>| updated.map(|t| now.saturating_sub(t));
         [
-            Feed::new(PriceSource::Realm, book.realm_scope.as_deref(), age(book.realm_updated), short),
+            Feed::new(PriceSource::Realm, book.realm().map(|(name, _)| name), age(book.realm().and_then(|(_, b)| b.updated)), short),
             Feed::new(PriceSource::Region, book.region_scope.as_deref(), age(book.region_updated), short),
         ]
     }
@@ -144,13 +144,10 @@ mod tests {
 
     #[test]
     fn both_feeds_age_from_now_and_never_go_negative() {
-        let book = PriceBook {
-            realm_updated: Some(10_000),
-            region_updated: Some(10_000 + 120),
-            realm_scope: Some("PvP-Horde".into()),
-            region_scope: Some("Forever-EU".into()),
-            ..PriceBook::default()
-        };
+        let mut book = PriceBook::default();
+        (book.region_updated, book.region_scope) = (Some(10_000 + 120), Some("Forever-EU".into()));
+        book.realm_prices_mut();
+        book.realms.get_mut("PvP-Horde").unwrap().updated = Some(10_000);
         let [realm, region] = Feed::both(&book, 10_000 + 26 * 3600, false);
         assert_eq!((realm.line().as_str(), realm.age.map(|a| a.1)), ("Realm PvP-Horde, 1 day ago", Some(Freshness::Stale)));
         assert_eq!(region.line(), "Region Forever-EU, 1 day ago");

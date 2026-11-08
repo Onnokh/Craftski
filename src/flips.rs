@@ -178,7 +178,7 @@ mod tests {
         ]);
         let mut book = PriceBook::default();
         for (id, min_buyout) in [(6365, 3000), (11303, 5000), (3371, 400), (5956, 900)] {
-            book.realm.insert(id, RealmPrice { min_buyout: Some(Copper(min_buyout)), ..Default::default() });
+            book.realm_prices_mut().insert(id, RealmPrice { min_buyout: Some(Copper(min_buyout)), ..Default::default() });
         }
         book.region.insert(6365, RegionPrice { sale_rate: Some(0.5), sold_per_day: Some(2.0), ..Default::default() });
         book.region.insert(11303, RegionPrice { sale_rate: Some(0.25), ..Default::default() });

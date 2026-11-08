@@ -508,7 +508,9 @@ pub fn scene_crafted(s: &mut App) {
 pub fn scene_stale(s: &mut App) {
     scene_loaded(s);
     let Load::Ready(r) = &mut s.load else { return };
-    r.market.book.realm_updated = Some(s.now - 5 * 3600);
+    for realm in r.market.book.realms.values_mut() {
+        realm.updated = Some(s.now - 5 * 3600);
+    }
     r.market.book.region_updated = Some(s.now - 30 * 3600);
 }
 
@@ -586,7 +588,7 @@ mod tests {
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let book = &r.market.book;
-            (book.realm_scope.clone(), book.realm_updated, book.realm[&4234].min_buyout, r.reload_error.clone())
+            (book.realm().map(|(name, _)| name.to_owned()), book.realm().and_then(|(_, b)| b.updated), book.realm_price(4234).and_then(|p| p.min_buyout), r.reload_error.clone())
         };
         assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(100), Some(Copper(210)), None));
 
@@ -620,7 +622,7 @@ mod tests {
         // The clock that stamps writes can tick slower than this test runs.
         std::fs::File::options().write(true).open(&path).unwrap().set_modified(first + Duration::from_secs(5)).unwrap();
         s.reload_if_changed(&path);
-        assert_eq!(s.ready().unwrap().market.book.realm_scope.as_deref(), Some("PvE-Horde"));
+        assert_eq!(s.ready().unwrap().market.book.realm().map(|(name, _)| name), Some("PvE-Horde"));
         assert_ne!(read_at(&s), first);
         std::fs::remove_dir_all(&dir).unwrap();
     }

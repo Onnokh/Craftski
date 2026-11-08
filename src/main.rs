@@ -70,7 +70,7 @@ fn dump() -> Result<(), String> {
     let evals = evals_for(PriceSource::Realm);
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
-    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm.len(), m.book.region.len());
+    println!("{} recipes, {} realm-priced items, {} region-priced items", m.recipes.len(), m.book.realm().map_or(0, |(_, b)| b.prices.len()), m.book.region.len());
     println!("{} vendor prices: {} in TSM's list, {} in its saved data", v.len(), v.from_list, v.from_saved);
     let reagents: std::collections::BTreeSet<u32> = m.recipes.iter().flat_map(|r| r.reagents.iter().map(|g| g.item_id)).collect();
     for (name, source, evals) in [("realm", PriceSource::Realm, &evals), ("region", PriceSource::Region, &evals_for(PriceSource::Region))] {
@@ -119,7 +119,7 @@ fn flips() -> Result<(), String> {
         merchants.len(),
         rows.len(),
         offers.len(),
-        m.book.realm_scope.as_deref().unwrap_or("?")
+        m.book.realm().map_or("?", |(name, _)| name)
     );
     let by_supply: Vec<String> = flip_rows::Supply::ALL.iter().map(|&supply| format!("{} {}", supply.label(), flip_rows::visible(&all, &c.merchants, &c.items, Filter { supply, ..filter }, rows::Sort { column: Column::Profit, descending: true }).len())).collect();
     println!("flips by supply: {}", by_supply.join(", "));
