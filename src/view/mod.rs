@@ -2,6 +2,7 @@ mod detail;
 mod flips;
 mod header;
 mod rail;
+mod status;
 mod table;
 mod toolbar;
 mod widgets;
@@ -10,6 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rune::{Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
@@ -46,6 +48,8 @@ pub struct App {
     /// The player's profession rank as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
+    now: u64,
 }
 
 enum Load {
@@ -100,6 +104,8 @@ struct Ready {
     evals: Vec<Evaluation>,
     rows: Vec<usize>,
     hidden: Option<Hidden<FilterKind>>,
+    /// Why the last reload failed; the prices before it stay.
+    reload_error: Option<String>,
 }
 
 /// Sizes that change between a roomy window and a narrow one.
@@ -109,14 +115,16 @@ struct Dims {
     pad: f32,
     detail: f32,
     gap: f32,
+    /// The status bar's width at the last layout, which decides what it leaves out.
+    status: Option<f32>,
 }
 
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0 }
+            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, status: None }
         } else {
-            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0 }
+            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, status: None }
         }
     }
 }
@@ -136,17 +144,46 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
+            now: unix_secs(SystemTime::now()),
         }
     }
 
     fn land(&mut self, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
             Err(e) => Load::Failed(e),
         };
         self.refresh();
         if let Load::Ready(r) = &self.load {
             self.selected = r.rows.first().map(|&i| r.market.recipes[i].spell_id);
+        }
+    }
+
+    /// Reads TSM's prices again and reprices every recipe and flip. The selection, filters,
+    /// tab and scroll stay; a failed read keeps the old prices and says why in the status bar.
+    pub(super) fn reload(&mut self, appdata: &Path) {
+        self.now = unix_secs(SystemTime::now());
+        let Load::Ready(r) = &mut self.load else { return };
+        match market::read_book(appdata) {
+            Ok((book, read)) => {
+                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes));
+                r.reload_error = None;
+            }
+            Err(e) => {
+                r.reload_error = Some(e);
+                return;
+            }
+        }
+        self.refresh();
+        self.reprice_flips();
+    }
+
+    /// Reloads when AppData.lua's modified time differs from the one last read, as it does
+    /// after each TSM desktop app sync. A failed read retries on the next check.
+    fn reload_if_changed(&mut self, appdata: &Path) {
+        let Some(r) = self.ready() else { return };
+        if market::modified(appdata) != r.market.read.modified {
+            self.reload(appdata);
         }
     }
 
@@ -266,7 +303,22 @@ fn fetch_rail(on_ready: impl Fn(&'static str, RailImage)) {
     }
 }
 
-pub fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
+/// Lands the loader's messages, and on each new minute moves the clock the ages read from and
+/// reloads when TSM has rewritten AppData.lua.
+pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
+    let landed = drain(s);
+    let now = unix_secs(SystemTime::now());
+    tx.wake_after(Duration::from_secs(60 - now % 60));
+    let ticked = now / 60 != s.now / 60;
+    if ticked {
+        s.now = now;
+        s.reload_if_changed(&market::appdata_path());
+    }
+    landed || ticked
+}
+
+/// Takes the loader thread's messages; true when any arrived or the thread finished.
+fn drain(s: &mut App) -> bool {
     let Some(rx) = s.inbox.take() else { return false };
     let mut changed = false;
     loop {
@@ -325,7 +377,8 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let d = Dims::new(cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false));
+    let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
+    let d = Dims { status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
     let main = match &s.load {
         Load::Loading => message("Loading TSM prices and recipes..."),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
@@ -340,14 +393,19 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::header(s, r, d))
+                    .child(header::header(r, d))
                     .child(toolbar::toolbar(s, d))
-                    .child(table::table(s, r, d)),
+                    .child(table::table(s, r, d))
+                    .child(status::status(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
     };
     let root = row().key("root").w_full().h_full().fill(p().ground).child(rail::rail(s)).child(main);
     if s.tab == Tab::Flips { flips::overlay(s).into_iter().fold(root, |r, e| r.child(e)) } else { root }
+}
+
+fn unix_secs(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn message(m: &str) -> El {
@@ -427,4 +485,80 @@ pub fn scene_crafted(s: &mut App) {
     let costs = r.market.costs(s.source);
     let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
     s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
+}
+
+/// `loaded` with realm prices five hours old and region prices thirty, so the status bar
+/// shows both stale colours.
+pub fn scene_stale(s: &mut App) {
+    scene_loaded(s);
+    let Load::Ready(r) = &mut s.load else { return };
+    r.market.book.realm_updated = Some(s.now - 5 * 3600);
+    r.market.book.region_updated = Some(s.now - 30 * 3600);
+}
+
+/// `flips` after a reload from a file that isn't there: the status bar says why and the old
+/// prices stay.
+pub fn scene_reload_failed(s: &mut App) {
+    scene_flips(s);
+    s.reload(Path::new(r"C:\no-such-wow\AppData.lua"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::copper::Copper;
+
+    fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
+        format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
+    }
+
+    #[test]
+    fn reload_takes_the_new_prices_and_keeps_the_old_ones_when_the_read_fails() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
+        let mut s = App::new();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        let seen = |s: &App| {
+            let r = s.ready().unwrap();
+            let book = &r.market.book;
+            (book.realm_scope.clone(), book.realm_updated, book.realm[&4234].min_buyout, r.reload_error.clone())
+        };
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(100), Some(Copper(210)), None));
+
+        std::fs::write(&path, appdata("PvE-Horde", 200, "7P")).unwrap();
+        s.reload(&path);
+        assert_eq!(seen(&s), (Some("PvE-Horde".into()), Some(200), Some(Copper(249)), None));
+
+        let missing = dir.join("missing.lua");
+        s.reload(&missing);
+        let (scope, updated, price, error) = seen(&s);
+        assert_eq!((scope, updated, price), (Some("PvE-Horde".into()), Some(200), Some(Copper(249))));
+        assert!(error.is_some_and(|e| e.starts_with(&format!("reading {}: ", missing.display()))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_minute_check_reloads_only_after_appdata_is_rewritten() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-watch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
+        let mut s = App::new();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        let read_at = |s: &App| s.ready().unwrap().market.read.at;
+        let first = read_at(&s);
+
+        s.reload_if_changed(&path);
+        assert_eq!(read_at(&s), first);
+
+        std::fs::write(&path, appdata("PvE-Horde", 200, "7P")).unwrap();
+        // The clock that stamps writes can tick slower than this test runs.
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(first + Duration::from_secs(5)).unwrap();
+        s.reload_if_changed(&path);
+        assert_eq!(s.ready().unwrap().market.book.realm_scope.as_deref(), Some("PvE-Horde"));
+        assert_ne!(read_at(&s), first);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

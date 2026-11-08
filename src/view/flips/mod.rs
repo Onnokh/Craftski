@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 
 use rune::{El, TextEdit, Tx, col, row};
 
+use super::status::status;
 use super::{App, Dims, Load, SOLD_STEPS, message};
 use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
 use crate::flips::{self, Flip};
@@ -224,7 +225,17 @@ pub fn main(s: &App, d: Dims) -> El {
         .grow(1.0)
         .h_full()
         .min_w(0.0)
-        .child(col().grow(1.0).shrink().min_w(0.0).h_full().child(header::header(s, r, f, d)).child(toolbar::toolbar(s, d)).child(table::table(s, f, d)))
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .h_full()
+                .child(header::header(s, f, d))
+                .child(toolbar::toolbar(s, d))
+                .child(table::table(s, f, d))
+                .child(status(s, r, d)),
+        )
         .child(detail::detail(s, f, d))
 }
 
