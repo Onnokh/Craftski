@@ -136,18 +136,49 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
         .on_press(move |s: &mut S| flip(s))
 }
 
-pub enum ButtonKind {
-    Primary,
-    Ghost,
+/// The panel's main action: brass, taking the width its row leaves, with `leading` before the label.
+pub fn primary<S: 'static>(label: &str, leading: &'static Icon, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    row()
+        .h(40.0)
+        .grow(1.0)
+        .px(16.0)
+        .gap(8.0)
+        .radius(4.0)
+        .center_y()
+        .justify_center()
+        .fill(p().brass)
+        .hover(Color::WHITE.alpha(0.10))
+        .press(Color::BLACK.alpha(0.10))
+        .child(glyph(leading, 16.0, p().on_brass))
+        .child(text(label).font(theme::BODY_MEDIUM).color(p().on_brass))
+        .role("button")
+        .label(label)
+        .cursor(Cursor::Pointer)
+        .on_press_tx(act)
 }
 
-pub fn button<S: 'static>(label: &str, kind: ButtonKind, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    let b = row().h(40.0).radius(4.0).center_y().justify_center().role("button").label(label).cursor(Cursor::Pointer);
-    let (b, color) = match kind {
-        ButtonKind::Primary => (b.grow(1.0).px(16.0).fill(p().brass).hover(Color::WHITE.alpha(0.10)).press(Color::BLACK.alpha(0.10)), p().on_brass),
-        ButtonKind::Ghost => (b.px(17.0).border(1.0, p().line).hover(Color::WHITE.alpha(0.04)).press(Color::WHITE.alpha(0.07)), p().text),
-    };
-    b.child(text(label).font(theme::BODY_MEDIUM).color(color)).on_press_tx(act)
+/// An outlined "Wowhead" button that opens `url` in the browser, marked as leaving the app.
+pub fn wowhead<S: 'static>(url: String) -> El {
+    row()
+        .h(40.0)
+        .px(17.0)
+        .gap(8.0)
+        .radius(4.0)
+        .center_y()
+        .justify_center()
+        .border(1.0, p().line)
+        .hover(Color::WHITE.alpha(0.04))
+        .press(Color::WHITE.alpha(0.07))
+        .child(text("Wowhead").font(theme::BODY_MEDIUM).color(p().text))
+        .child(glyph(&EXTERNAL, 16.0, p().muted))
+        .role("button")
+        .label("Open on Wowhead")
+        .cursor(Cursor::Pointer)
+        .on_press_tx(move |_: &mut S, tx: &mut Tx| {
+            if let Err(e) = tx.open_url(&url) {
+                eprintln!("{url}: {e}");
+            }
+        })
 }
 
 /// A Rune Icons outline glyph from `assets/icons`, drawn in its element's colour: the files'
@@ -162,6 +193,10 @@ pub static SEARCH: Icon = rune_icon!("search");
 pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
 static ARROW_DOWN: Icon = rune_icon!("arrow-down");
 static ARROW_UP: Icon = rune_icon!("arrow-up");
+pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");
+pub static SHOPPING_BAG: Icon = rune_icon!("shopping-bag");
+pub static TRIANGLE_ALERT: Icon = rune_icon!("triangle-alert");
+static EXTERNAL: Icon = rune_icon!("square-arrow-out-up-right");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()

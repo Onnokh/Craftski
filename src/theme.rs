@@ -29,6 +29,14 @@ pub struct Palette {
     pub brass: Color,
     pub on_brass: Color,
     pub loss: Color,
+    /// The caution icon beside a market figure the data cannot vouch for.
+    pub warn: Color,
+    /// Where a sale price goes, on the breakdown bar and its swatches: the auction house cut
+    /// (with an edge so the faint fill reads), the materials and the profit.
+    pub cut: Color,
+    pub cut_edge: Color,
+    pub materials: Color,
+    pub profit: Color,
     /// Skill-up bands: still yellow, green, then grey.
     pub skill: [Color; 3],
     quality: [Color; 5],
@@ -36,6 +44,7 @@ pub struct Palette {
 
 static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
     let c = |s: &str| hex(s).expect("palette hex is valid");
+    let text = c("#EEE4D2");
     Palette {
         rail: c("#0F0D0B"),
         ground: c("#13110E"),
@@ -45,12 +54,17 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| {
         rule: c("#1F1B17"),
         selected: c("#221D17"),
         active: c("#26211B"),
-        text: c("#EEE4D2"),
+        text,
         muted: c("#9A8D79"),
         faint: c("#6E6355"),
         brass: c("#D8A443"),
         on_brass: c("#1E1608"),
         loss: c("#E57560"),
+        warn: c("#E3B860"),
+        cut: text.alpha(0.08),
+        cut_edge: text.alpha(0.14),
+        materials: text.alpha(0.20),
+        profit: text.alpha(0.64),
         skill: [c("#E0C24A"), c("#5FB86A"), c("#5E574E")],
         quality: [c("#9D9D9D"), c("#EEE4D2"), c("#4BD461"), c("#4F9CFF"), c("#B469FF")],
     }
