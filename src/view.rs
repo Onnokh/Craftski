@@ -91,7 +91,7 @@ impl App {
         let Load::Ready(r) = &mut self.load else { return };
         r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, self.source)).collect();
         let sort = self.table.sort().and_then(|(id, dir)| Some(Sort { column: Column::from_id(id)?, descending: dir == SortDir::Descending }));
-        let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1 };
+        let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: "" };
         r.rows = rows::visible(&r.market.recipes, &r.evals, filter, sort.unwrap_or(Sort { column: Column::Profit, descending: true }));
     }
 
@@ -220,19 +220,8 @@ fn status(s: &App) -> String {
         PriceSource::Region => book.region_updated,
     };
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let age = updated.map_or_else(|| "unknown age".into(), |t| format!("{} old", age(now.saturating_sub(t))));
+    let age = updated.map_or_else(|| "unknown age".into(), |t| format!("{} old", crate::overview::age(now.saturating_sub(t))));
     format!("TSM data {age}, {} of {} recipes", r.rows.len(), r.market.recipes.len())
-}
-
-fn age(secs: u64) -> String {
-    let (m, h, d) = (secs / 60, secs / 3600, secs / 86_400);
-    if d > 0 {
-        format!("{d}d {}h", h % 24)
-    } else if h > 0 {
-        format!("{h}h {:02}m", m % 60)
-    } else {
-        format!("{m}m")
-    }
 }
 
 fn table(s: &App, k: &Kit) -> El {
@@ -246,7 +235,7 @@ fn table(s: &App, k: &Kit) -> El {
         let col = TableColumn::new(c.id(), c.title()).sortable();
         t = t.column(match c {
             Column::Item => col.flex(1.0).min(200.0),
-            Column::Skill | Column::Qty => col.width(56.0).align(Align::End),
+            Column::Skill => col.width(56.0).align(Align::End),
             Column::Margin | Column::SoldPerDay | Column::Auctions => col.width(92.0).align(Align::End),
             _ => col.width(112.0).align(Align::End),
         });
@@ -270,7 +259,6 @@ fn table(s: &App, k: &Kit) -> El {
                     .child(text(&recipe.item_name).font(style.font).color(style.text).truncate().shrink().min_w(0.0).help_when_truncated(&recipe.item_name)),
             ),
             Some(Column::Skill) => recipe.skill.map_or_else(na, |skill| Cell::text(skill.learn.to_string()).mono()),
-            Some(Column::Qty) => Cell::text(format!("{}", recipe.quantity)).mono(),
             Some(Column::Cost) => money(e.cost),
             Some(Column::Resale) => money(e.resale),
             Some(Column::Profit) => e.profit.map_or_else(na, |p| Cell::text(signed(p)).mono().color(if p >= 0 { gain } else { loss })),
@@ -353,14 +341,3 @@ pub fn scene_loaded(s: &mut App) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::age;
-
-    #[test]
-    fn ages_read_in_the_two_largest_units() {
-        assert_eq!(age(59), "0m");
-        assert_eq!(age(3 * 3600 + 5 * 60), "3h 05m");
-        assert_eq!(age(2 * 86_400 + 4 * 3600 + 120), "2d 4h");
-    }
-}
