@@ -1,8 +1,8 @@
 //! The player's choices that outlive a session, one small text file each under
 //! `%LOCALAPPDATA%\tsm-crafts`: the profession shown, their rank in each profession and the
-//! realm prices come from.
+//! realm prices come from, and the AppData.lua they chose.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::recipes::Profession;
 
@@ -10,6 +10,7 @@ use crate::recipes::Profession;
 const LEGACY_SKILL: &str = "skill.txt";
 const REALM: &str = "realm.txt";
 const PROFESSION: &str = "profession.txt";
+const APPDATA: &str = "appdata.txt";
 
 fn path(file: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts").join(file))
@@ -71,6 +72,15 @@ pub fn load_realm() -> String {
 
 pub fn save_realm(realm: &str) {
     save(REALM, realm);
+}
+
+/// The AppData.lua found under the folder the player last chose, None when they never chose one.
+pub fn load_appdata() -> Option<PathBuf> {
+    Some(PathBuf::from(load(APPDATA))).filter(|p| !p.as_os_str().is_empty())
+}
+
+pub fn save_appdata(path: &Path) {
+    save(APPDATA, &path.to_string_lossy());
 }
 
 /// The rank a typed value names; anything but a whole number means no rank.

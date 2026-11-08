@@ -23,6 +23,7 @@ mod theme;
 mod tooltip;
 mod vendor;
 mod view;
+mod wow;
 
 use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 
@@ -52,7 +53,7 @@ fn main() {
     let (fonts, families) = theme::fonts();
     rune::run_windows(move |displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed), ("no-appdata", view::scene_no_appdata)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
@@ -74,11 +75,16 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
     (along(origin.0, display.0, size.0), along(origin.1, display.1, size.1))
 }
 
+/// The AppData.lua the CLI reads, Err naming `--appdata` when none is found.
+fn appdata() -> Result<std::path::PathBuf, String> {
+    wow::locate().map(|a| a.path).ok_or_else(|| "No TSM AppData.lua found under a WoW Forever install; pass --appdata PATH (the TradeSkillMaster_AppHelper addon's AppData.lua) or choose the folder in the app.".into())
+}
+
 /// `--dump [--profession NAME]`: the profession's 15 most profitable recipes at realm prices.
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
     let profession = settings::start_profession()?;
-    let m = market::load(&settings::load_realm(), profession)?;
+    let m = market::load(&appdata()?, &settings::load_realm(), profession)?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: None, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
@@ -115,7 +121,7 @@ fn flips() -> Result<(), String> {
     use flip_rows::{Column, Filter};
     let args: Vec<String> = std::env::args().collect();
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
-    let (mut book, _) = market::read_book(&market::appdata_path())?;
+    let (mut book, _) = market::read_book(&appdata()?)?;
     book.choose_realm(&settings::load_realm());
     let c = merchants::load()?;
     let all = flips::evaluate(&c.merchants, &c.items, &book, &flips::RULES);

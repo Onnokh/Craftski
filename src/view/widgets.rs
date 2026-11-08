@@ -330,3 +330,10 @@ static TICK: Icon = Icon {
     view: 16.0,
     body: r#"<path d="m4.5 8.5 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
+
+/// An open folder, drawn to the Rune Icons' 24pt grid and stroke.
+pub static FOLDER_OPEN: Icon = Icon {
+    name: "tsm-folder-open",
+    view: 24.0,
+    body: r#"<path d="M3 19V5h6l2 2h8v4M3 19l3-8h16l-3 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};

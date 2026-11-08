@@ -358,7 +358,7 @@ mod tests {
     #[test]
     #[ignore = "reads this machine's TSM data and the merchant catalog"]
     fn real_data_patterns_hidden_by_the_filters() {
-        let (mut book, _) = crate::market::read_book(&crate::market::appdata_path()).unwrap();
+        let (mut book, _) = crate::market::read_book(&crate::wow::locate().unwrap().path).unwrap();
         book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
         let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     #[ignore = "reads this machine's TSM data and the merchant catalog"]
     fn real_data_never_shows_an_item_twice() {
-        let (mut book, _) = crate::market::read_book(&crate::market::appdata_path()).unwrap();
+        let (mut book, _) = crate::market::read_book(&crate::wow::locate().unwrap().path).unwrap();
         book.choose_realm(&crate::settings::load_realm());
         let c = crate::merchants::load().unwrap();
         let flips = crate::flips::evaluate(&c.merchants, &c.items, &book, &crate::flips::RULES);

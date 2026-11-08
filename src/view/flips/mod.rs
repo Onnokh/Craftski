@@ -227,15 +227,18 @@ impl App {
             Err(e) => Shelf::Failed(e),
         };
         self.reprice_flips();
-        self.flips.select_first();
     }
 
-    /// Prices every flip on the chosen realm. Needs the market loaded.
+    /// Prices every flip on the chosen realm, selecting the first when none is. Needs the
+    /// market loaded.
     pub(super) fn reprice_flips(&mut self) {
         let (Load::Ready(r), Shelf::Ready(f)) = (&self.load, &mut self.flips.shelf) else { return };
         f.flips = flips::evaluate(&f.catalog.merchants, &f.catalog.items, &r.market.book, &flips::RULES);
         f.zones = flip_rows::zones(&f.flips, &f.catalog.merchants);
         self.flips.refilter();
+        if self.flips.selected.is_none() {
+            self.flips.select_first();
+        }
     }
 }
 
