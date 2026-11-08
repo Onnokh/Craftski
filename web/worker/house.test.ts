@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cacheControl, failureOf, type Hold, holdAfter, key, maxAge, parsePath, plan, tsmUrl } from "./house.ts";
+import { cacheControl, defaultMaxAge, failureOf, freshness, type Hold, holdAfter, key, type Meta, metaFrom, parsePath, plan, tsmUrl, validators } from "./house.ts";
 
 test("every house's file and every region's file parse, with keys TSM's paths share", () => {
   const seen = new Map<string, string>();
@@ -56,8 +56,38 @@ test("lookalike paths name no file", () => {
   assert.deepEqual(lookalikes.filter((p) => parsePath(p) !== null), []);
 });
 
-test("a realm file is due hourly and a region file every six hours", () => {
-  assert.deepEqual([maxAge(parsePath("/prices/eu/realm/pvp-horde.csv")!), maxAge(parsePath("/prices/eu/region.csv")!)], [3600, 21600]);
+test("a file is due when TSM's max-age says, within an hour to a day", () => {
+  assert.equal(freshness("max-age=14400", 3600), 14400);
+  assert.equal(freshness("public, MAX-AGE = 7200, must-revalidate", 3600), 7200);
+  assert.equal(freshness('max-age="9000"', 3600), 9000);
+  assert.equal(freshness("max-age=0", 21600), 3600);
+  assert.equal(freshness("max-age=31536000", 3600), 86400);
+});
+
+test("without a usable max-age a realm file is due hourly and a region file every six hours", () => {
+  const realm = defaultMaxAge(parsePath("/prices/eu/realm/pvp-horde.csv")!);
+  const region = defaultMaxAge(parsePath("/prices/eu/region.csv")!);
+  assert.deepEqual([realm, region], [3600, 21600]);
+  assert.deepEqual([null, "", "no-cache", "max-age=", "max-age=abc", "max-age=-5", "max-age=12x", "s-maxage=7200", "max-age7200"].map((cc) => freshness(cc, region)), Array(9).fill(21600));
+});
+
+test("a 200 records when and how long TSM vouches for the file, and its validators", () => {
+  const headers = new Headers({ "Cache-Control": "max-age=14400", ETag: '"e872c534"', "Last-Modified": "Sun, 08 Nov 2026 19:15:15 GMT" });
+  assert.deepEqual(metaFrom(headers, null, 3600, 1000), { fetchedAt: 1000, maxAge: 14400, etag: '"e872c534"', lastModified: "Sun, 08 Nov 2026 19:15:15 GMT" });
+  assert.deepEqual(metaFrom(new Headers(), null, 21600, 1000), { fetchedAt: 1000, maxAge: 21600, etag: null, lastModified: null });
+});
+
+test("a 304 renews the copy's time and max age and keeps validators it omits", () => {
+  const previous: Meta = { fetchedAt: 1000, maxAge: 14400, etag: '"old"', lastModified: "Sun, 08 Nov 2026 19:15:15 GMT" };
+  assert.deepEqual(metaFrom(new Headers({ "Cache-Control": "max-age=7200" }), previous, 3600, 20000), { fetchedAt: 20000, maxAge: 7200, etag: '"old"', lastModified: "Sun, 08 Nov 2026 19:15:15 GMT" });
+  assert.deepEqual(metaFrom(new Headers({ ETag: '"new"' }), previous, 3600, 20000), { fetchedAt: 20000, maxAge: 3600, etag: '"new"', lastModified: "Sun, 08 Nov 2026 19:15:15 GMT" });
+});
+
+test("a copy's validators become the conditional request's headers", () => {
+  const meta: Meta = { fetchedAt: 1000, maxAge: 14400, etag: '"e872c534"', lastModified: "Sun, 08 Nov 2026 19:15:15 GMT" };
+  assert.deepEqual(validators(meta), { "If-None-Match": '"e872c534"', "If-Modified-Since": "Sun, 08 Nov 2026 19:15:15 GMT" });
+  assert.deepEqual(validators({ ...meta, lastModified: null }), { "If-None-Match": '"e872c534"' });
+  assert.deepEqual(validators({ fetchedAt: 1000, maxAge: 3600, etag: null, lastModified: null, missing: true }), {});
 });
 
 test("a file downloads when missing or due and never while held", () => {

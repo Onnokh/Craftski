@@ -1,19 +1,32 @@
 // Serves TSM's public price files at /prices/* from KV, so visitors never reach TSM and TSM sees
 // at most one download per file each time it is due. Every other path is a static file in site/.
 //
-// KV is written only after a download, never per request: 32 realm files hourly and 4 region
-// files six-hourly come to at most 784 writes a day, under the free tier's 1000. Two
-// simultaneous misses may both download; that costs one extra request, not a burst.
+// KV is written only after a download or a 304, never per request, so writes stay within what
+// house.ts's MIN_MAX_AGE allows. Two simultaneous misses may both download; that costs one extra
+// request, not a burst.
 
-import { cacheControl, failureOf, type Failure, type File, type Hold, holdAfter, key, maxAge, parsePath, plan, tsmUrl } from "./house.ts";
+import {
+  cacheControl,
+  defaultMaxAge,
+  failureOf,
+  type Failure,
+  type File,
+  type Hold,
+  holdAfter,
+  key,
+  type Meta,
+  metaFrom,
+  parsePath,
+  plan,
+  tsmUrl,
+  validators,
+} from "./house.ts";
 
 interface Env {
   ASSETS: Fetcher;
   PRICES: KVNamespace;
 }
 
-/** missing: TSM answered 404, kept so a house it doesn't publish costs one download per max age. */
-type Meta = { fetchedAt: number; missing?: true };
 type Copy = { body: string; meta: Meta };
 
 const HOLD = "hold";
@@ -33,31 +46,34 @@ export default {
 
 async function prices(request: Request, env: Env, file: File): Promise<Response> {
   const now = Math.floor(Date.now() / 1000);
-  const max = maxAge(file);
   const [stored, hold] = await Promise.all([env.PRICES.getWithMetadata<Meta>(key(file), "text"), env.PRICES.get<Hold>(HOLD, "json")]);
   const copy: Copy | null = stored.value !== null && stored.metadata !== null ? { body: stored.value, meta: stored.metadata } : null;
   const age = copy === null ? null : now - copy.meta.fetchedAt;
-  const step = plan(age, max, hold, now);
+  const step = plan(age, copy?.meta.maxAge ?? defaultMaxAge(file), hold, now);
 
-  if (step === "cached" && copy !== null && age !== null) return serve(request, copy, cacheControl(max - age, max));
+  if (step === "cached" && copy !== null && age !== null) return serve(request, copy, cacheControl(copy.meta.maxAge - age, copy.meta.maxAge));
   if (step === "held" && hold !== null) return stale(request, copy, hold) ?? unavailable(request, 503, hold, now);
 
-  const result = await download(tsmUrl(file));
+  const result = await download(file, copy, now);
   const failed = result.ok ? null : holdAfter(result.failure, now);
   if (failed === null) {
-    const fresh: Copy = result.ok ? { body: result.body, meta: { fetchedAt: now } } : { body: NO_FILE, meta: { fetchedAt: now, missing: true } };
+    const fresh: Copy = result.ok ? result.copy : { body: NO_FILE, meta: { fetchedAt: now, maxAge: defaultMaxAge(file), etag: null, lastModified: null, missing: true } };
     await env.PRICES.put(key(file), fresh.body, { metadata: fresh.meta });
-    return serve(request, fresh, cacheControl(max, max));
+    return serve(request, fresh, cacheControl(fresh.meta.maxAge, fresh.meta.maxAge));
   }
   await env.PRICES.put(HOLD, JSON.stringify(failed), { expirationTtl: Math.max(60, failed.until - now) });
   return stale(request, copy, failed) ?? unavailable(request, failed.why === "rate-limited" ? 503 : 502, failed, now);
 }
 
-async function download(url: string): Promise<{ ok: true; body: string } | { ok: false; failure: Failure }> {
+/** `file` from TSM, or `copy` again when TSM answers 304 that it is unchanged. */
+async function download(file: File, copy: Copy | null, now: number): Promise<{ ok: true; copy: Copy } | { ok: false; failure: Failure }> {
+  const url = tsmUrl(file);
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    const response = await fetch(url, { headers: copy === null ? {} : validators(copy.meta), signal: AbortSignal.timeout(60_000) });
     console.log(`TSM download ${url}: HTTP ${response.status}`);
-    if (response.status === 200) return { ok: true, body: await response.text() };
+    const meta = metaFrom(response.headers, copy?.meta ?? null, defaultMaxAge(file), now);
+    if (response.status === 200) return { ok: true, copy: { body: await response.text(), meta } };
+    if (response.status === 304 && copy !== null && !copy.meta.missing) return { ok: true, copy: { body: copy.body, meta } };
     return { ok: false, failure: failureOf(response.status, response.headers.get("Retry-After")) };
   } catch (e) {
     console.log(`TSM download ${url}: ${e}`);
