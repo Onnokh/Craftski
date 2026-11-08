@@ -1,5 +1,5 @@
 //! The player's choices that outlive a session, one small text file each under
-//! `%LOCALAPPDATA%\tsm-crafts`: the profession shown, their rank in each profession and the
+//! `%LOCALAPPDATA%\Craftski`: the profession shown, their rank in each profession and the
 //! realm prices come from, the AppData.lua they chose or the public auction house they read
 //! instead, and the character who buys from merchants.
 
@@ -28,7 +28,7 @@ const PUBLIC_REGION: &str = "public-region.txt";
 const PUBLIC_REALM: &str = "public-realm.txt";
 
 fn path(file: &str) -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts").join(file))
+    Some(crate::cache::root()?.join(file))
 }
 
 /// What `file` holds, trimmed, or None when nothing is saved.

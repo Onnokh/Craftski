@@ -144,7 +144,7 @@ VendorSell.Retail = {
 
     #[test]
     fn loads_beside_appdata_from_every_account_and_survives_missing_files() {
-        let game = std::env::temp_dir().join(format!("tsm-crafts-vendor-{}", std::process::id()));
+        let game = std::env::temp_dir().join(format!("craftski-vendor-{}", std::process::id()));
         let addons = game.join("Interface").join("AddOns");
         let appdata = addons.join("TradeSkillMaster_AppHelper").join("AppData.lua");
         let write = |path: &Path, src: &str| {

@@ -34,6 +34,7 @@ use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 const SIZE: (f32, f32) = (1640.0, 1000.0);
 
 fn main() {
+    cache::adopt_old_folder();
     let cli = std::env::args().find_map(|a| match a.as_str() {
         "--dump" => Some(dump as fn() -> Result<(), String>),
         "--fetch-icons" => Some(fetch_icons),
@@ -67,7 +68,7 @@ fn main() {
             on_key: Some(view::on_key),
             fonts,
             families,
-            ..AppSpec::new("TSM Crafts", SIZE, view::App::new, view::view)
+            ..AppSpec::new("Craftski", SIZE, view::App::new, view::view)
         };
         let window = WindowSpec::new("main", spec);
         match displays.iter().find(|d| !d.primary) {

@@ -191,7 +191,7 @@ mod tests {
     /// A temp World of Warcraft folder with a Forever install whose AppHelper has synced, and a
     /// `_retail_` folder beside it with nothing in it.
     fn wow(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("tsm-crafts-wow-{name}-{}", std::process::id())).join("World of Warcraft");
+        let root = std::env::temp_dir().join(format!("craftski-wow-{name}-{}", std::process::id())).join("World of Warcraft");
         let helper = root.join(r"_forever_\Interface\AddOns\TradeSkillMaster_AppHelper");
         std::fs::create_dir_all(&helper).unwrap();
         std::fs::create_dir_all(root.join("_retail_")).unwrap();

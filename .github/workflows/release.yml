@@ -1,4 +1,4 @@
-# Builds tsm-crafts.exe: a tag v* publishes it as a GitHub release, a manual run keeps it as an
+# Builds craftski.exe: a tag v* publishes it as a GitHub release, a manual run keeps it as an
 # artifact. No tests run here: some read the author's own AppData.lua.
 name: Release
 
@@ -29,11 +29,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" target/release/tsm-crafts.exe --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" target/release/craftski.exe --generate-notes
 
       - name: Keep the exe
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: tsm-crafts
-          path: target/release/tsm-crafts.exe
+          name: craftski
+          path: target/release/craftski.exe

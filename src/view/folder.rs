@@ -16,7 +16,7 @@ pub fn not_found(s: &App) -> El {
         .w_full()
         .max_w(640.0)
         .gap(12.0)
-        .child(text("Point TSM Crafts at your World of Warcraft folder").font(theme::HEADING).color(p().gold).wrap())
+        .child(text("Point Craftski at your World of Warcraft folder").font(theme::HEADING).color(p().gold).wrap())
         .child(text("It reads the prices the TSM desktop app saves for WoW Forever, in the TradeSkillMaster_AppHelper addon. Without the desktop app, it can read TSM's public auction data instead, for the realm you pick in Settings.").font(theme::BODY).color(p().muted).wrap())
         .child(block(s, true).mt(8.0));
     col().grow(1.0).h_full().min_w(0.0).center().padding(24.0).child(panel)
