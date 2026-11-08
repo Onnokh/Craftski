@@ -18,6 +18,21 @@ pub enum Side {
     Horde,
 }
 
+impl Side {
+    pub const ALL: [Side; 2] = [Side::Horde, Side::Alliance];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Side::Alliance => "Alliance",
+            Side::Horde => "Horde",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Side> {
+        Side::ALL.into_iter().find(|s| s.name() == name)
+    }
+}
+
 /// Where a merchant's list of goods comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StockSource {
@@ -169,11 +184,7 @@ pub fn parse(db: &str, crawled: &str) -> Result<(Vec<Merchant>, HashMap<u32, Ite
             }
         };
         stock.sort_by_key(|s| s.item);
-        let side = match v.side.as_str() {
-            "Alliance" => Some(Side::Alliance),
-            "Horde" => Some(Side::Horde),
-            _ => None,
-        };
+        let side = Side::named(&v.side);
         let rep = v.rf.and_then(|f| db.factions.get(&f.to_string()).cloned());
         merchants.push(Merchant { npc, name: v.n, role: v.sub, zone: v.zone, at: (v.x, v.y), side, rep, source, stock });
     }

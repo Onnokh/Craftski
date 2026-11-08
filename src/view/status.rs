@@ -9,7 +9,6 @@ use rune::{Color, Cursor, El, Span, el, rich, row, text};
 use super::menu::opener;
 use super::widgets::{ARROW_ROOM, DROPDOWN_GAP, REFRESH, glyph};
 use super::{App, Dims, Ready};
-use crate::market;
 use crate::menu::Menu;
 use crate::overview::{Feed, Freshness, read_at};
 use crate::theme::{self, p};
@@ -112,7 +111,11 @@ fn reload() -> El {
         .role("button")
         .label("Reload TSM prices")
         .cursor(Cursor::Pointer)
-        .on_press(|s: &mut App| s.reload(&market::appdata_path()))
+        .on_press(|s: &mut App| {
+            if let Some(path) = s.appdata_path() {
+                s.reload(&path);
+            }
+        })
 }
 
 /// A control that stays bare until hovered, framed as the toolbar's while `open`.

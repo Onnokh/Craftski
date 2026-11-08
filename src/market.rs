@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 
 use crate::prices::{self, PriceBook};
@@ -48,15 +48,6 @@ impl Market {
     }
 }
 
-const DEFAULT_APPDATA: &str = r"C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\TradeSkillMaster_AppHelper\AppData.lua";
-
-/// `--appdata PATH`, else `TSM_APPDATA`, else the default Forever install.
-pub fn appdata_path() -> PathBuf {
-    let args: Vec<String> = std::env::args().collect();
-    let flag = args.iter().position(|a| a == "--appdata").and_then(|i| args.get(i + 1)).map(PathBuf::from);
-    flag.or_else(|| std::env::var_os("TSM_APPDATA").map(PathBuf::from)).unwrap_or_else(|| PathBuf::from(DEFAULT_APPDATA))
-}
-
 /// AppData.lua's modified time, None when the file or its time can't be read.
 pub fn modified(appdata: &Path) -> Option<SystemTime> {
     std::fs::metadata(appdata).and_then(|m| m.modified()).ok()
@@ -71,10 +62,10 @@ pub fn read_book(appdata: &Path) -> Result<(PriceBook, Read), String> {
     Ok((book, Read { at: SystemTime::now(), modified }))
 }
 
-/// `profession`'s recipes priced from `realm` as [`Market::new`] does. Blocks on file IO and,
-/// without a recipe cache, the network.
-pub fn load(realm: &str, profession: Profession) -> Result<Market, String> {
-    let (book, read) = read_book(&appdata_path())?;
+/// `profession`'s recipes priced from `realm` in `appdata` as [`Market::new`] does. Blocks on
+/// file IO and, without a recipe cache, the network.
+pub fn load(appdata: &Path, realm: &str, profession: Profession) -> Result<Market, String> {
+    let (book, read) = read_book(appdata)?;
     let recipes = recipes::load(profession)?;
     Ok(Market::new(book, read, recipes, realm))
 }

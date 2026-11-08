@@ -161,7 +161,7 @@ pub fn search_box(field: El, focused: bool) -> El {
 /// A checkbox and its label in the control frame; pressing anywhere on it flips the box. The
 /// game's box and tick, or without them a brass square, sits as far from the frame's left as
 /// from its top and bottom.
-pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
+pub fn checkbox<S: 'static>(label: &str, on: bool, flip: impl Fn(&mut S) + 'static) -> El {
     let (square, left, gap) = match (skin::art(Piece::Checkbox), skin::art(Piece::Checkmark)) {
         (Some(bx), Some(tick)) => {
             let square = el().w(22.0).h(22.0).pixels(bx).a11y_hidden();
@@ -315,4 +315,11 @@ static TICK: Icon = Icon {
     name: "tsm-check",
     view: 16.0,
     body: r#"<path d="m4.5 8.5 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+/// An open folder, drawn to the Rune Icons' 24pt grid and stroke.
+pub static FOLDER_OPEN: Icon = Icon {
+    name: "tsm-folder-open",
+    view: 24.0,
+    body: r#"<path d="M3 19V5h6l2 2h8v4M3 19l3-8h16l-3 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };

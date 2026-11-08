@@ -209,6 +209,11 @@ impl State {
         &self.zone
     }
 
+    /// The merchants, once they have loaded.
+    pub fn merchants(&self) -> Option<&[Merchant]> {
+        self.stocked().map(|f| f.catalog.merchants.as_slice())
+    }
+
     /// Every zone with something to flip, once the merchants are priced.
     pub fn zones(&self) -> Option<&[Zone]> {
         self.stocked().map(|f| f.zones.as_slice())
@@ -227,15 +232,18 @@ impl App {
             Err(e) => Shelf::Failed(e),
         };
         self.reprice_flips();
-        self.flips.select_first();
     }
 
-    /// Prices every flip on the chosen realm. Needs the market loaded.
+    /// Prices every flip on the chosen realm for this character, selecting the first when the
+    /// selection is gone. Needs the market loaded.
     pub(super) fn reprice_flips(&mut self) {
         let (Load::Ready(r), Shelf::Ready(f)) = (&self.load, &mut self.flips.shelf) else { return };
-        f.flips = flips::evaluate(&f.catalog.merchants, &f.catalog.items, &r.market.book, &flips::RULES);
+        f.flips = flips::evaluate(&f.catalog.merchants, &f.catalog.items, &r.market.book, &self.rules);
         f.zones = flip_rows::zones(&f.flips, &f.catalog.merchants);
         self.flips.refilter();
+        if self.flips.picked().is_none() {
+            self.flips.select_first();
+        }
     }
 }
 

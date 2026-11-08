@@ -1,8 +1,10 @@
 mod detail;
 mod flips;
+mod folder;
 mod header;
 mod menu;
 mod rail;
+mod settings_tab;
 mod skin;
 mod status;
 mod table;
@@ -18,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
+use crate::flips::Rules;
 use crate::icons;
 use crate::market::{self, Market};
 use crate::menu::{Menu, SOLD_STEPS};
@@ -31,15 +34,24 @@ use crate::sheets::Sheets;
 use crate::skin::Piece;
 use crate::theme::{self, p};
 use crate::tooltip::Tip;
+use crate::wow::{self, AppData};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Crafts,
     Flips,
+    Settings,
 }
 
 pub struct App {
     tab: Tab,
+    /// The AppData.lua prices come from, resolved once at start and on each folder the player
+    /// picks.
+    appdata: Option<AppData>,
+    /// The folders looked in at start, shown while no AppData.lua was found.
+    searched: Vec<PathBuf>,
+    /// Why the last folder picked gave no AppData.lua.
+    folder_note: Option<String>,
     load: Load,
     /// The loader threads' messages.
     inbox: Option<Receiver<Msg>>,
@@ -59,6 +71,8 @@ pub struct App {
     /// The player's rank in the shown profession as typed; blank shows every rank.
     skill: TextEdit,
     flips: flips::State,
+    /// The character the flips are priced for.
+    rules: Rules,
     menu: Option<Menu>,
     /// What the pointer rests on that opens a tooltip.
     tip: Option<Tip>,
@@ -74,6 +88,8 @@ pub struct App {
 
 enum Load {
     Loading,
+    /// No AppData.lua to read: none was found, or the one named is missing.
+    Unlocated,
     Failed(String),
     Ready(Box<Ready>),
 }
@@ -179,9 +195,14 @@ impl Dims {
 impl App {
     pub fn new() -> App {
         let profession = settings::start_profession().unwrap_or(Profession::Leatherworking);
+        let appdata = wow::locate();
+        let readable = appdata.as_ref().is_some_and(|a| a.path.is_file());
         App {
             tab: Tab::Crafts,
-            load: Load::Loading,
+            searched: if appdata.is_none() { wow::install_dirs() } else { Vec::new() },
+            appdata,
+            folder_note: None,
+            load: if readable { Load::Loading } else { Load::Unlocated },
             inbox: None,
             outbox: None,
             art_asks: None,
@@ -194,6 +215,7 @@ impl App {
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill(profession)),
             flips: flips::State::new(),
+            rules: settings::load_rules(),
             menu: None,
             tip: None,
             sheets: None,
@@ -203,18 +225,42 @@ impl App {
         }
     }
 
-    /// Lands the first load, made for `profession`.
+    /// Lands the first load, made for `profession`, and prices the flips should the merchants
+    /// have landed first.
     fn land(&mut self, profession: Profession, result: Result<Market, String>) {
         self.load = match result {
             Ok(market) => Load::Ready(Box::new(Ready { market, recipes: Recipes::Shown, evals: Vec::new(), rows: Vec::new(), hidden: None, reload_error: None })),
             Err(e) => Load::Failed(e),
         };
+        self.reprice_flips();
         if profession != self.profession {
             self.show_profession(self.profession);
             return;
         }
         self.refresh();
         self.select_first();
+    }
+
+    /// Reads TSM's prices with the shown profession's recipes on a loader thread, or asks for
+    /// the folder when there is no AppData.lua to read.
+    fn load_market(&mut self) {
+        let Some(appdata) = self.appdata.as_ref().map(|a| a.path.clone()).filter(|p| p.is_file()) else {
+            self.load = Load::Unlocated;
+            return;
+        };
+        self.load = Load::Loading;
+        let Some(out) = self.outbox.clone() else { return };
+        let (realm, profession) = (self.realm.clone(), self.profession);
+        std::thread::spawn(move || {
+            let market = settled(|| market::load(&appdata, &realm, profession));
+            let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
+            out.send(Msg::Market(profession, Box::new(market)));
+            prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
+        });
+    }
+
+    fn appdata_path(&self) -> Option<PathBuf> {
+        self.appdata.as_ref().map(|a| a.path.clone())
     }
 
     fn select_first(&mut self) {
@@ -369,7 +415,7 @@ impl App {
 
 pub fn setup(s: &mut App, wake: Waker) {
     widgets::load_coins(s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone())));
-    if !matches!(s.load, Load::Loading) || s.inbox.is_some() {
+    if !matches!(s.load, Load::Loading | Load::Unlocated) || s.inbox.is_some() {
         return;
     }
     let (tx, rx) = mpsc::channel();
@@ -382,13 +428,9 @@ pub fn setup(s: &mut App, wake: Waker) {
     std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, path)))));
     let sheets = out.clone();
     std::thread::spawn(move || sheets.send(Msg::Sheets(Box::new(settled(crate::sheets::load)))));
-    let (realm, profession) = (s.realm.clone(), s.profession);
+    s.load_market();
     std::thread::spawn(move || {
-        let market = settled(|| market::load(&realm, profession));
-        let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
-        out.send(Msg::Market(profession, Box::new(market)));
         fetch_rail(|name, path| out.send(Msg::Rail(name, path)));
-        prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
         let catalog = merchants::load();
         let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
         out.send(Msg::Catalog(Box::new(catalog)));
@@ -428,7 +470,9 @@ pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
     let ticked = now / 60 != s.now / 60;
     if ticked {
         s.now = now;
-        s.reload_if_changed(&market::appdata_path());
+        if let Some(path) = s.appdata_path() {
+            s.reload_if_changed(&path);
+        }
     }
     landed || ticked
 }
@@ -466,6 +510,9 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key == Key::Escape && s.close_menu() {
         return true;
     }
+    if s.tab == Tab::Settings {
+        return false;
+    }
     if s.tab == Tab::Flips {
         let f = &mut s.flips;
         if ev.is_command('k') {
@@ -501,7 +548,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
     let d = Dims { status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
     let main = match &s.load {
+        _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
+        Load::Unlocated => folder::not_found(s),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
         Load::Ready(_) if s.tab == Tab::Flips => flips::main(s, d),
         Load::Ready(r) => row()
@@ -546,16 +595,31 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 /// art it draws fetched and decoded, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
     s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
-    s.land(s.profession, market::load(&s.realm, s.profession));
+    land_now(s);
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
+}
+
+/// Prices read on this thread from the AppData.lua located, as the loader thread reads them.
+fn land_now(s: &mut App) {
+    let market = s.appdata_path().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|path| market::load(&path, &s.realm, s.profession));
+    s.land(s.profession, market);
+}
+
+/// A first launch where no AppData.lua was found, after picking a folder without one.
+pub fn scene_no_appdata(s: &mut App) {
+    (s.appdata, s.searched, s.load) = (None, wow::install_dirs(), Load::Unlocated);
+    s.picked_folder(Ok(Some(PathBuf::from(r"D:\Games\Warcraft"))));
+    show_icons(s, BTreeSet::new());
+    // An inbox keeps `setup` from starting loaders, which would land data after the snapshot.
+    s.inbox = Some(mpsc::channel().1);
 }
 
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
     s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
     s.tab = Tab::Flips;
-    s.land(s.profession, market::load(&s.realm, s.profession));
+    land_now(s);
     let catalog = merchants::load();
     let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
     s.land_catalog(catalog);
@@ -572,6 +636,12 @@ pub fn scene_flips_shared(s: &mut App) {
 pub fn scene_flips_hidden(s: &mut App) {
     scene_flips(s);
     s.flips.search_patterns_narrowly();
+}
+
+/// The settings tab over a loaded catalog, its reputations listed for the saved faction.
+pub fn scene_settings(s: &mut App) {
+    scene_flips(s);
+    s.tab = Tab::Settings;
 }
 
 /// The flips tab with the zone menu open.
@@ -683,6 +753,20 @@ mod tests {
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
+    }
+
+    #[test]
+    fn a_folder_without_apphelper_data_says_why_and_a_cancel_changes_nothing() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = App::new();
+        (s.appdata, s.load) = (None, Load::Unlocated);
+        let why = format!("No TSM AppHelper data under {}. Pick the folder that holds _forever_, and make sure the TSM desktop app has synced once.", dir.display());
+        s.picked_folder(Ok(Some(dir.clone())));
+        assert_eq!((s.folder_note.as_deref(), s.appdata.is_none(), matches!(s.load, Load::Unlocated)), (Some(why.as_str()), true, true));
+        s.picked_folder(Ok(None));
+        assert_eq!(s.folder_note.as_deref(), Some(why.as_str()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
