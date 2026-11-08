@@ -61,6 +61,16 @@ impl PriceBook {
         self.realm().and_then(|(_, b)| b.prices.get(&item)).or_else(|| self.commodities.prices.get(&item))
     }
 
+    /// Reads prices from `name`, or stays on the current realm when the file has none by that
+    /// name. Says whether the realm changed.
+    pub fn choose_realm(&mut self, name: &str) -> bool {
+        if !self.realms.contains_key(name) || self.realm.as_deref() == Some(name) {
+            return false;
+        }
+        self.realm = Some(name.to_owned());
+        true
+    }
+
     /// The chosen realm's prices, making a "PvP-Horde" realm to hold them in a book built by
     /// hand.
     #[cfg(test)]
@@ -270,11 +280,11 @@ select(2, ...).LoadData("APP_INFO","Global",[[return {version="1.0.9",lastSync=1
     }
 
     #[test]
-    fn each_realm_keeps_its_own_prices_and_age_and_the_first_by_name_is_read() {
+    fn each_realm_keeps_its_own_prices_and_age_and_the_first_is_read_until_another_is_chosen() {
         let src = r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=100,fields={"itemString","minBuyout"},data={{4234,6I},{2319,38}}}]])
 x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvE-Alliance",[[return {downloadTime=200,fields={"itemString","minBuyout"},data={{4234,7P}}}]])
 x.LoadData("AUCTIONDB_NON_COMMODITY_HISTORICAL","PvP-Horde",[[return {downloadTime=50,fields={"itemString","historical"},data={{4234,T}}}]])"#;
-        let book = parse(src).unwrap();
+        let mut book = parse(src).unwrap();
         let seen = |b: &RealmBook| (b.prices.len(), b.prices[&4234].min_buyout, b.prices[&4234].historical, b.updated);
         assert_eq!(book.realms.keys().collect::<Vec<_>>(), ["PvE-Alliance", "PvP-Horde"]);
         assert_eq!(seen(&book.realms["PvP-Horde"]), (2, Some(Copper(210)), Some(Copper(29)), Some(100)));
@@ -282,16 +292,23 @@ x.LoadData("AUCTIONDB_NON_COMMODITY_HISTORICAL","PvP-Horde",[[return {downloadTi
 
         let read = |b: &PriceBook| (b.realm().unwrap().0.to_owned(), b.realm_price(4234).unwrap().min_buyout, b.realm_price(2319).is_some());
         assert_eq!(read(&book), ("PvE-Alliance".into(), Some(Copper(249)), false));
+        assert!(book.choose_realm("PvP-Horde"));
+        assert_eq!(read(&book), ("PvP-Horde".into(), Some(Copper(210)), true));
+        assert!(!book.choose_realm("PvP-Horde"));
+        assert!(!book.choose_realm("Gone-Realm"));
+        assert_eq!(read(&book).0, "PvP-Horde");
     }
 
     #[test]
-    fn commodity_blocks_price_any_realm_and_name_the_region() {
+    fn commodity_blocks_price_every_realm_and_name_the_region() {
         let src = r#"x.LoadData("AUCTIONDB_COMMODITY_HISTORICAL","Forever-EU",[[return {downloadTime=5,fields={"itemString","historical"},data={{2318,T}}}]])
 x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvP-Horde",[[return {downloadTime=6,fields={"itemString","minBuyout"},data={{4234,6I}}}]])
 x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","PvE-Alliance",[[return {downloadTime=7,fields={"itemString","minBuyout"},data={{4234,7P}}}]])"#;
-        let book = parse(src).unwrap();
+        let mut book = parse(src).unwrap();
         assert_eq!((book.realms.keys().map(String::as_str).collect::<Vec<_>>(), book.region_scope.as_deref()), (vec!["PvE-Alliance", "PvP-Horde"], Some("Forever-EU")));
         assert_eq!((book.realm_price(2318).unwrap().historical, book.realms["PvE-Alliance"].updated), (Some(Copper(29)), Some(7)));
+        book.choose_realm("PvP-Horde");
+        assert_eq!(book.realm_price(2318).unwrap().historical, Some(Copper(29)));
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! what choosing an item changes, and when a pill reads as narrowing the rows.
 
 use crate::flip_rows::{Supply, Zone};
+use crate::overview::Feed;
 use crate::settings;
 
 /// A minimum of sales a day: the pill's value, the menu's words and the threshold.
@@ -32,6 +33,7 @@ pub enum Menu {
     FlipsSold,
     Supply,
     Zone,
+    Realm,
 }
 
 /// What choosing a menu item sets.
@@ -43,6 +45,8 @@ pub enum Pick {
     FlipsSold(usize),
     Supply(Supply),
     Zone(String),
+    /// A realm in AppData.lua, by name.
+    Realm(String),
 }
 
 /// One line of a menu: its words, a quiet note at its right, and whether it is the current
@@ -84,6 +88,14 @@ pub fn zones(zones: &[Zone], current: &str) -> Vec<Item> {
             on: z.name == current,
             pick: Pick::Zone(z.name.clone()),
         })
+        .collect()
+}
+
+/// Every realm AppData.lua holds, each noting how old its prices are.
+pub fn realms(feeds: &[Feed], current: &str) -> Vec<Item> {
+    feeds
+        .iter()
+        .map(|f| Item { label: f.name.clone(), hint: f.age.as_ref().map(|(ago, _)| ago.clone()), spoken: f.line(), on: f.name == current, pick: Pick::Realm(f.name.clone()) })
         .collect()
 }
 
@@ -141,6 +153,18 @@ mod tests {
             vec![
                 Item { label: "Mulgore".into(), hint: Some("4".into()), spoken: "Mulgore, 4 merchants".into(), on: false, pick: Pick::Zone("Mulgore".into()) },
                 Item { label: "Thunder Bluff".into(), hint: Some("37".into()), spoken: "Thunder Bluff, 37 merchants".into(), on: true, pick: Pick::Zone("Thunder Bluff".into()) },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_realm_menu_lists_each_realm_with_its_age_and_marks_the_one_priced() {
+        let feeds = [Feed::new("PvE-Alliance".into(), None, 0), Feed::new("PvP-Horde".into(), Some(0), 3600)];
+        assert_eq!(
+            realms(&feeds, "PvP-Horde"),
+            vec![
+                Item { label: "PvE-Alliance".into(), hint: None, spoken: "PvE-Alliance".into(), on: false, pick: Pick::Realm("PvE-Alliance".into()) },
+                Item { label: "PvP-Horde".into(), hint: Some("1 hour ago".into()), spoken: "PvP-Horde, 1 hour ago".into(), on: true, pick: Pick::Realm("PvP-Horde".into()) },
             ]
         );
     }

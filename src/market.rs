@@ -21,13 +21,24 @@ pub struct Read {
 }
 
 impl Market {
-    pub fn new(book: PriceBook, read: Read, recipes: Vec<Recipe>) -> Market {
+    /// Prices from `realm`, or from the first realm when the book has none by that name.
+    pub fn new(mut book: PriceBook, read: Read, recipes: Vec<Recipe>, realm: &str) -> Market {
+        book.choose_realm(realm);
         let costs = CostBook::new(&recipes, &book);
         Market { book, read, recipes, costs }
     }
 
     pub fn costs(&self) -> &CostBook {
         &self.costs
+    }
+
+    /// Prices from `realm` when the book has it, saying whether that changed anything.
+    pub fn choose_realm(&mut self, realm: &str) -> bool {
+        let moved = self.book.choose_realm(realm);
+        if moved {
+            self.costs = CostBook::new(&self.recipes, &self.book);
+        }
+        moved
     }
 }
 
@@ -54,9 +65,10 @@ pub fn read_book(appdata: &Path) -> Result<(PriceBook, Read), String> {
     Ok((book, Read { at: SystemTime::now(), modified }))
 }
 
-/// Blocks on file IO and, without a recipe cache, the network.
-pub fn load() -> Result<Market, String> {
+/// Prices from `realm` as [`Market::new`] does. Blocks on file IO and, without a recipe cache,
+/// the network.
+pub fn load(realm: &str) -> Result<Market, String> {
     let (book, read) = read_book(&appdata_path())?;
     let recipes = recipes::load(&LEATHERWORKING)?;
-    Ok(Market::new(book, read, recipes))
+    Ok(Market::new(book, read, recipes, realm))
 }

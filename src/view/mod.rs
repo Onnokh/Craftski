@@ -20,6 +20,7 @@ use crate::icons;
 use crate::market::{self, Market};
 use crate::menu::{Menu, SOLD_STEPS};
 use crate::merchants::{self, Catalog};
+use crate::prices;
 use crate::profit::{self, Evaluation, PriceOrigin};
 use crate::recipes::{FileDataId, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
@@ -48,6 +49,8 @@ pub struct App {
     skill: TextEdit,
     flips: flips::State,
     menu: Option<Menu>,
+    /// The realm the player last chose, which prices come from whenever AppData.lua holds it.
+    realm: String,
     /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
     now: u64,
 }
@@ -144,6 +147,7 @@ impl App {
             skill: TextEdit::new(settings::load_skill()),
             flips: flips::State::new(),
             menu: None,
+            realm: settings::load_realm(),
             now: unix_secs(SystemTime::now()),
         }
     }
@@ -166,7 +170,7 @@ impl App {
         let Load::Ready(r) = &mut self.load else { return };
         match market::read_book(appdata) {
             Ok((book, read)) => {
-                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes));
+                r.market = Market::new(book, read, std::mem::take(&mut r.market.recipes), &self.realm);
                 r.reload_error = None;
             }
             Err(e) => {
@@ -260,12 +264,13 @@ pub fn setup(s: &mut App, wake: Waker) {
     }
     let (tx, rx) = mpsc::channel();
     s.inbox = Some(rx);
+    let realm = s.realm.clone();
     std::thread::spawn(move || {
         let send = |m: Msg| {
             let _ = tx.send(m);
             wake();
         };
-        let market = market::load();
+        let market = market::load(&realm);
         let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
         send(Msg::Market(Box::new(market)));
         fetch_rail(|name, image| send(Msg::Rail(name, image)));
@@ -420,7 +425,7 @@ fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
 
 /// Fetches every icon and waits for each to decode, so the snapshot shows them.
 pub fn scene_loaded(s: &mut App) {
-    s.land(market::load());
+    s.land(market::load(&s.realm));
     let Load::Ready(r) = &s.load else { return };
     show_icons(s, icons::referenced(&r.market.recipes));
 }
@@ -428,7 +433,7 @@ pub fn scene_loaded(s: &mut App) {
 /// The flips tab in Thunder Bluff, priced as the window would price it.
 pub fn scene_flips(s: &mut App) {
     s.tab = Tab::Flips;
-    s.land(market::load());
+    s.land(market::load(&s.realm));
     let catalog = merchants::load();
     let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
     s.land_catalog(catalog);
@@ -512,6 +517,18 @@ pub fn scene_stale(s: &mut App) {
     r.market.book.region_updated = Some(s.now - 30 * 3600);
 }
 
+/// `loaded` with the status bar's realm menu open over a second realm, PvE-Alliance, made up
+/// from the first with prices five hours older, since AppData.lua holds one realm.
+pub fn scene_realms(s: &mut App) {
+    scene_loaded(s);
+    let Load::Ready(r) = &mut s.load else { return };
+    if let Some((_, realm)) = r.market.book.realm() {
+        let older = prices::RealmBook { updated: realm.updated.map(|t| t - 5 * 3600), ..realm.clone() };
+        r.market.book.realms.insert("PvE-Alliance".into(), older);
+    }
+    s.menu = Some(Menu::Realm);
+}
+
 /// `flips` after a reload from a file that isn't there: the status bar says why and the old
 /// prices stay.
 pub fn scene_reload_failed(s: &mut App) {
@@ -570,13 +587,39 @@ mod tests {
     }
 
     #[test]
+    fn choosing_a_realm_reprices_from_it_and_holds_through_a_reload() {
+        let dir = std::env::temp_dir().join(format!("tsm-crafts-realm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("AppData.lua");
+        std::fs::write(&path, [appdata("PvE-Alliance", 100, "6I"), appdata("PvP-Horde", 200, "7P")].join("
+")).unwrap();
+        let mut s = App::new();
+        s.realm = "Gone-Realm".into();
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), &s.realm)));
+        let seen = |s: &App| {
+            let book = &s.ready().unwrap().market.book;
+            (book.realm().map(|(name, _)| name.to_owned()), book.realm_price(4234).and_then(|p| p.min_buyout))
+        };
+        assert_eq!(seen(&s), (Some("PvE-Alliance".into()), Some(Copper(210))));
+
+        let items: Vec<(String, bool)> = s.menu_items(Menu::Realm).into_iter().map(|i| (i.label, i.on)).collect();
+        assert_eq!(items, [("PvE-Alliance".into(), true), ("PvP-Horde".into(), false)]);
+
+        s.use_realm("PvP-Horde".into());
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(Copper(249))));
+        s.reload(&path);
+        assert_eq!(seen(&s), (Some("PvP-Horde".into()), Some(Copper(249))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn reload_takes_the_new_prices_and_keeps_the_old_ones_when_the_read_fails() {
         let dir = std::env::temp_dir().join(format!("tsm-crafts-reload-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let seen = |s: &App| {
             let r = s.ready().unwrap();
             let book = &r.market.book;
@@ -603,7 +646,7 @@ mod tests {
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
         let mut s = App::new();
-        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new())));
+        s.land(market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let read_at = |s: &App| s.ready().unwrap().market.read.at;
         let first = read_at(&s);
 

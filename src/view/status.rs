@@ -1,14 +1,16 @@
-//! The strip under a tab's table: the game, the realm prices come from and the region's sales
-//! feed with their ages, when the app read TSM's file, and a Reload.
+//! The strip under a tab's table: the game, a dropdown of the realm prices come from, the
+//! region's sales feed, each with its age, when the app read TSM's file, and a Reload.
 
 use std::time::UNIX_EPOCH;
 
 use rune::time::LocalTime;
 use rune::{Color, Cursor, El, Span, el, rich, row, text};
 
+use super::menu::{CHEVRON, opener};
 use super::widgets::{REFRESH, glyph};
 use super::{App, Dims, Ready};
 use crate::market;
+use crate::menu::Menu;
 use crate::overview::{Feed, Freshness, read_at};
 use crate::theme::{self, p};
 
@@ -23,6 +25,11 @@ const DOT: f32 = 6.0;
 const DOT_GAP: f32 = 6.0;
 /// Between "Prices" and the realm it names.
 const LABEL_GAP: f32 = 8.0;
+/// The realm pill: status bar scale, its sides padded 8 and 6 inside a border that takes no
+/// room.
+const PILL: f32 = 24.0;
+const PILL_LEFT: f32 = 9.0;
+const PILL_RIGHT: f32 = 7.0;
 
 /// What the bar shows at a width: the region feed or not, and the read time or not. The read
 /// time goes first, then the region feed; the last fit truncates the realm when even it
@@ -39,7 +46,9 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let fits = FITS.map(|(with_region, with_read)| (with_region.then_some(&region), error.as_deref().or(with_read.then_some(read.as_str()))));
     let fit = fits.iter().find(|(region, note)| needed(&realm, *region, *note, d.gap) <= room);
     let (region, note) = fit.unwrap_or(&fits[2]);
+    let squeeze = fit.is_none();
 
+    let prices = row().gap(LABEL_GAP).center_y().child(caption(PRICES, p().faint)).child(realm_pill(s, &realm, squeeze));
     let mut bar = row()
         .key("status")
         .w_full()
@@ -52,33 +61,50 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
         .border_sides([1.0, 0.0, 0.0, 0.0], p().line)
         .child(caption(GAME, p().text))
         .child(el().w(1.0).h(16.0).fill(p().line).a11y_hidden())
-        .child(row().gap(LABEL_GAP).center_y().child(caption(PRICES, p().faint)).child(feed(&realm, p().text, fit.is_none())));
+        .child(if squeeze { prices.shrink().min_w(0.0) } else { prices });
     if let Some(region) = region {
-        bar = bar.child(feed(region, p().muted, false));
+        bar = bar.child(row().gap(DOT_GAP).center_y().label(region.line()).children(feed(region, p().muted, false)));
     }
     bar = bar.child(el().grow(1.0));
     if let Some(note) = note {
-        bar = bar.child(if error.is_some() { caption(note, p().loss).truncate().shrink().min_w(0.0) } else { caption(note, p().faint) });
+        // Squeezed, the error keeps only the width `needed` counted, so the realm keeps the rest.
+        let error_note = || caption(note, p().loss).truncate().shrink().min_w(0.0);
+        bar = bar.child(match (error.is_some(), squeeze) {
+            (true, true) => error_note().max_w(NOTE_KEPT),
+            (true, false) => error_note(),
+            (false, _) => caption(note, p().faint),
+        });
     }
     bar.child(reload())
 }
 
+/// The realm prices come from, as a small pill that opens the list of realms in AppData.lua.
+fn realm_pill(s: &App, realm: &Feed, squeeze: bool) -> El {
+    let open = s.menu == Some(Menu::Realm);
+    let base = row()
+        .h(PILL)
+        .pl(PILL_LEFT)
+        .pr(PILL_RIGHT)
+        .gap(DOT_GAP)
+        .center_y()
+        .radius(4.0)
+        .border(1.0, if open { p().line2 } else { p().line })
+        .hover(Color::WHITE.alpha(0.03));
+    let base = if squeeze { base.shrink().min_w(0.0) } else { base };
+    opener(base, Menu::Realm, format!("Prices from {}", realm.line()), feed(realm, p().text, squeeze))
+}
+
 /// A dot and the feed's words, which truncate only when `squeeze` says nothing else fits.
-fn feed(f: &Feed, color: Color, squeeze: bool) -> El {
+fn feed(f: &Feed, color: Color, squeeze: bool) -> Vec<El> {
     let line = f.line();
     let words = match &f.age {
         // Past fresh, the age words take the dot's colour, so the warning reads without the dot.
         Some((ago, fresh)) if *fresh != Freshness::Fresh => rich(line.clone(), vec![Span::new(line.len() - ago.len(), line.len()).color(tint(*fresh))]),
-        _ => text(line.clone()),
+        _ => text(line),
     };
     let words = words.font(theme::CAPTION).color(color).truncate();
-    let out = row().gap(DOT_GAP).center_y().label(line);
-    let (words, out) = if squeeze { (words.shrink().min_w(0.0), out.shrink().min_w(0.0)) } else { (words, out) };
-    let out = match f.age {
-        Some((_, fresh)) => out.child(el().w(DOT).h(DOT).radius(DOT / 2.0).fill(tint(fresh)).a11y_hidden()),
-        None => out,
-    };
-    out.child(words)
+    let dot = f.age.as_ref().map(|(_, fresh)| el().w(DOT).h(DOT).radius(DOT / 2.0).fill(tint(*fresh)).a11y_hidden());
+    dot.into_iter().chain([if squeeze { words.shrink().min_w(0.0) } else { words }]).collect()
 }
 
 fn reload() -> El {
@@ -112,7 +138,8 @@ fn caption(words: &str, color: Color) -> El {
 fn needed(realm: &Feed, region: Option<&Feed>, note: Option<&str>, gap: f32) -> f32 {
     let w = |words: &str| rune::text::measure(words, &[], theme::CAPTION, None).0;
     let feed = |f: &Feed| w(&f.line()) + if f.age.is_some() { DOT + DOT_GAP } else { 0.0 };
-    let mut parts = vec![w(GAME), 1.0, w(PRICES) + LABEL_GAP + feed(realm)];
+    let pill = PILL_LEFT + feed(realm) + DOT_GAP + CHEVRON + PILL_RIGHT;
+    let mut parts = vec![w(GAME), 1.0, w(PRICES) + LABEL_GAP + pill];
     parts.extend(region.map(feed));
     parts.push(0.0);
     parts.extend(note.map(|n| w(n).min(NOTE_KEPT)));

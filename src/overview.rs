@@ -64,6 +64,11 @@ impl Feed {
         }
     }
 
+    /// Every realm AppData.lua holds, by name.
+    pub fn realms(book: &PriceBook, now: u64) -> Vec<Feed> {
+        book.realms.iter().map(|(name, realm)| Feed::new(name.clone(), realm.updated, now)).collect()
+    }
+
     /// The region's sales: "Region Forever-EU", or "Region prices" when AppData names no scope.
     pub fn region(book: &PriceBook, now: u64) -> Feed {
         let name = book.region_scope.as_deref().map_or_else(|| "Region prices".into(), |scope| format!("Region {scope}"));
@@ -137,6 +142,15 @@ mod tests {
         let (realm, region) = (Feed::realm(&book, now), Feed::region(&book, now));
         assert_eq!((realm.line().as_str(), realm.age.map(|a| a.1)), ("PvP-Horde, 1 day ago", Some(Freshness::Stale)));
         assert_eq!(region.line(), "Region Forever-EU, 1 day ago");
+    }
+
+    #[test]
+    fn every_realm_in_appdata_is_a_feed_of_its_own() {
+        let mut book = PriceBook::default();
+        book.realm_prices_mut();
+        book.realms.insert("PvE-Alliance".into(), crate::prices::RealmBook { updated: Some(100), ..Default::default() });
+        let lines: Vec<String> = Feed::realms(&book, 100 + 3 * 3600).iter().map(Feed::line).collect();
+        assert_eq!(lines, ["PvE-Alliance, 3 hours ago", "PvP-Horde"]);
     }
 
     #[test]

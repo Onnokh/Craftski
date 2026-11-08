@@ -40,7 +40,7 @@ fn main() {
     }
     rune::run_windows(|displays: &[Display]| {
         let spec = AppSpec::<view::App> {
-            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("reload-failed", view::scene_reload_failed)],
+            scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed)],
             setup: Some(view::setup),
             poll: Some(view::poll),
             on_key: Some(view::on_key),
@@ -64,7 +64,7 @@ fn centered(origin: (i32, i32), display: (u32, u32), scale: f64, size: (f32, f32
 
 fn dump() -> Result<(), String> {
     use rows::{Column, Filter, Sort};
-    let m = market::load()?;
+    let m = market::load(&settings::load_realm())?;
     let evals: Vec<_> = m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs())).collect();
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, max_skill: None, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;
@@ -101,7 +101,7 @@ fn flips() -> Result<(), String> {
     use flip_rows::{Column, Filter};
     let args: Vec<String> = std::env::args().collect();
     let zone = args.iter().position(|a| a == "--flips").and_then(|i| args.get(i + 1)).filter(|z| !z.starts_with("--")).map_or(flip_rows::HOME, String::as_str);
-    let m = market::load()?;
+    let m = market::load(&settings::load_realm())?;
     let c = merchants::load()?;
     let all = flips::evaluate(&c.merchants, &c.items, &m.book, &flips::RULES);
     let filter = Filter { zone, hide_unprofitable: false, min_sold_per_day: 0.0, query: "", supply: flip_rows::Supply::All };
