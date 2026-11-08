@@ -3,7 +3,7 @@
 
 use rune::{El, FileDialogOptions, FileDialogResult, Tx, col, text};
 
-use super::widgets::{FOLDER_OPEN, red_button};
+use super::widgets::{FOLDER_OPEN, button};
 use super::{App, Load};
 use crate::settings;
 use crate::theme::{self, p};
@@ -39,7 +39,7 @@ pub fn block(s: &App) -> El {
     if let Some(note) = &s.folder_note {
         out = out.child(text(note).font(theme::CAPTION).color(p().loss).wrap().mt(4.0));
     }
-    let choose = red_button("Choose folder...", "Choose your World of Warcraft folder", &FOLDER_OPEN, Some(184.0), 36.0, |s: &mut App, tx: &mut Tx| s.choose_folder(tx));
+    let choose = button("Choose folder...", "Choose your World of Warcraft folder", &FOLDER_OPEN, |s: &mut App, tx: &mut Tx| s.choose_folder(tx)).w(184.0);
     out.child(col().pt(12.0).child(choose))
 }
 
