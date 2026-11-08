@@ -38,11 +38,29 @@ pub struct ReagentPrice {
     pub origin: PriceOrigin,
 }
 
+/// Which auction figure priced an item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuctionBasis {
+    /// The cheapest listing on the realm in the latest scan.
+    MinBuyout,
+    /// TSM's realm market value, a roughly 14-day average, when nothing is listed now.
+    MarketValue,
+    /// The region's market value.
+    Region,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuctionPrice {
+    pub unit: Copper,
+    pub basis: AuctionBasis,
+}
+
 /// The auction house price, the only one a crafted item sells at.
-pub fn auction_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<Copper> {
+pub fn auction_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<AuctionPrice> {
+    let at = |unit: Option<Copper>, basis| unit.map(|unit| AuctionPrice { unit, basis });
     match source {
-        PriceSource::Realm => book.realm.get(&item).and_then(|p| p.market_value.or(p.min_buyout)),
-        PriceSource::Region => book.region.get(&item).and_then(|p| p.market_value),
+        PriceSource::Realm => book.realm.get(&item).and_then(|p| at(p.min_buyout, AuctionBasis::MinBuyout).or(at(p.market_value, AuctionBasis::MarketValue))),
+        PriceSource::Region => book.region.get(&item).and_then(|p| at(p.market_value, AuctionBasis::Region)),
     }
 }
 
@@ -50,7 +68,7 @@ pub fn auction_price(book: &PriceBook, item: u32, source: PriceSource) -> Option
 /// `min(dbmarket, vendorbuy, ...)`. A tie goes to the vendor, which never runs out.
 pub fn reagent_price(book: &PriceBook, item: u32, source: PriceSource) -> Option<ReagentPrice> {
     let vendor = book.vendor.get(item).map(|unit| ReagentPrice { unit, origin: PriceOrigin::Vendor });
-    let auction = auction_price(book, item, source).map(|unit| ReagentPrice { unit, origin: PriceOrigin::Auction });
+    let auction = auction_price(book, item, source).map(|p| ReagentPrice { unit: p.unit, origin: PriceOrigin::Auction });
     match (vendor, auction) {
         (Some(v), Some(a)) => Some(if a.unit < v.unit { a } else { v }),
         (v, a) => v.or(a),
@@ -67,7 +85,7 @@ pub fn evaluate(recipe: &Recipe, book: &PriceBook, source: PriceSource) -> Evalu
         }
     }
     let cost = unpriced.is_empty().then_some(Copper(total));
-    let resale = auction_price(book, recipe.item_id, source).map(|Copper(c)| Copper((c as f64 * f64::from(recipe.quantity) * SELLER_PERCENT / 100.0).floor() as u64));
+    let resale = auction_price(book, recipe.item_id, source).map(|AuctionPrice { unit: Copper(c), .. }| Copper((c as f64 * f64::from(recipe.quantity) * SELLER_PERCENT / 100.0).floor() as u64));
     let profit = cost.zip(resale).map(|(c, r)| r.0 as i64 - c.0 as i64);
     let margin = profit.zip(cost).filter(|(_, c)| c.0 > 0).map(|(p, c)| p as f32 / c.0 as f32);
     Evaluation {
@@ -106,16 +124,21 @@ mod tests {
     }
 
     #[test]
-    fn realm_prices_fall_back_to_min_buyout_and_take_the_cut_on_every_crafted_unit() {
+    fn realm_prices_take_the_current_min_buyout_first_and_the_cut_on_every_crafted_unit() {
         assert_eq!(evaluate(&cured_rugged_hide(), &book(), PriceSource::Realm), Evaluation {
-            cost: Some(Copper(800)),
+            cost: Some(Copper(700)),
             unpriced: vec![],
             resale: Some(Copper(1900)),
-            profit: Some(1100),
-            margin: Some(1.375),
+            profit: Some(1200),
+            margin: Some(1.7142857),
             sold_per_day: Some(3.5),
             auctions: Some(12),
         });
+        let b = book();
+        assert_eq!(auction_price(&b, 8171, PriceSource::Realm), Some(AuctionPrice { unit: Copper(250), basis: AuctionBasis::MinBuyout }));
+        assert_eq!(auction_price(&b, 15407, PriceSource::Realm), Some(AuctionPrice { unit: Copper(1000), basis: AuctionBasis::MarketValue }));
+        assert_eq!(auction_price(&b, 15407, PriceSource::Region), Some(AuctionPrice { unit: Copper(2000), basis: AuctionBasis::Region }));
+        assert_eq!(auction_price(&b, 15409, PriceSource::Region), None);
     }
 
     #[test]
@@ -136,10 +159,10 @@ mod tests {
         let mut b = book();
         b.vendor = VendorBook::new(HashMap::from([(8171, Copper(350)), (15409, Copper(150)), (15407, Copper(10))]), HashMap::new());
         let realm = evaluate(&cured_rugged_hide(), &b, PriceSource::Realm);
-        assert_eq!((realm.cost, realm.resale, realm.profit), (Some(Copper(750)), Some(Copper(1900)), Some(1150)));
+        assert_eq!((realm.cost, realm.resale, realm.profit), (Some(Copper(650)), Some(Copper(1900)), Some(1250)));
         let region = evaluate(&cured_rugged_hide(), &b, PriceSource::Region);
         assert_eq!((region.cost, region.unpriced, region.resale, region.profit), (Some(Copper(850)), vec![], Some(Copper(3800)), Some(2950)));
-        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(300), origin: PriceOrigin::Auction }));
+        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(250), origin: PriceOrigin::Auction }));
         assert_eq!(reagent_price(&b, 8171, PriceSource::Region), Some(ReagentPrice { unit: Copper(350), origin: PriceOrigin::Vendor }));
         assert_eq!(reagent_price(&b, 2321, PriceSource::Realm), None);
     }
@@ -147,16 +170,16 @@ mod tests {
     #[test]
     fn a_tie_goes_to_the_vendor() {
         let mut b = book();
-        b.vendor = VendorBook::new(HashMap::new(), HashMap::from([(8171, Copper(300))]));
-        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(300), origin: PriceOrigin::Vendor }));
+        b.vendor = VendorBook::new(HashMap::new(), HashMap::from([(8171, Copper(250))]));
+        assert_eq!(reagent_price(&b, 8171, PriceSource::Realm), Some(ReagentPrice { unit: Copper(250), origin: PriceOrigin::Vendor }));
     }
 
     #[test]
     fn a_loss_is_negative_profit() {
         let mut recipe = cured_rugged_hide();
         recipe.quantity = 1.0;
-        recipe.reagents[0].count = 3;
+        recipe.reagents[0].count = 4;
         let e = evaluate(&recipe, &book(), PriceSource::Realm);
-        assert_eq!((e.cost, e.resale, e.profit), (Some(Copper(1100)), Some(Copper(950)), Some(-150)));
+        assert_eq!((e.cost, e.resale, e.profit), (Some(Copper(1200)), Some(Copper(950)), Some(-250)));
     }
 }

@@ -4,9 +4,9 @@ use rune::{El, ScrollSpec, Span, Tx, col, el, row, text};
 
 use super::widgets::{ButtonKind, Money, WARNING, button, caps, flexible, glyph, icon_frame, section, unknown};
 use super::{App, Dims, Ready, recipe_at};
-use crate::breakdown::{Bar, ReagentLine, breakdown, caution, shopping_list, subtitle, waterfall, wowhead_url};
+use crate::breakdown::{Bar, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, waterfall, wowhead_url};
 use crate::copper::{Copper, signed};
-use crate::profit::{Evaluation, PriceOrigin, PriceSource};
+use crate::profit::{AuctionBasis, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{Recipe, Skill};
 use crate::rows::percent;
 use crate::theme::{self, p};
@@ -23,7 +23,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let (recipe, e) = recipe_at(r, index);
     let b = breakdown(recipe, e, &r.market.book, s.source);
     let inner = d.detail - 2.0 * PAD;
-    let mut body = col().w_full().gap(20.0).child(title(s, recipe)).child(profit_card(e, s.source)).child(money_flow(e, b.gross, b.cut, inner)).child(reagents(s, &b.reagents));
+    let mut body = col().w_full().gap(20.0).child(title(s, recipe)).child(profit_card(e, s.source)).child(money_flow(e, b.sale, inner)).child(reagents(s, &b.reagents));
     if let Some(skill) = recipe.skill {
         body = body.child(skill_range(skill));
     }
@@ -92,11 +92,19 @@ fn profit_card(e: &Evaluation, source: PriceSource) -> El {
 }
 
 /// The waterfall from the sale price down to the profit. `width` is the panel's inner width.
-fn money_flow(e: &Evaluation, gross: Option<Copper>, cut: Option<Copper>, width: f32) -> El {
+fn money_flow(e: &Evaluation, sale: Option<Sale>, width: f32) -> El {
     let out = col().w_full().child(section("Where the money goes"));
-    let (Some(gross), Some(cut), Some(cost), Some(profit)) = (gross, cut, e.cost, e.profit) else {
-        return out.child(text("Needs prices for the item and every reagent.").font(theme::sans(13.0, 400.0)).color(p().muted));
+    let out = match (sale, e.cost, e.profit) {
+        (Some(sale), Some(cost), Some(profit)) => out.child(flow(sale, cost, profit, width)),
+        _ => out.child(text("Needs prices for the item and every reagent.").font(theme::sans(13.0, 400.0)).color(p().muted)),
     };
+    match sale {
+        Some(Sale { basis: AuctionBasis::MarketValue, .. }) => out.child(text("No current listings · 14-day average").font(theme::sans(12.0, 400.0)).color(p().muted).mt(6.0)),
+        _ => out,
+    }
+}
+
+fn flow(Sale { gross, cut, .. }: Sale, cost: Copper, profit: i64, width: f32) -> El {
     let w = waterfall(gross, cut, cost);
     let amount = Money::new(theme::mono(12.5, 400.0), p().text);
     let track = width - 96.0 - 104.0 - 20.0;
@@ -112,7 +120,7 @@ fn money_flow(e: &Evaluation, gross: Option<Copper>, cut: Option<Copper>, width:
     };
     let minus = |c: Copper| amount.with_sign("\u{2212}", c);
     let (profit_label, profit_color) = if profit < 0 { ("Loss", p().loss) } else { ("Profit", p().profit) };
-    out.child(line("Sells for", p().muted, w.sells, p().sells_bar, amount.show(gross)))
+    col().w_full().child(line("Sells for", p().muted, w.sells, p().sells_bar, amount.show(gross)))
         .child(line("AH cut 5%", p().muted, w.cut, p().loss, minus(cut)))
         .child(line("Mats", p().muted, w.mats, p().loss.alpha(0.75), minus(cost)))
         .child(line(profit_label, p().text, w.profit, profit_color, amount.color(profit_color).with_sign(if profit < 0 { "\u{2212}" } else { "" }, Copper(profit.unsigned_abs()))))

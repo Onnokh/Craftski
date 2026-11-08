@@ -3,7 +3,7 @@
 
 use crate::copper::Copper;
 use crate::prices::PriceBook;
-use crate::profit::{self, Evaluation, PriceOrigin, PriceSource, ReagentPrice};
+use crate::profit::{self, AuctionBasis, Evaluation, PriceOrigin, PriceSource, ReagentPrice};
 use crate::recipes::{Reagent, Recipe};
 
 /// Realm listings at or below this count make a price easy to move.
@@ -11,10 +11,17 @@ const FEW_LISTED: u32 = 5;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Breakdown<'a> {
-    /// The crafted output at market value, before the auction house cut.
-    pub gross: Option<Copper>,
-    pub cut: Option<Copper>,
+    pub sale: Option<Sale>,
     pub reagents: Vec<ReagentLine<'a>>,
+}
+
+/// The crafted output on the auction house.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sale {
+    /// Before the auction house cut.
+    pub gross: Copper,
+    pub cut: Copper,
+    pub basis: AuctionBasis,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,7 +34,10 @@ pub struct ReagentLine<'a> {
 }
 
 pub fn breakdown<'a>(recipe: &'a Recipe, eval: &Evaluation, book: &PriceBook, source: PriceSource) -> Breakdown<'a> {
-    let gross = profit::auction_price(book, recipe.item_id, source).map(|Copper(c)| Copper((c as f64 * f64::from(recipe.quantity)).round() as u64));
+    let sale = profit::auction_price(book, recipe.item_id, source).zip(eval.resale).map(|(price, resale)| {
+        let gross = Copper((price.unit.0 as f64 * f64::from(recipe.quantity)).round() as u64);
+        Sale { gross, cut: Copper(gross.0.saturating_sub(resale.0)), basis: price.basis }
+    });
     let reagents = recipe
         .reagents
         .iter()
@@ -36,7 +46,7 @@ pub fn breakdown<'a>(recipe: &'a Recipe, eval: &Evaluation, book: &PriceBook, so
             ReagentLine { reagent, price, total: price.map(|p| Copper(p.unit.0 * u64::from(reagent.count))), listed: book.realm.get(&reagent.item_id).and_then(|p| p.num_auctions) }
         })
         .collect();
-    Breakdown { gross, cut: gross.zip(eval.resale).map(|(g, r)| Copper(g.0.saturating_sub(r.0))), reagents }
+    Breakdown { sale, reagents }
 }
 
 /// A bar on a track that runs from 0 to 1.
@@ -162,9 +172,20 @@ mod tests {
         let (recipe, book) = (nightscape_cloak(), book());
         let eval = profit::evaluate(&recipe, &book, PriceSource::Realm);
         let b = breakdown(&recipe, &eval, &book, PriceSource::Realm);
-        assert_eq!((b.gross, b.cut, eval.resale, eval.cost), (Some(Copper(50_788)), Some(Copper(2_540)), Some(Copper(48_248)), Some(Copper(10_076))));
+        assert_eq!((b.sale, eval.resale, eval.cost), (Some(Sale { gross: Copper(50_788), cut: Copper(2_540), basis: AuctionBasis::MarketValue }), Some(Copper(48_248)), Some(Copper(10_076))));
         let lines: Vec<_> = b.reagents.iter().map(|l| (l.reagent.item_id, l.price.map(|p| p.unit), l.total, l.listed)).collect();
         assert_eq!(lines, vec![(4304, Some(Copper(647)), Some(Copper(7_764)), Some(437)), (8343, Some(Copper(578)), Some(Copper(2_312)), None)]);
+    }
+
+    #[test]
+    fn a_craft_sells_at_its_current_listing_over_the_two_week_average() {
+        let mut recipe = nightscape_cloak();
+        recipe.item_id = 4252;
+        let mut book = book();
+        book.realm.insert(4252, RealmPrice { min_buyout: Some(Copper(2_900)), market_value: Some(Copper(6_586)), num_auctions: Some(57), ..Default::default() });
+        let eval = profit::evaluate(&recipe, &book, PriceSource::Realm);
+        let b = breakdown(&recipe, &eval, &book, PriceSource::Realm);
+        assert_eq!((b.sale, eval.resale), (Some(Sale { gross: Copper(2_900), cut: Copper(145), basis: AuctionBasis::MinBuyout }), Some(Copper(2_755))));
     }
 
     #[test]
@@ -172,7 +193,7 @@ mod tests {
         let (recipe, book) = (nightscape_cloak(), book());
         let eval = profit::evaluate(&recipe, &book, PriceSource::Region);
         let b = breakdown(&recipe, &eval, &book, PriceSource::Region);
-        assert_eq!((b.gross, b.cut), (None, None));
+        assert_eq!(b.sale, None);
         assert_eq!(b.reagents.iter().map(|l| l.total).collect::<Vec<_>>(), vec![Some(Copper(8_400)), None]);
         assert_eq!(shopping_list(&b.reagents, eval.cost), "12x Thick Leather\n4x Heavy Silken Thread\nTotal: unknown, no price for Heavy Silken Thread");
     }
