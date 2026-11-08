@@ -15,6 +15,16 @@ pub struct Market {
     costs: CostBook,
 }
 
+/// Where prices come from, as the player chose.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PriceSource {
+    /// The AppData.lua the TSM desktop app writes.
+    #[default]
+    App,
+    /// TSM's public files, for a player without the desktop app.
+    Public(PublicHouse),
+}
+
 /// What prices are read from: an AppData.lua, or a public auction house for a faction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Origin {

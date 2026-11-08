@@ -9,6 +9,7 @@ use super::header::page;
 use super::widgets::checkbox;
 use super::{App, Dims, folder};
 use crate::flips::{self, Bartering, Rules};
+use crate::market::PriceSource;
 use crate::merchants::Side;
 use crate::settings;
 use crate::theme::{self, p};
@@ -63,10 +64,15 @@ fn caption(words: &str) -> El {
 }
 
 impl App {
-    /// Changes the character, remembered for next time, and prices the flips for it.
+    /// Changes the character, remembered for next time, and prices the flips for it. Under
+    /// public data, a new faction reads its own auction house.
     fn set_rules(&mut self, change: impl FnOnce(&mut Rules)) {
+        let side = self.rules.side;
         change(&mut self.rules);
         settings::save_rules(&self.rules);
+        if self.rules.side != side && self.source != PriceSource::App {
+            self.load_market();
+        }
         self.reprice_flips();
     }
 }

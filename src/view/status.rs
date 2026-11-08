@@ -42,7 +42,7 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let read = r.market.read.at.duration_since(UNIX_EPOCH).map_or(0, |t| t.as_millis() as i64);
     let read = LocalTime::at(read);
     let read = read_at(read.hour, read.minute);
-    let error = r.reload_error.as_ref().map(|e| format!("Reload failed: {e}"));
+    let error = r.reload_error.clone();
     let (realm, region) = (Feed::realm(&r.market.book, s.now), Feed::region(&r.market.book, s.now));
     let room = d.status.unwrap_or(f32::INFINITY) - LEFT - RIGHT;
     let fits = FITS.map(|(with_region, with_read)| (with_region.then_some(&region), error.as_deref().or(with_read.then_some(read.as_str()))));
@@ -111,11 +111,7 @@ fn reload() -> El {
         .role("button")
         .label("Reload TSM prices")
         .cursor(Cursor::Pointer)
-        .on_press(|s: &mut App| {
-            if let Some(path) = s.appdata_path() {
-                s.reload(&path);
-            }
-        })
+        .on_press(|s: &mut App| s.reload_prices())
 }
 
 /// A control that stays bare until hovered, framed as the toolbar's while `open`.
