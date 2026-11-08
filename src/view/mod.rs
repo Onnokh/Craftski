@@ -7,6 +7,7 @@ mod skin;
 mod status;
 mod table;
 mod toolbar;
+mod tooltip;
 mod widgets;
 
 use std::collections::{BTreeSet, HashMap};
@@ -28,6 +29,7 @@ use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::settings;
 use crate::skin::Piece;
 use crate::theme::{self, p};
+use crate::tooltip::Tip;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -57,6 +59,8 @@ pub struct App {
     skill: TextEdit,
     flips: flips::State,
     menu: Option<Menu>,
+    /// What the pointer rests on that opens a tooltip.
+    tip: Option<Tip>,
     /// The realm the player last chose, which prices come from whenever AppData.lua holds it.
     realm: String,
     /// Unix seconds at the last minute tick: the clock the status bar's ages read from.
@@ -177,6 +181,7 @@ impl App {
             skill: TextEdit::new(settings::load_skill(profession)),
             flips: flips::State::new(),
             menu: None,
+            tip: None,
             realm: settings::load_realm(),
             now: unix_secs(SystemTime::now()),
         }
@@ -500,7 +505,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
         .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s)).child(main))
         .children(s.ready().map(|r| status::status(s, r, d)));
-    menu::overlay(s).into_iter().fold(root, |r, e| r.child(e))
+    menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
 }
 
 fn unix_secs(t: SystemTime) -> u64 {

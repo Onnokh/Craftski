@@ -131,6 +131,29 @@ pub fn nine_slice(piece: Piece, caps: [f32; 4]) -> Option<Vec<El>> {
     )
 }
 
+/// Eight pieces around their parent's box, top row first, where the game cut a border's corners
+/// and edges apart: corners `edge` points square, edges `edge` points thick and stretched
+/// between them.
+pub fn frame(pieces: [Piece; 8], edge: f32) -> Option<Vec<El>> {
+    let arts = pieces.map(art);
+    let near = (Some(0.0), None);
+    let far = (None, Some(0.0));
+    let between = (Some(edge), Some(edge));
+    let spans = [(near, near), (between, near), (far, near), (near, between), (far, between), (near, far), (between, far), (far, far)];
+    let mut out = Vec::with_capacity(8);
+    for (px, ((left, right), (top, bottom))) in arts.into_iter().zip(spans) {
+        let mut piece = layer(px?).pin(left, top, right, bottom);
+        if left.is_none() || right.is_none() {
+            piece = piece.w(edge);
+        }
+        if top.is_none() || bottom.is_none() {
+            piece = piece.h(edge);
+        }
+        out.push(piece);
+    }
+    Some(out)
+}
+
 /// Three pieces side by side across their parent's box: `left` and `right` `caps` points wide,
 /// `middle` stretched between them.
 pub fn three_slice([left, middle, right]: [Piece; 3], caps: [f32; 2]) -> Option<Vec<El>> {

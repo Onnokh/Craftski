@@ -29,6 +29,15 @@ pub enum Piece {
     TabSelected,
     Checkbox,
     Checkmark,
+    /// The game tooltip's border: corners and edges, top row first.
+    TipTopLeft,
+    TipTop,
+    TipTopRight,
+    TipLeft,
+    TipRight,
+    TipBottomLeft,
+    TipBottom,
+    TipBottomRight,
     /// The profession's banner, behind a tab's title.
     OverviewCard(Profession),
     /// The profession's tall card, behind the detail panel.
@@ -68,6 +77,14 @@ const SHARED_CUTS: [Cut; Piece::SHARED.len()] = [
     cut("common-sidetab-selected-c60-2x", 8124215, [113, 1, 223, 121]),
     cut("checkbox-minimal-c60", 8086474, [1, 1, 31, 30]),
     cut("checkmark-minimal", 4614134, [1, 32, 31, 61]),
+    cut("tooltip-nineslice-cornertopleft-c60", 8070606, [1, 37, 8, 44]),
+    cut("_tooltip-nineslice-edgetop-c60", 8070606, [0, 10, 16, 17]),
+    cut("tooltip-nineslice-cornertopright-c60", 8070606, [1, 46, 8, 53]),
+    cut("!tooltip-nineslice-edgeleft-c60", 8070610, [1, 0, 8, 16]),
+    cut("!tooltip-nineslice-edgeright-c60", 8070610, [10, 0, 17, 16]),
+    cut("tooltip-nineslice-cornerbottomleft-c60", 8070606, [1, 19, 8, 26]),
+    cut("_tooltip-nineslice-edgebottom-c60", 8070606, [0, 1, 16, 8]),
+    cut("tooltip-nineslice-cornerbottomright-c60", 8070606, [1, 28, 8, 35]),
 ];
 
 macro_rules! cards {
@@ -103,7 +120,7 @@ pub const COUNT: usize = Piece::SHARED.len() + 2 * Profession::ALL.len();
 
 impl Piece {
     /// The pieces every profession draws alike.
-    pub const SHARED: [Piece; 18] = [
+    pub const SHARED: [Piece; 26] = [
         Piece::Background,
         Piece::SlotFrame,
         Piece::ProgressBg,
@@ -122,6 +139,14 @@ impl Piece {
         Piece::TabSelected,
         Piece::Checkbox,
         Piece::Checkmark,
+        Piece::TipTopLeft,
+        Piece::TipTop,
+        Piece::TipTopRight,
+        Piece::TipLeft,
+        Piece::TipRight,
+        Piece::TipBottomLeft,
+        Piece::TipBottom,
+        Piece::TipBottomRight,
     ];
 
     pub fn cards(profession: Profession) -> [Piece; 2] {

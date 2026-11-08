@@ -5,12 +5,13 @@ use std::borrow::Cow;
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
 use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
-use super::{App, Dims, Ready, Recipes, recipe_at};
+use super::{App, Dims, Ready, Recipes, recipe_at, tooltip};
 use crate::charts;
 use crate::menu::SOLD_STEPS;
 use crate::rows::{self, Column, FilterKind, percent};
 use crate::settings;
 use crate::theme::{self, p};
+use crate::tooltip::Tip;
 
 const ROW: f32 = 32.0;
 
@@ -122,7 +123,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .center_y()
         .w_full()
         .child(icon_frame(s.icons.item(recipe.icon), 26.0, quality))
-        .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0));
+        .child(text(&recipe.item_name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0).key(Tip::Recipe(recipe.spell_id).anchor()));
     let mut out = selectable_row(selected)
         .h(ROW)
         .px(d.pad)
@@ -146,5 +147,5 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         out = out.child(slot.cell(width).child(content));
     }
     let id = recipe.spell_id;
-    out.on_press(move |s: &mut App| s.selected = Some(id))
+    tooltip::hover(out, Tip::Recipe(id)).on_press(move |s: &mut App| s.selected = Some(id))
 }

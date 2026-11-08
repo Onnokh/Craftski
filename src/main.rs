@@ -18,6 +18,7 @@ mod rows;
 mod settings;
 mod skin;
 mod theme;
+mod tooltip;
 mod vendor;
 mod view;
 

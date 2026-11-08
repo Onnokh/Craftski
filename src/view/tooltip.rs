@@ -1,0 +1,89 @@
+//! The hover tooltip, drawn as the game draws GameTooltip: its border and dark blue ground, the
+//! name in its quality colour, then the card's lines.
+
+use rune::{Align, El, Side, Span, col, el, row, text};
+
+use super::{App, Ready, skin};
+use crate::skin::Piece;
+use crate::theme::{self, p};
+use crate::tooltip::{self, Card, Line, Tip, Value};
+use crate::view::widgets::Money;
+
+const WIDTH: f32 = 300.0;
+const EDGE: f32 = 7.0;
+const FRAME: [Piece; 8] = [Piece::TipTopLeft, Piece::TipTop, Piece::TipTopRight, Piece::TipLeft, Piece::TipRight, Piece::TipBottomLeft, Piece::TipBottom, Piece::TipBottomRight];
+
+/// `el`, opening `tip` while the pointer is over it.
+pub fn hover(el: El, tip: Tip) -> El {
+    el.on_hover_change(move |s: &mut App, inside, _| {
+        if inside {
+            s.tip = Some(tip);
+        } else if s.tip == Some(tip) {
+            s.tip = None;
+        }
+    })
+}
+
+/// The open tooltip beside its anchor, attached at the root.
+pub fn overlay(s: &App) -> Option<El> {
+    let tip = s.tip.filter(|_| s.menu.is_none())?;
+    let card = card(s, s.ready()?, tip)?;
+    let panel = col().key("tooltip").instant_changes().w(WIDTH).role("tooltip").label(card.name.clone());
+    let panel = match skin::frame(FRAME, EDGE) {
+        Some(border) => panel.padding(EDGE + 5.0).child(el().pin(Some(3.0), Some(3.0), Some(3.0), Some(3.0)).fill(p().tooltip)).children(border),
+        None => panel.padding(12.0).radius(4.0).fill(p().tooltip).border(1.0, p().line2),
+    };
+    Some(body(panel, card).anchored(tip.anchor(), Side::Right, Align::Start, 12.0))
+}
+
+fn card(s: &App, r: &Ready, tip: Tip) -> Option<Card> {
+    let book = &r.market.book;
+    match tip {
+        Tip::Recipe(spell) => {
+            let i = r.market.recipes.iter().position(|x| x.spell_id == spell)?;
+            Some(tooltip::recipe(&r.market.recipes[i], &r.evals[i], book))
+        }
+        Tip::Reagent(item) => {
+            let (r, i) = s.picked()?;
+            let reagent = r.market.recipes[i].reagents.iter().find(|x| x.item_id == item)?;
+            Some(tooltip::reagent(reagent, r.market.costs().get(item), book))
+        }
+        Tip::Flip(index) => s.flips.tip(index, book),
+    }
+}
+
+fn body(panel: El, card: Card) -> El {
+    let title = text(&card.name).font(theme::BODY_STRONG).color(p().quality(card.quality)).wrap();
+    card.lines.into_iter().fold(panel.child(title), |out, line| {
+        out.child(match line {
+            Line::Text(t) => text(t).font(theme::CAPTION).color(p().text).wrap().mt(2.0),
+            Line::Pair(label, value) => row().w_full().h(18.0).gap(12.0).justify_between().center_y().child(text(label).font(theme::CAPTION).color(p().text)).child(figure(value)),
+            Line::Skill(k) => skill(k),
+            Line::Gap => el().h(8.0),
+        })
+    })
+}
+
+fn figure(value: Value) -> El {
+    let money = Money::new(theme::CAPTION, p().text);
+    match value {
+        Value::Money(c) => money.show(c),
+        Value::Signed(v) => money.color(p().skill[1]).signed(v),
+        Value::Count(c) => text(c).font(theme::CAPTION).color(p().text),
+    }
+}
+
+/// "Skill 120 135 150", each rank in the colour the craft turns there.
+fn skill(k: crate::recipes::Skill) -> El {
+    let ranks = [k.learn, k.green(), k.grey].map(|r| r.to_string());
+    let line = format!("Skill  {}  {}  {}", ranks[0], ranks[1], ranks[2]);
+    let mut at = "Skill".len();
+    // The skill grey is a bar fill, too dark for text on the tooltip's blue.
+    let [yellow, green, _] = p().skill;
+    let spans = ranks.iter().zip([yellow, green, p().muted]).map(|(r, color)| {
+        let start = line[at..].find(r.as_str()).map_or(at, |o| at + o);
+        at = start + r.len();
+        Span::new(start, at).color(color)
+    });
+    text(&line).font(theme::CAPTION).color(p().text).spans(spans.collect::<Vec<_>>()).mt(2.0)
+}

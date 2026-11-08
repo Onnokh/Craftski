@@ -10,7 +10,8 @@ use crate::flip_rows::{Column, Row};
 use crate::rows;
 use crate::theme::{self, p};
 use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
-use crate::view::{App, Dims};
+use crate::tooltip::Tip;
+use crate::view::{App, Dims, tooltip};
 
 const ROW: f32 = 32.0;
 
@@ -105,7 +106,7 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
                 .center_y()
                 .w_full()
                 .child(icon_frame(s.icons.item(item.and_then(|i| i.icon)), 26.0, quality))
-                .child(text(&name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0)),
+                .child(text(&name).font(theme::BODY).color(quality).truncate().shrink().min_w(0.0).key(Tip::Flip(entry.flip).anchor())),
             Column::Vendor => vendor(s, merchant, entry.others.len()),
             Column::Paid => flip.paid.map_or_else(unknown, |paid| money.show(paid.copper())),
             Column::Sells => flip.sale.map_or_else(unknown, |sale| money.show(sale.unit)),
@@ -117,7 +118,8 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
         };
         out = out.child(cell(column, width).child(content));
     }
-    out.on_press(move |s: &mut App| s.flips.selected = Some(key))
+    let tip = Tip::Flip(entry.flip);
+    tooltip::hover(out, tip).on_press(move |s: &mut App| s.flips.selected = Some(key))
 }
 
 /// The merchant, how many others sell the item, and the zone when a search reaches past the

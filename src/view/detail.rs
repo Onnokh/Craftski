@@ -5,7 +5,7 @@ use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Span, Tx, col, el, 
 
 use super::skin;
 use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, red_button, unknown, wowhead};
-use super::{App, Dims, Ready, recipe_at};
+use super::{App, Dims, Ready, recipe_at, tooltip};
 use crate::breakdown::{Caution, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, wowhead_url};
 use crate::charts;
 use crate::profit::{AuctionBasis, Evaluation, PriceOrigin};
@@ -13,6 +13,7 @@ use crate::recipes::{Recipe, Skill};
 use crate::rows::{per_day, percent};
 use crate::skin::Piece;
 use crate::theme::{self, p};
+use crate::tooltip::Tip;
 
 const PAD: f32 = 24.0;
 const ROW: f32 = 32.0;
@@ -199,8 +200,9 @@ fn reagent(s: &App, l: &ReagentLine, money: Money) -> El {
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], p().rule)
         .child(icon_frame(s.icons.item(l.reagent.icon), 22.0, p().quality(l.reagent.quality)))
-        .child(flexible().child(what))
+        .child(flexible().child(what.key(Tip::Reagent(l.reagent.item_id).anchor())))
         .child(l.total.map_or_else(unknown, |t| money.minus(t)));
+    let out = tooltip::hover(out, Tip::Reagent(l.reagent.item_id));
     match recipe {
         Some(spell_id) => out.cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.025)).label(format!("Show the {} recipe", l.reagent.item_name)).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             s.selected = Some(spell_id);
