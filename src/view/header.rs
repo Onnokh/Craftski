@@ -18,8 +18,8 @@ const ART: f32 = 300.0;
 
 pub const COFFEE: &[u8] = include_bytes!("../../assets/buymeacoffee.png");
 const COFFEE_URL: &str = "https://buymeacoffee.com/onnokh1i";
-/// The 312 by 88 pixel button at scale 2.
-const COFFEE_SIZE: (f32, f32) = (156.0, 44.0);
+/// The 312 by 88 pixel button, drawn at its own aspect.
+const COFFEE_SIZE: (f32, f32) = (128.0, 36.0);
 
 pub fn header(profession: Profession, r: &Ready, coffee: Option<&Image>, d: Dims) -> El {
     let meta = match r.recipes {

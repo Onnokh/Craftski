@@ -75,6 +75,7 @@ const executablePath = process.env.CHROMIUM_PATH ?? (existsSync(installed) ? ins
 const browser = await chromium.launch({ headless: true, executablePath, args: ["--enable-unsafe-webgpu"] });
 const context = await browser.newContext({ viewport: { width: 1640, height: 1000 }, deviceScaleFactor: 1, colorScheme: "dark" });
 const outside = [];
+const analytics = [];
 await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (route) => {
   const target = new URL(route.request().url());
   const cors = { "Access-Control-Allow-Origin": "*" };
@@ -85,6 +86,10 @@ await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (route) => {
     return file ? route.fulfill({ status: 200, headers: { ...cors, "Content-Type": "image/jpeg" }, body: readFileSync(file) }) : route.fulfill({ status: 404, headers: cors });
   }
   if (atlas) return route.fulfill({ status: 200, headers: { ...cors, "Content-Type": "application/octet-stream" }, body: await fixture(`casc-${atlas}.blp`, target.href) });
+  if (target.host === "rybbit.missingmounts.com") {
+    analytics.push(target.href);
+    return route.fulfill({ status: 200, headers: { "Content-Type": "text/javascript" }, body: "" });
+  }
   outside.push(target.href);
   return route.abort();
 });
@@ -127,6 +132,7 @@ try {
   await page.waitForFunction(() => window.__firstFrame, null, { timeout: 60_000 });
   const firstFrameMs = Math.round(await page.evaluate(() => window.__firstFrame));
   await until("Leatherworking priced", shown("Leatherworking"));
+  if (!analytics.some((u) => u.includes("siteId=794553bb776a"))) throw new Error("the rybbit script was not requested");
   steps.push({ step: "first frame", ms: firstFrameMs }, { step: "Leatherworking priced", ms: Date.now() - started, shot: await shot("leatherworking") });
 
   const links = {};
@@ -186,5 +192,5 @@ try {
   await browser.close();
   server.close();
 }
-console.log(JSON.stringify({ executablePath, steps, fetchedUpstream, outside, errors }, null, 2));
+console.log(JSON.stringify({ executablePath, steps, fetchedUpstream, analytics, outside, errors }, null, 2));
 process.exit(errors.length === 0 ? 0 : 1);
