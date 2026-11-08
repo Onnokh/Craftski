@@ -1,4 +1,6 @@
+mod blp;
 mod breakdown;
+mod cache;
 mod charts;
 mod copper;
 mod flip_rows;
@@ -14,6 +16,7 @@ mod profit;
 mod recipes;
 mod rows;
 mod settings;
+mod skin;
 mod theme;
 mod vendor;
 mod view;
@@ -26,6 +29,7 @@ fn main() {
     let cli = std::env::args().find_map(|a| match a.as_str() {
         "--dump" => Some(dump as fn() -> Result<(), String>),
         "--fetch-icons" => Some(fetch_icons),
+        "--fetch-skin" => Some(fetch_skin),
         "--flips" => Some(flips),
         _ => None,
     });
@@ -163,6 +167,16 @@ fn fetch_icons() -> Result<(), String> {
         println!("  {}: {e}", id.0);
     }
     Ok(())
+}
+
+fn fetch_skin() -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let ready = std::sync::atomic::AtomicUsize::new(0);
+    let result = skin::fetch(|_, _| {
+        ready.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    println!("{} of {} pieces in {}, {:.2}s", ready.into_inner(), skin::Piece::ALL.len(), skin::dir().unwrap_or_default().display(), started.elapsed().as_secs_f64());
+    result
 }
 
 #[cfg(test)]
