@@ -129,6 +129,22 @@ try {
   await until("Leatherworking priced", shown("Leatherworking"));
   steps.push({ step: "first frame", ms: firstFrameMs }, { step: "Leatherworking priced", ms: Date.now() - started, shot: await shot("leatherworking") });
 
+  const links = {};
+  for (const [name, href] of [["Buy me a coffee", "https://buymeacoffee.com/onnokh1i"], ["TSM public data", "https://tradeskillmaster.com"]]) {
+    const link = page.getByRole("link", { name, exact: true });
+    const found = await link.getAttribute("href");
+    if (found !== href) throw new Error(`${name} links to ${found}, not ${href}`);
+    const box = await link.boundingBox();
+    const [tab] = await Promise.all([context.waitForEvent("page", { timeout: 10_000 }), press(link)]);
+    const opened = (await tab.waitForEvent("request", { timeout: 10_000 }).catch(() => null))?.url() ?? tab.url();
+    await tab.close();
+    const at = outside.indexOf(opened);
+    if (at >= 0) outside.splice(at, 1);
+    if (!opened.startsWith(href)) throw new Error(`pressing ${name} opened ${opened}, not ${href}`);
+    links[name] = { href: found, opened, box: box && Object.fromEntries(Object.entries(box).map(([k, v]) => [k, Math.round(v)])) };
+  }
+  steps.push({ step: "links", links });
+
   for (const profession of ["Alchemy", "Tailoring"]) {
     await press(page.getByRole("button", { name: profession, exact: true }));
     const words = await until(`${profession} priced`, shown(profession));

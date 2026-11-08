@@ -17,6 +17,7 @@ use crate::theme::{self, p};
 const GAME: &str = "WoW Forever";
 const PRICES: &str = "Prices";
 const PUBLIC: &str = "TSM public data";
+const TSM_URL: &str = "https://tradeskillmaster.com";
 const HEIGHT: f32 = 32.0;
 const LEFT: f32 = 16.0;
 const RIGHT: f32 = 12.0;
@@ -56,7 +57,12 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
     let (region, note) = fit.unwrap_or(&fits[2]);
     let squeeze = fit.is_none();
 
-    let prices = row().gap(LABEL_GAP).center_y().child(caption(label, p().faint)).child(realm_pill(s, &realm, squeeze));
+    let prices = row().gap(LABEL_GAP).center_y()
+        .child(match s.source {
+            PriceSource::App => caption(label, p().faint),
+            PriceSource::Public(_) => caption(label, p().faint).cursor(Cursor::Pointer).href(TSM_URL),
+        })
+        .child(realm_pill(s, &realm, squeeze));
     let rule = el().w(DIVIDER).h(14.0).fill(p().rule).a11y_hidden();
     let mut bar = row()
         .key("status")

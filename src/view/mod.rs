@@ -139,9 +139,15 @@ struct Icons {
     cache: Option<ImageCache>,
     items: HashMap<FileDataId, Image>,
     rail: HashMap<&'static str, Image>,
+    coffee: Option<Image>,
 }
 
 impl Icons {
+    fn attach(&mut self, cache: ImageCache) {
+        self.coffee = Some(cache.load(header::COFFEE));
+        self.cache = Some(cache);
+    }
+
     fn show(&mut self, id: FileDataId, path: &Path) {
         if let Some(cache) = &self.cache {
             self.items.insert(id, cache.file(path, 48.0, 2.0));
@@ -471,7 +477,9 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone()));
+    if s.icons.cache.is_none() {
+        s.icons.attach(ImageCache::new(wake.clone()));
+    }
     if !matches!(s.load, Load::Loading | Load::Unlocated) || s.inbox.is_some() {
         return;
     }
@@ -601,7 +609,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, d), toolbar::toolbar(s, d)))
+                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.icons.coffee.as_ref(), d), toolbar::toolbar(s, d)))
                     .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),

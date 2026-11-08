@@ -92,7 +92,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
         let _ = tx.send((id, path));
     });
     drop(tx);
-    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
+    s.icons.attach(ImageCache::new(Arc::new(|| {})));
     for (id, path) in rx {
         s.icons.show(id, &path);
     }
@@ -114,7 +114,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
             skin::show(cache, piece, crate::skin::Art::File(path));
         }
     }
-    for image in s.icons.items.values().chain(s.icons.rail.values()) {
+    for image in s.icons.items.values().chain(s.icons.rail.values()).chain(&s.icons.coffee) {
         let _ = image.wait();
     }
     skin::wait();

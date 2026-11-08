@@ -36,7 +36,7 @@ pub fn main(s: &App, d: Dims) -> El {
         .grow(1.0)
         .h_full()
         .min_w(0.0)
-        .child(page("Settings", "Where prices come from, and who buys from merchants.".into(), d))
+        .child(page("Settings", "Where prices come from, and who buys from merchants.".into(), s.icons.coffee.as_ref(), d))
         .child(col().key("settings-body").w_full().grow(1.0).min_h(0.0).px(d.pad).pb(24.0).scroll(ScrollSpec { stick_bottom: false }).child(body))
 }
 
