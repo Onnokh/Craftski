@@ -19,7 +19,7 @@ use crate::merchants::{self, Catalog};
 use crate::overview::{Overview, overview};
 use crate::profit::{self, Evaluation, PriceOrigin, PriceSource};
 use crate::recipes::{FileDataId, Recipe};
-use crate::rows::{self, Column, Filter, Sort};
+use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
 use crate::theme::{self, p};
 
 const SOLD_STEPS: [(&str, f64); 4] = [("Any", 0.0), ("1+", 1.0), ("5+", 5.0), ("20+", 20.0)];
@@ -98,6 +98,7 @@ struct Ready {
     evals: Vec<Evaluation>,
     overview: Overview,
     rows: Vec<usize>,
+    hidden: Option<Hidden<FilterKind>>,
 }
 
 /// Sizes that change between a roomy window and a narrow one.
@@ -140,7 +141,7 @@ impl App {
 
     fn land(&mut self, result: Result<Market, String>) {
         self.load = match result {
-            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), overview: overview(&[]), rows: Vec::new() })),
+            Ok(market) => Load::Ready(Box::new(Ready { market, evals: Vec::new(), overview: overview(&[]), rows: Vec::new(), hidden: None })),
             Err(e) => Load::Failed(e),
         };
         self.refresh();
@@ -155,6 +156,19 @@ impl App {
         r.overview = overview(&r.evals);
         let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text };
         r.rows = rows::visible(&r.market.recipes, &r.evals, filter, self.sort);
+        r.hidden = rows::hidden(&r.market.recipes, &r.evals, filter);
+    }
+
+    /// Turns off the filters that hide recipes the search finds.
+    fn show_all(&mut self) {
+        let Some(h) = self.ready().and_then(|r| r.hidden.clone()) else { return };
+        for k in h.by {
+            match k {
+                FilterKind::Sells => self.min_sold = 0,
+                FilterKind::HideUnpriced => self.hide_unpriced = false,
+            }
+        }
+        self.refresh();
     }
 
     fn ready(&self) -> Option<&Ready> {
@@ -385,6 +399,13 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     for image in s.icons.items.values().chain(s.icons.rail.values()) {
         let _ = image.wait();
     }
+}
+
+/// `loaded` with Sells 5+, so the line under the table says what it hides.
+pub fn scene_crafts_hidden(s: &mut App) {
+    scene_loaded(s);
+    s.min_sold = 2;
+    s.refresh();
 }
 
 /// `loaded` with the first listed recipe that uses a reagent cheapest to craft selected.
