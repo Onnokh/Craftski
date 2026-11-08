@@ -139,6 +139,8 @@ const fn plex(size: f32, line_height: f32, weight: f32) -> TextStyle {
 pub const CAPTION: TextStyle = plex(12.0, 16.0, 400.0);
 /// Column heads and band labels.
 pub const LABEL: TextStyle = plex(12.0, 16.0, 500.0);
+/// The rail's section names, small enough that "Secondary" fits its width.
+pub const RAIL: TextStyle = plex(10.0, 14.0, 500.0);
 /// Menu items.
 pub const MENU: TextStyle = plex(13.0, 18.0, 400.0);
 pub const BODY: TextStyle = plex(14.0, 20.0, 400.0);

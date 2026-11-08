@@ -1,12 +1,12 @@
-//! The rail: one tab per profession, then vendor flips.
+//! The rail: the primary professions, the secondary ones, then vendor flips, each under its name.
 
-use rune::{Color, Cursor, El, col, el};
+use rune::{Color, Cursor, El, col, el, text};
 
 use super::skin;
 use super::{App, Tab};
 use crate::recipes::Profession;
 use crate::skin::Piece;
-use crate::theme::p;
+use crate::theme::{self, p};
 
 pub const COIN: &str = "inv_misc_coin_01";
 
@@ -20,13 +20,33 @@ pub fn icons() -> impl Iterator<Item = &'static str> {
 }
 
 pub fn rail(s: &App) -> El {
-    let separator = el().w(32.0).h(1.0).my(6.0).fill(p().bronze);
-    let out = col().w(60.0).h_full().pt(16.0).gap(6.0).items_center().fill(Color::BLACK.alpha(0.55)).border_sides([0.0, 1.0, 0.0, 0.0], Color::BLACK);
-    let out = Profession::ALL.into_iter().fold(out, |out, profession| {
-        let on = s.tab == Tab::Crafts && s.profession == profession;
-        out.child(tab(s, profession.name(), profession.icon(), on, move |s: &mut App| s.choose_profession(profession)))
-    });
-    out.child(separator).child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips))
+    let professions = |secondary: bool| Profession::ALL.into_iter().filter(move |p| p.secondary() == secondary).map(|p| profession(s, p));
+    col()
+        .w(60.0)
+        .h_full()
+        .pt(12.0)
+        .items_center()
+        .fill(Color::BLACK.alpha(0.55))
+        .border_sides([0.0, 1.0, 0.0, 0.0], Color::BLACK)
+        .child(section("Primary", professions(false)))
+        .child(rule())
+        .child(section("Secondary", professions(true)))
+        .child(rule())
+        .child(section("Vendor", [tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips)]))
+}
+
+fn profession(s: &App, profession: Profession) -> El {
+    let on = s.tab == Tab::Crafts && s.profession == profession;
+    tab(s, profession.name(), profession.icon(), on, move |s: &mut App| s.choose_profession(profession))
+}
+
+fn section(title: &str, tabs: impl IntoIterator<Item = El>) -> El {
+    let heading = text(title).font(theme::RAIL).color(p().gold);
+    col().items_center().gap(6.0).child(heading).children(tabs)
+}
+
+fn rule() -> El {
+    el().w(32.0).h(1.0).my(12.0).fill(p().bronze)
 }
 
 fn tab(s: &App, label: &str, icon: &str, on: bool, press: impl Fn(&mut App) + 'static) -> El {
