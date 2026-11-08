@@ -79,12 +79,3 @@ pub fn frame(pieces: [Piece; 8], edge: f32) -> Option<Vec<El>> {
     Some(out)
 }
 
-/// Three pieces side by side across their parent's box: `left` and `right` `caps` points wide,
-/// `middle` stretched between them.
-pub fn three_slice([left, middle, right]: [Piece; 3], caps: [f32; 2]) -> Option<Vec<El>> {
-    Some(vec![
-        layer(art(left)?).pin(Some(0.0), Some(0.0), None, Some(0.0)).w(caps[0]),
-        layer(art(middle)?).pin(Some(caps[0]), Some(0.0), Some(caps[1]), Some(0.0)),
-        layer(art(right)?).pin(None, Some(0.0), Some(0.0), Some(0.0)).w(caps[1]),
-    ])
-}
