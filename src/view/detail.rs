@@ -12,8 +12,6 @@ use crate::rows::percent;
 use crate::theme::{self, p};
 
 const PAD: f32 = 26.0;
-/// Stands where a reagent bought at auction shows how many are listed.
-const VENDOR: &str = " · vendor";
 
 pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let panel = col().w(d.detail).h_full().fill(p().surface).border_sides([0.0, 0.0, 0.0, 1.0], p().line);
@@ -21,7 +19,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
         return panel.padding(PAD).child(text("Select a recipe to see where its money goes.").font(theme::sans(13.0, 400.0)).color(p().muted).wrap());
     };
     let (recipe, e) = recipe_at(r, index);
-    let b = breakdown(recipe, e, &r.market.book, s.source);
+    let b = breakdown(recipe, e, &r.market.book, r.market.costs(s.source));
     let inner = d.detail - 2.0 * PAD;
     let mut body = col().w_full().gap(20.0).child(title(s, recipe)).child(profit_card(e, s.source)).child(money_flow(e, b.sale, inner)).child(reagents(s, &b.reagents));
     if let Some(skill) = recipe.skill {
@@ -135,7 +133,8 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
             Some(price) => {
                 let r = row().mt(2.0).center_y().child(Money::new(theme::sans(12.0, 400.0), p().muted).coin(7.0, 5.0, 7.0).show(price.unit)).child(text(" each").font(theme::sans(12.0, 400.0)).color(p().muted).ml(3.0));
                 let note = match price.origin {
-                    PriceOrigin::Vendor => Some(text(VENDOR).spans(vec![Span::new(VENDOR.len() - "vendor".len(), VENDOR.len()).color(p().sells_bar)])),
+                    PriceOrigin::Vendor => Some(origin_note("vendor")),
+                    PriceOrigin::Crafted { .. } => Some(origin_note("crafted")),
                     PriceOrigin::Auction => l.listed.map(|n| text(format!(" · {n} listed"))),
                 };
                 match note {
@@ -161,6 +160,13 @@ fn reagents(s: &App, lines: &[ReagentLine]) -> El {
         out = out.child(line);
     }
     out
+}
+
+/// " · vendor" or " · crafted", standing where a reagent bought at auction shows how many are listed.
+fn origin_note(word: &str) -> El {
+    let note = format!(" · {word}");
+    let end = note.len();
+    text(note).spans(vec![Span::new(end - word.len(), end).color(p().sells_bar)])
 }
 
 /// Yellow from learning to green, green to grey, then grey: the ranks where a craft still

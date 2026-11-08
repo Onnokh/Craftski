@@ -58,7 +58,7 @@ fn dump() -> Result<(), String> {
     use profit::PriceSource;
     use rows::{Column, Filter, Sort};
     let m = market::load()?;
-    let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, source)).collect::<Vec<_>>();
+    let evals_for = |source| m.recipes.iter().map(|r| profit::evaluate(r, &m.book, m.costs(source))).collect::<Vec<_>>();
     let evals = evals_for(PriceSource::Realm);
     let rows = rows::visible(&m.recipes, &evals, Filter { hide_unpriced: true, min_sold_per_day: 0.0, query: "" }, Sort { column: Column::Profit, descending: true });
     let v = &m.book.vendor;

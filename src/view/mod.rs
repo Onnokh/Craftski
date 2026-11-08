@@ -138,7 +138,7 @@ impl App {
 
     fn refresh(&mut self) {
         let Load::Ready(r) = &mut self.load else { return };
-        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, self.source)).collect();
+        r.evals = r.market.recipes.iter().map(|recipe| profit::evaluate(recipe, &r.market.book, r.market.costs(self.source))).collect();
         r.overview = overview(&r.evals);
         let filter = Filter { hide_unpriced: self.hide_unpriced, min_sold_per_day: SOLD_STEPS[self.min_sold].1, query: &self.search.text };
         r.rows = rows::visible(&r.market.recipes, &r.evals, filter, self.sort);
