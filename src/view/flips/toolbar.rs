@@ -1,17 +1,15 @@
 //! The zone, price source, filters and search, and the zone menu.
 
-use rune::{Align, Color, Cursor, El, Icon, Key, KeyEvent, ScrollSpec, Shadow, Side, Tx, col, row, spacer, text, text_input};
+use rune::{Align, Color, Cursor, El, Key, KeyEvent, ScrollSpec, Shadow, Side, Tx, col, row, spacer, text, text_input};
 
 use super::Stocked;
 use crate::flip_rows::Supply;
 use crate::profit::PriceSource;
 use crate::theme::{self, p};
-use crate::view::widgets::{SEARCH, Segment, checkbox, glyph, segmented};
+use crate::view::widgets::{CHEVRON_DOWN, SEARCH, Segment, checkbox, glyph, segmented};
 use crate::view::{App, Dims, SOLD_STEPS};
 
 const TRIGGER: &str = "zone-trigger";
-
-static CHEVRON: Icon = Icon { name: "tsm-chevron", view: 24.0, body: r#"<path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"# };
 
 pub fn toolbar(s: &App, d: Dims) -> El {
     let f = &s.flips;
@@ -26,7 +24,7 @@ pub fn toolbar(s: &App, d: Dims) -> El {
         .cursor(Cursor::Pointer)
         .hover(Color::WHITE.alpha(0.03))
         .child(text(&f.zone).font(theme::BODY).color(p().text))
-        .child(glyph(&CHEVRON, 16.0, p().muted))
+        .child(glyph(&CHEVRON_DOWN, 16.0, p().muted))
         .role("button")
         .label(format!("Zone: {}", f.zone))
         .on_press(|s: &mut App| s.flips.zone_menu = !s.flips.zone_menu);

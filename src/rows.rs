@@ -9,8 +9,6 @@ use crate::recipes::Recipe;
 pub enum Column {
     Item,
     Skill,
-    Cost,
-    Resale,
     Profit,
     Margin,
     SoldPerDay,
@@ -18,14 +16,10 @@ pub enum Column {
 }
 
 impl Column {
-    pub const ALL: [Column; 8] = [Column::Item, Column::Skill, Column::Cost, Column::Resale, Column::Profit, Column::Margin, Column::SoldPerDay, Column::Auctions];
-
     pub fn title(self) -> &'static str {
         match self {
             Column::Item => "Recipe",
             Column::Skill => "Skill",
-            Column::Cost => "Materials",
-            Column::Resale => "Net sale",
             Column::Profit => "Profit",
             Column::Margin => "Margin",
             Column::SoldPerDay => "Sold/day",
@@ -37,8 +31,6 @@ impl Column {
         match self {
             Column::Item => None,
             Column::Skill => r.skill.map(|s| f64::from(s.learn)),
-            Column::Cost => e.cost.map(|c| c.0 as f64),
-            Column::Resale => e.resale.map(|c| c.0 as f64),
             Column::Profit => e.profit.map(|p| p as f64),
             Column::Margin => e.margin.map(f64::from),
             Column::SoldPerDay => e.sold_per_day,

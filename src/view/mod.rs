@@ -109,16 +109,14 @@ struct Dims {
     pad: f32,
     detail: f32,
     gap: f32,
-    /// Skill, materials, net sale, profit, margin, sold/day, listed.
-    cols: [f32; 7],
 }
 
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0, cols: [40.0, 104.0, 104.0, 104.0, 56.0, 56.0, 40.0] }
+            Dims { compact, pad: 16.0, detail: 360.0, gap: 16.0 }
         } else {
-            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0, cols: [56.0, 112.0, 112.0, 112.0, 72.0, 80.0, 64.0] }
+            Dims { compact, pad: 24.0, detail: 400.0, gap: 24.0 }
         }
     }
 }

@@ -1,7 +1,7 @@
 //! The selected flip: profit per item, where the sale price goes, the merchant and the auction
 //! house.
 
-use rune::{El, ScrollSpec, Span, Tx, col, row, text};
+use rune::{El, ScrollSpec, Span, col, row, text};
 
 use super::Stocked;
 use crate::breakdown::wowhead_url;
@@ -12,7 +12,7 @@ use crate::profit::{AuctionBasis, SELLER_PERCENT};
 use crate::rows::per_day;
 use crate::theme::{self, p};
 use crate::view::detail::{band, ledger, note};
-use crate::view::widgets::{ButtonKind, Money, button, flexible, icon_frame, unknown};
+use crate::view::widgets::{Money, flexible, icon_frame, unknown, wowhead};
 use crate::view::{App, Dims};
 
 const PAD: f32 = 24.0;
@@ -45,12 +45,7 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
         }
     }
     let body = auction_facts(body.child(band("Auction house")), flip);
-    let url = wowhead_url(flip.item);
-    let actions = row().w_full().pt(16.0).child(button("Open on Wowhead", ButtonKind::Ghost, move |_: &mut App, tx: &mut Tx| {
-        if let Err(e) = tx.open_url(&url) {
-            eprintln!("{url}: {e}");
-        }
-    }));
+    let actions = row().w_full().pt(16.0).child(wowhead::<App>(wowhead_url(flip.item)));
     panel.pl(PAD + 1.0).pr(PAD).pb(PAD).child(col().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions)
 }
 

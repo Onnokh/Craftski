@@ -5,7 +5,9 @@ use std::sync::OnceLock;
 
 use rune::{Color, Cursor, El, Icon, Image, ImageCache, TextStyle, Tx, col, el, icon, row, text};
 
+use crate::charts;
 use crate::copper::{Coin, Copper, Lanes};
+use crate::rows::per_day;
 use crate::theme::{self, p};
 
 // Rune borders take no layout space, so boxes that CSS sizes around a 1pt border pad 1pt more.
@@ -134,25 +136,67 @@ pub fn checkbox<S: 'static>(label: &str, on: bool, flip: fn(&mut S)) -> El {
         .on_press(move |s: &mut S| flip(s))
 }
 
-pub enum ButtonKind {
-    Primary,
-    Ghost,
+/// The panel's main action: brass, taking the width its row leaves, with `leading` before the label.
+pub fn primary<S: 'static>(label: &str, leading: &'static Icon, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    row()
+        .h(40.0)
+        .grow(1.0)
+        .px(16.0)
+        .gap(8.0)
+        .radius(4.0)
+        .center_y()
+        .justify_center()
+        .fill(p().brass)
+        .hover(Color::WHITE.alpha(0.10))
+        .press(Color::BLACK.alpha(0.10))
+        .child(glyph(leading, 16.0, p().on_brass))
+        .child(text(label).font(theme::BODY_MEDIUM).color(p().on_brass))
+        .role("button")
+        .label(label)
+        .cursor(Cursor::Pointer)
+        .on_press_tx(act)
 }
 
-pub fn button<S: 'static>(label: &str, kind: ButtonKind, act: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    let b = row().h(40.0).radius(4.0).center_y().justify_center().role("button").label(label).cursor(Cursor::Pointer);
-    let (b, color) = match kind {
-        ButtonKind::Primary => (b.grow(1.0).px(16.0).fill(p().brass).hover(Color::WHITE.alpha(0.10)).press(Color::BLACK.alpha(0.10)), p().on_brass),
-        ButtonKind::Ghost => (b.px(17.0).border(1.0, p().line).hover(Color::WHITE.alpha(0.04)).press(Color::WHITE.alpha(0.07)), p().text),
+/// An outlined "Wowhead" button that opens `url` in the browser, marked as leaving the app.
+pub fn wowhead<S: 'static>(url: String) -> El {
+    row()
+        .h(40.0)
+        .px(17.0)
+        .gap(8.0)
+        .radius(4.0)
+        .center_y()
+        .justify_center()
+        .border(1.0, p().line)
+        .hover(Color::WHITE.alpha(0.04))
+        .press(Color::WHITE.alpha(0.07))
+        .child(text("Wowhead").font(theme::BODY_MEDIUM).color(p().text))
+        .child(glyph(&EXTERNAL, 16.0, p().muted))
+        .role("button")
+        .label("Open on Wowhead")
+        .cursor(Cursor::Pointer)
+        .on_press_tx(move |_: &mut S, tx: &mut Tx| {
+            if let Err(e) = tx.open_url(&url) {
+                eprintln!("{url}: {e}");
+            }
+        })
+}
+
+/// A Rune Icons outline glyph from `assets/icons`, drawn in its element's colour: the files'
+/// `stroke="black"` names no hex colour, so rune draws them as a tintable coverage mask.
+macro_rules! rune_icon {
+    ($file:literal) => {
+        Icon { name: concat!("rune-", $file), view: 24.0, body: include_str!(concat!("../../assets/icons/", $file, ".svg")) }
     };
-    b.child(text(label).font(theme::BODY_MEDIUM).color(color)).on_press_tx(act)
 }
 
-pub static SEARCH: Icon = Icon {
-    name: "tsm-search",
-    view: 24.0,
-    body: r#"<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
+pub static SEARCH: Icon = rune_icon!("search");
+pub static CHEVRON_DOWN: Icon = rune_icon!("chevron-down");
+static ARROW_DOWN: Icon = rune_icon!("arrow-down");
+static ARROW_UP: Icon = rune_icon!("arrow-up");
+pub static CLIPBOARD_LIST: Icon = rune_icon!("clipboard-list");
+pub static SHOPPING_BAG: Icon = rune_icon!("shopping-bag");
+pub static TRIANGLE_ALERT: Icon = rune_icon!("triangle-alert");
+static EXTERNAL: Icon = rune_icon!("square-arrow-out-up-right");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()
@@ -161,6 +205,35 @@ pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
 /// A faint dash for what the data does not know.
 pub fn unknown() -> El {
     text("\u{2014}").font(theme::BODY).color(p().faint)
+}
+
+/// A column head's title; `descending` is Some on the sorted column, which reads brighter and
+/// ends in an arrow the way it sorts.
+pub fn column_title(title: &str, descending: Option<bool>) -> El {
+    let label = text(title).font(theme::LABEL).color(if descending.is_some() { p().text } else { p().muted });
+    match descending {
+        Some(down) => row().gap(4.0).center_y().child(label).child(glyph(if down { &ARROW_DOWN } else { &ARROW_UP }, 12.0, p().text)),
+        None => label,
+    }
+}
+
+/// Sales a day as three pips that light at 1, 5 and 20, then the figure; a dash with none.
+pub fn sold_per_day(sold: Option<f64>) -> El {
+    let Some(sold) = sold.filter(|&s| s > 0.0) else { return unknown() };
+    let lit = charts::pips_lit(sold);
+    let mut pips = row().h(12.0).gap(2.0).items_end().a11y_hidden();
+    for (i, height) in [6.0, 9.0, 12.0].into_iter().enumerate() {
+        pips = pips.child(el().w(4.0).h(height).radius(1.0).fill(p().text.alpha(if i < lit { 0.7 } else { 0.12 })));
+    }
+    row().gap(8.0).center_y().child(pips).child(row().min_w(28.0).justify_end().child(text(per_day(sold)).font(theme::BODY).color(p().muted)))
+}
+
+/// A horizontal bar `width` points long, brighter on the selected row; nothing without a width.
+pub fn bar(width: Option<f32>, selected: bool) -> El {
+    match width {
+        Some(w) => el().w(w).h(8.0).radius(2.0).fill(p().text.alpha(if selected { 0.5 } else { 0.3 })).a11y_hidden(),
+        None => el(),
+    }
 }
 
 /// The quiet line under a table that says what its filters hide, and a brass Show all that
