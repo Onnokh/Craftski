@@ -1,3 +1,4 @@
+mod columns;
 mod detail;
 mod flips;
 mod folder;
@@ -194,6 +195,9 @@ struct Dims {
     inset: f32,
     detail: f32,
     gap: f32,
+    /// The column the banner and table share, its width at the last layout, which decides the
+    /// table's columns and the toolbar's rows.
+    content: Option<f32>,
     /// The status bar's width at the last layout, which decides what it leaves out.
     status: Option<f32>,
 }
@@ -201,15 +205,20 @@ struct Dims {
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, status: None }
+            Dims { compact, pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, content: None, status: None }
         } else {
-            Dims { compact, pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, status: None }
+            Dims { compact, pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, content: None, status: None }
         }
     }
 
     /// A table cell's side padding, inside the table's inset.
     fn cell_pad(self) -> f32 {
         self.pad - self.inset
+    }
+
+    /// The width a table row lays its cells out in, between its side padding.
+    fn row_room(self) -> f32 {
+        self.content.map_or(f32::INFINITY, |w| w - 2.0 * self.pad)
     }
 }
 
@@ -592,7 +601,7 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
-    let d = Dims { status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
+    let d = Dims { content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
     let main = match &s.load {
         _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
@@ -605,6 +614,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             .min_w(0.0)
             .child(
                 col()
+                    .key("content")
                     .grow(1.0)
                     .shrink()
                     .min_w(0.0)

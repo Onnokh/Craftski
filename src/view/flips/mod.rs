@@ -264,6 +264,7 @@ pub fn main(s: &App, d: Dims) -> El {
         .min_w(0.0)
         .child(
             col()
+                .key("content")
                 .grow(1.0)
                 .shrink()
                 .min_w(0.0)

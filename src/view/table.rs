@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
 use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
-use super::{App, Dims, Ready, Recipes, recipe_at, tooltip};
+use super::{App, Dims, Ready, Recipes, columns, recipe_at, tooltip};
 use crate::charts;
 use crate::menu::SOLD_STEPS;
 use crate::rows::{self, Column, FilterKind, percent};
@@ -16,7 +16,7 @@ use crate::tooltip::Tip;
 const ROW: f32 = 32.0;
 
 /// A cell after the recipe's.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Slot {
     Skill,
     Profit,
@@ -46,15 +46,13 @@ impl Slot {
     }
 }
 
-/// The cells after the recipe's, each with its width; the recipe takes the width left. The
-/// narrow window keeps every cell, only narrower.
-fn slots(d: Dims) -> [(Slot, f32); 6] {
-    use Slot::*;
-    if d.compact {
-        [(Skill, 40.0), (Profit, 104.0), (ProfitBar, 96.0), (Margin, 56.0), (SoldPerDay, 56.0), (Listed, 40.0)]
-    } else {
-        [(Skill, 56.0), (Profit, 112.0), (ProfitBar, 160.0), (Margin, 72.0), (SoldPerDay, 80.0), (Listed, 64.0)]
-    }
+/// The cells after the recipe's, each with its width; the recipe takes the width left.
+const SLOTS: [(Slot, f32); 6] = [(Slot::Skill, 56.0), (Slot::Profit, 112.0), (Slot::ProfitBar, 160.0), (Slot::Margin, 72.0), (Slot::SoldPerDay, 80.0), (Slot::Listed, 64.0)];
+/// The cells a narrower table leaves out, first to go first. The profit and sales a day stay.
+const DROPS: [Slot; 4] = [Slot::ProfitBar, Slot::Listed, Slot::Margin, Slot::Skill];
+
+fn slots(d: Dims) -> Vec<(Slot, f32)> {
+    columns::fit(&SLOTS, &DROPS, d.row_room(), d.gap)
 }
 
 pub fn table(s: &App, r: &Ready, d: Dims) -> El {
