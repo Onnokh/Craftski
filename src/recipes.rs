@@ -230,17 +230,27 @@ pub struct Recipe {
     pub reagents: Vec<Reagent>,
 }
 
+impl Recipe {
+    pub fn learn(&self) -> Option<u16> {
+        self.skill.and_then(|s| s.learn)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
-    /// Rank needed to learn it.
-    pub learn: u16,
+    /// Rank a trainer or recipe teaches it at, from foreverdb, since the client's MinSkillLineRank
+    /// is 1 on every Forever row. Never cached with the recipes, so a newer foreverdb copy shows.
+    #[serde(skip)]
+    pub learn: Option<u16>,
+    /// Rank at which it turns yellow.
+    pub yellow: u16,
     /// Rank at which it turns grey and stops raising skill.
     pub grey: u16,
 }
 
 impl Skill {
     pub fn green(self) -> u16 {
-        self.learn.midpoint(self.grey)
+        self.yellow.midpoint(self.grey)
     }
 }
 
@@ -281,12 +291,11 @@ const CREATE_ITEM: u32 = 24;
 const REAGENT_SLOTS: usize = 8;
 
 pub fn join(t: &Tables, profession: Profession) -> Result<Vec<Recipe>, String> {
-    // MinSkillLineRank is 1 on every Forever row; the trainer gates a recipe at its trivial-low rank.
     let mut spells: BTreeMap<u32, Option<Skill>> = BTreeMap::new();
     each_row(&t.skill_line_ability, "SkillLineAbility", ["SkillLine", "Spell", "TrivialSkillLineRankLow", "TrivialSkillLineRankHigh"], |[line, spell, low, high]| {
         if profession.skill_lines().contains(&num(line)?) {
-            let (learn, grey) = (num(low)?, num(high)?);
-            spells.entry(num(spell)?).or_insert((learn != 0).then_some(Skill { learn, grey }));
+            let (yellow, grey) = (num(low)?, num(high)?);
+            spells.entry(num(spell)?).or_insert((yellow != 0).then_some(Skill { learn: None, yellow, grey }));
         }
         Ok(())
     })?;
@@ -433,7 +442,7 @@ pub fn num<T: FromStr>(s: &str) -> Result<T, String> {
 }
 
 /// Bump when `Recipe` changes shape, so a file an older version wrote is never read.
-const CACHE_SCHEMA: &str = "v4";
+const CACHE_SCHEMA: &str = "v5";
 
 #[derive(Serialize, Deserialize)]
 struct Cache {
@@ -459,7 +468,7 @@ pub fn load_each(professions: &[Profession]) -> Result<Vec<Vec<Recipe>>, String>
         let path = cache_path(profession);
         let cached = path.as_ref().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<Cache>(&b).ok());
         if let Some(cache) = cached.filter(|c| c.build == BUILD && c.profession == profession.name()) {
-            each.push(cache.recipes);
+            each.push(with_learn_ranks(cache.recipes, profession));
             continue;
         }
         let t = match &tables {
@@ -472,9 +481,38 @@ pub fn load_each(professions: &[Profession]) -> Result<Vec<Vec<Recipe>>, String>
         {
             eprintln!("recipe cache not written to {}: {e}", path.display());
         }
-        each.push(cache.recipes);
+        each.push(with_learn_ranks(cache.recipes, profession));
     }
     Ok(each)
+}
+
+/// `recipes` with the learn ranks foreverdb knows, or with none when its file can't be had.
+fn with_learn_ranks(mut recipes: Vec<Recipe>, profession: Profession) -> Vec<Recipe> {
+    match crate::foreverdb::fetch(&format!("professions/{}.json", profession.slug())).and_then(|json| learn_ranks(&json)) {
+        Ok(ranks) => apply_learn_ranks(&mut recipes, &ranks),
+        Err(e) => eprintln!("{} learn ranks unknown: {e}", profession.name()),
+    }
+    recipes
+}
+
+/// Spell id to learn rank from foreverdb's `professions/{slug}.json`. Its `req` is the rank a
+/// trainer seen in Forever asks for, else Classic's, and is absent where neither is known.
+pub fn learn_ranks(json: &str) -> Result<HashMap<u32, u16>, String> {
+    #[derive(Deserialize)]
+    struct File {
+        recipes: Vec<serde_json::Value>,
+    }
+    let file: File = serde_json::from_str(json).map_err(|e| format!("foreverdb recipes: {e}"))?;
+    let rank = |r: &serde_json::Value| Some((u32::try_from(r.get("s")?.as_u64()?).ok()?, u16::try_from(r.get("req")?.as_u64()?).ok()?));
+    Ok(file.recipes.iter().filter_map(rank).collect())
+}
+
+pub fn apply_learn_ranks(recipes: &mut [Recipe], ranks: &HashMap<u32, u16>) {
+    for recipe in recipes {
+        if let Some(skill) = &mut recipe.skill {
+            skill.learn = ranks.get(&recipe.spell_id).copied();
+        }
+    }
 }
 
 pub fn write_json(path: &std::path::Path, value: &impl Serialize) -> std::io::Result<()> {
@@ -570,7 +608,7 @@ mod tests {
                 slot: None,
                 icon: Some(FileDataId(134256)),
                 quantity: 1.0,
-                skill: Some(Skill { learn: 125, grey: 135 }),
+                skill: Some(Skill { learn: None, yellow: 125, grey: 135 }),
                 reagents: vec![reagent(2319, "Medium Leather", Quality::Common, Some(134254), 5)],
             },
             Recipe {
@@ -581,7 +619,7 @@ mod tests {
                 slot: Some(Slot::Cloak),
                 icon: Some(FileDataId(134255)),
                 quantity: 2.0,
-                skill: Some(Skill { learn: 250, grey: 270 }),
+                skill: Some(Skill { learn: None, yellow: 250, grey: 270 }),
                 reagents: vec![reagent(8171, "Rugged Hide", Quality::Uncommon, Some(134257), 1), reagent(15409, "Item #15409", Quality::Common, None, 1)],
             },
             Recipe {
@@ -608,10 +646,24 @@ mod tests {
             slot: None,
             icon: Some(FileDataId(135248)),
             quantity: 1.0,
-            skill: Some(Skill { learn: 1, grey: 30 }),
+            skill: Some(Skill { learn: None, yellow: 1, grey: 30 }),
             reagents: vec![Reagent { item_id: 2835, item_name: "Rough Stone".into(), quality: Quality::Common, icon: None, count: 1 }],
         }]);
         assert_eq!(join(&tables(), Profession::Tailoring), Ok(vec![]));
+    }
+
+    #[test]
+    fn learn_ranks_come_from_foreverdb_and_skip_recipes_it_has_no_rank_for() {
+        let json = r#"{"recipes":[{"s":3780,"n":"Heavy Armor Kit","y":145,"g":165,"req":145},{"s":439116,"y":230,"g":250},{"s":2152,"y":30,"g":60,"req":1}],"trainers":{}}"#;
+        let mut recipes = join(&tables(), Profession::Leatherworking).unwrap();
+        recipes[0].spell_id = 3780;
+        recipes[1].spell_id = 439116;
+        apply_learn_ranks(&mut recipes, &learn_ranks(json).unwrap());
+        assert_eq!(recipes.iter().map(|r| r.skill).collect::<Vec<_>>(), vec![
+            Some(Skill { learn: Some(145), yellow: 125, grey: 135 }),
+            Some(Skill { learn: None, yellow: 250, grey: 270 }),
+            None
+        ]);
     }
 
     #[test]

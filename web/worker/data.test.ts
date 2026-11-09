@@ -36,6 +36,15 @@ test("each file the app reads maps to its wago.tools table or foreverdb file", (
   );
 });
 
+test("each profession's recipe file maps to foreverdb's, and no other profession does", () => {
+  const slugs = ["alchemy", "blacksmithing", "cooking", "enchanting", "engineering", "first-aid", "leatherworking", "mining", "tailoring"];
+  assert.deepEqual(
+    slugs.map((s) => upstreamUrl(parseDataPath(`/data/foreverdb/professions/${s}.json`)!)),
+    slugs.map((s) => `https://foreverdb.net/data/professions/${s}.json`),
+  );
+  assert.deepEqual(["/data/foreverdb/professions/fishing.json", "/data/foreverdb/professions/../vendors.json", "/data/foreverdb/professions.json"].filter((p) => parseDataPath(p) !== null), []);
+});
+
 test("nothing outside the list maps to an upstream file", () => {
   const lookalikes = [
     "/data/wago/1.60.1.70861/ItemSparse.csv",

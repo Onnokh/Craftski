@@ -138,7 +138,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .child(flexible().items_start().child(item));
     for (slot, width) in slots(s, d) {
         let content = match slot {
-            Slot::Skill => recipe.skill.map_or_else(unknown, |k| number(k.learn.to_string())),
+            Slot::Skill => recipe.learn().map_or_else(unknown, |learn| number(learn.to_string())),
             Slot::Profit => e.profit.map_or_else(unknown, |pr| Money::new(theme::BODY_STRONG, p().text).short().signed(pr)),
             Slot::ProfitBar => bar(e.profit.and_then(|pr| charts::bar(pr, top, width)), selected),
             Slot::Margin => e.margin.map_or_else(unknown, |m| number(percent(m)).color(if m < 0.0 { p().loss } else { p().text })),

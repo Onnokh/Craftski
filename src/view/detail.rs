@@ -228,7 +228,7 @@ fn reagent(s: &App, l: &ReagentLine, money: Money) -> El {
 /// Yellow from learning to green, green to grey, then grey: the ranks where a craft still
 /// raises the skill.
 fn skill_range(skill: Skill) -> El {
-    let labels = [format!("Yellow {}", skill.learn), format!("Green {}", skill.green()), format!("Grey {}", skill.grey)];
+    let labels = [format!("Yellow {}", skill.yellow), format!("Green {}", skill.green()), format!("Grey {}", skill.grey)];
     let (Some(track), Some(frame)) = (skin::stretch(Piece::ProgressBg), skin::stretch(Piece::ProgressFrame)) else { return flat_skill_range(labels) };
     let segments = p().skill_bar.into_iter().fold(row().pin(Some(5.0), Some(5.0), Some(5.0), Some(5.0)).gap(2.0), |out, [top, bottom]| {
         out.child(el().w(0.0).grow(1.0).h_full().fill(bottom).linear_gradient(std::f32::consts::PI, [(0.0, top), (1.0, bottom)]))

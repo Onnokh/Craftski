@@ -155,14 +155,14 @@ fn add_mats<'a>(need: &mut Vec<(&'a Reagent, u64)>, recipe: &'a Recipe, times: u
     }
 }
 
-/// "Cloak, makes 1. Learned at 225.", leaving out what the data does not know.
+/// "Cloak, makes 1. Learned at 205.", leaving out what the data does not know.
 pub fn subtitle(recipe: &Recipe) -> String {
     let makes = match recipe.slot {
         Some(slot) => format!("{}, makes {}.", slot.name(), recipe.quantity),
         None => format!("Makes {}.", recipe.quantity),
     };
-    match recipe.skill {
-        Some(skill) => format!("{makes} Learned at {}.", skill.learn),
+    match recipe.learn() {
+        Some(learn) => format!("{makes} Learned at {learn}."),
         None => makes,
     }
 }
@@ -201,7 +201,7 @@ mod tests {
             slot: Some(Slot::Cloak),
             icon: None,
             quantity: 1.0,
-            skill: Some(Skill { learn: 225, grey: 245 }),
+            skill: Some(Skill { learn: Some(205), yellow: 225, grey: 245 }),
             reagents: vec![reagent(4304, "Thick Leather", 12), reagent(8343, "Heavy Silken Thread", 4)],
         }
     }
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn the_subtitle_names_slot_yield_and_skill_when_known() {
         let mut recipe = nightscape_cloak();
-        assert_eq!(subtitle(&recipe), "Cloak, makes 1. Learned at 225.");
+        assert_eq!(subtitle(&recipe), "Cloak, makes 1. Learned at 205.");
         recipe.slot = None;
         recipe.skill = None;
         recipe.quantity = 2.0;

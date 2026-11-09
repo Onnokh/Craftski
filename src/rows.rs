@@ -30,7 +30,7 @@ impl Column {
     fn number(self, r: &Recipe, e: &Evaluation) -> Option<f64> {
         match self {
             Column::Item => None,
-            Column::Skill => r.skill.map(|s| f64::from(s.learn)),
+            Column::Skill => r.learn().map(f64::from),
             Column::Profit => e.profit.map(|p| p as f64),
             Column::Margin => e.margin.map(f64::from),
             Column::SoldPerDay => e.sold_per_day,
@@ -182,7 +182,7 @@ fn kept(recipes: &[Recipe], evals: &[Evaluation], filter: Filter) -> Vec<usize> 
             let e = &evals[i];
             let priced = !filter.hide_unpriced || e.profit.is_some();
             let selling = sells(e.sold_per_day, filter.min_sold_per_day);
-            let learnable = filter.max_skill.is_none_or(|max| recipes[i].skill.is_none_or(|s| s.learn <= max));
+            let learnable = filter.max_skill.is_none_or(|max| recipes[i].learn().is_none_or(|learn| learn <= max));
             priced && selling && learnable && matches(&recipes[i], &needle)
         })
         .collect()
@@ -216,7 +216,7 @@ mod tests {
     use crate::recipes::{Quality, Reagent, Skill};
 
     fn recipe(spell_id: u32, name: &str, skill: u16) -> Recipe {
-        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: Some(Skill { learn: skill, grey: skill + 10 }), reagents: vec![] }
+        Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: Some(Skill { learn: Some(skill), yellow: skill + 20, grey: skill + 40 }), reagents: vec![] }
     }
 
     fn eval(profit: Option<i64>, sold: Option<f64>) -> Evaluation {
