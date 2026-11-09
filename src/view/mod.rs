@@ -77,6 +77,9 @@ pub struct App {
     hide_unpriced: bool,
     min_sold: usize,
     sort: Sort<Column>,
+    /// The detail panel is open over the table, where it goes over rather than beside it. A row's
+    /// press opens it on either tab.
+    sheet: bool,
     /// The recipe the detail panel shows, by spell id, kept while filters hide its row.
     selected: Option<u32>,
     search: TextEdit,
@@ -185,6 +188,19 @@ enum Recipes {
     Failed(String),
 }
 
+/// Where the detail panel goes.
+#[derive(Clone, Copy, PartialEq)]
+enum Detail {
+    /// Beside the table.
+    Side,
+    /// Over the table's right side while a row the player pressed holds it open, the table
+    /// keeping the whole width.
+    Sheet,
+}
+
+/// The narrowest a table gets beside the detail panel before the panel goes over it instead.
+const TABLE_MIN: f32 = 520.0;
+
 /// Sizes that change between a roomy window and a narrow one.
 #[derive(Clone, Copy)]
 struct Dims {
@@ -192,7 +208,9 @@ struct Dims {
     /// The table's margin from the rail and the detail panel. Its cells pad by the rest of
     /// `pad`, so their text lines up with the title and toolbar above.
     inset: f32,
-    detail: f32,
+    detail: Detail,
+    /// The detail panel's width.
+    panel: f32,
     gap: f32,
     /// The column the banner and table share, its width at the last layout, which decides the
     /// table's columns and the toolbar's rows.
@@ -202,12 +220,15 @@ struct Dims {
 }
 
 impl Dims {
-    fn new(compact: bool) -> Dims {
-        if compact {
-            Dims { pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, content: None, status: None }
-        } else {
-            Dims { pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, content: None, status: None }
-        }
+    /// The sizes for a tab `main` wide, right of the rail.
+    fn new(main: f32) -> Dims {
+        let (pad, inset, panel, gap) = match main {
+            m if m < 600.0 => (12.0, 4.0, 360.0, 8.0),
+            m if m < 1440.0 => (16.0, 8.0, 360.0, 16.0),
+            _ => (24.0, 12.0, 400.0, 24.0),
+        };
+        let detail = if main - panel >= TABLE_MIN { Detail::Side } else { Detail::Sheet };
+        Dims { pad, inset, detail, panel: panel.min(main), gap, content: None, status: None }
     }
 
     /// A table cell's side padding, inside the table's inset.
@@ -247,6 +268,7 @@ impl App {
             min_sold: 0,
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
+            sheet: false,
             search: TextEdit::new(""),
             skill: TextEdit::new(settings::load_skill(profession)),
             flips: flips::State::new(),
@@ -324,10 +346,15 @@ impl App {
         self.selected = self.ready().and_then(|r| r.rows.first().map(|&i| r.market.recipes[i].spell_id));
     }
 
+    /// `tab`, with the detail sheet closed so its table shows whole.
+    pub(super) fn open_tab(&mut self, tab: Tab) {
+        (self.tab, self.sheet) = (tab, false);
+    }
+
     /// The rail's press: the crafts tab with `profession`'s recipes, remembered for next time.
     /// Pressing the shown profession again retries recipes that failed to load.
     pub(super) fn choose_profession(&mut self, profession: Profession) {
-        self.tab = Tab::Crafts;
+        self.open_tab(Tab::Crafts);
         let failed = self.ready().is_some_and(|r| matches!(r.recipes, Recipes::Failed(_)));
         if profession == self.profession && !failed {
             return;
@@ -564,10 +591,14 @@ fn drain(s: &mut App) -> bool {
     changed
 }
 
-/// Ctrl+K finds, Escape closes the open menu or clears the search, and the arrow keys walk the
-/// rows, all on the open tab.
+/// Ctrl+K finds, Escape closes the open menu, then the detail sheet, or else clears the search,
+/// and the arrow keys walk the rows, all on the open tab.
 pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key == Key::Escape && s.close_menu() {
+        return true;
+    }
+    if ev.key == Key::Escape && s.sheet {
+        s.sheet = false;
         return true;
     }
     if s.tab == Tab::Settings {
@@ -605,29 +636,22 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let compact = cx.layout_with("root", |r| r[2] < 1500.0).unwrap_or(false);
-    let d = Dims { content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(compact) };
+    let main = cx.layout_with("root", |r| r[2] - rail::RAIL).unwrap_or(f32::INFINITY);
+    let d = Dims { content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(main) };
     let main = match &s.load {
         _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
         Load::Unlocated => folder::not_found(s),
         Load::Failed(e) => message(&format!("Could not load data: {e}")),
         Load::Ready(_) if s.tab == Tab::Flips => flips::main(s, d),
-        Load::Ready(r) => row()
-            .grow(1.0)
-            .h_full()
-            .min_w(0.0)
-            .child(
-                col()
-                    .key("content")
-                    .grow(1.0)
-                    .shrink()
-                    .min_w(0.0)
-                    .h_full()
-                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.icons.coffee.as_ref(), d), toolbar::toolbar(s, d)))
-                    .child(table::table(s, r, d)),
-            )
-            .child(detail::detail(s, r, d)),
+        Load::Ready(r) => split(
+            s,
+            d,
+            col()
+                .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.icons.coffee.as_ref(), d), toolbar::toolbar(s, d)))
+                .child(table::table(s, r, d)),
+            || detail::detail(s, r, d),
+        ),
     };
     let root = col()
         .key("root")
@@ -638,6 +662,17 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s)).child(main))
         .children(s.ready().map(|r| status::status(s, r, d)));
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
+}
+
+/// A tab's `content` column with its detail panel beside it, or over its right side while the
+/// sheet is open.
+fn split(s: &App, d: Dims, content: El, detail: impl FnOnce() -> El) -> El {
+    let out = row().grow(1.0).h_full().min_w(0.0).child(content.key("content").grow(1.0).shrink().min_w(0.0).h_full());
+    match d.detail {
+        Detail::Side => out.child(detail()),
+        Detail::Sheet if s.sheet => out.child(detail().pin(None, Some(0.0), Some(0.0), Some(0.0))),
+        Detail::Sheet => out,
+    }
 }
 
 fn message(m: &str) -> El {
@@ -687,6 +722,27 @@ mod tests {
         s.toggle_menu(Menu::Zone);
         assert!(s.close_menu());
         assert!(!s.close_menu());
+    }
+
+    #[test]
+    fn the_detail_goes_over_the_table_where_beside_it_the_table_would_be_under_520_wide() {
+        let at = |main: f32| (Dims::new(main).detail == Detail::Side, Dims::new(main).panel);
+        assert_eq!(at(f32::INFINITY), (true, 400.0));
+        assert_eq!(at(1440.0), (true, 400.0));
+        assert_eq!(at(880.0), (true, 360.0));
+        assert_eq!(at(879.0), (false, 360.0));
+        assert_eq!(at(330.0), (false, 330.0));
+    }
+
+    #[test]
+    fn changing_tab_or_profession_closes_the_detail_sheet() {
+        let mut s = App::new();
+        s.sheet = true;
+        s.open_tab(Tab::Flips);
+        assert_eq!((s.tab == Tab::Flips, s.sheet), (true, false));
+        s.sheet = true;
+        s.choose_profession(Profession::Tailoring);
+        assert_eq!((s.tab == Tab::Crafts, s.sheet), (true, false));
     }
 
     #[test]

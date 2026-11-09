@@ -12,6 +12,8 @@ use crate::theme::p;
 pub const COIN: &str = "inv_misc_coin_01";
 const GEAR: &str = "inv_misc_gear_01";
 
+/// The rail's width.
+pub const RAIL: f32 = 60.0;
 const SLOT: f32 = 48.0;
 const FRAME: f32 = 40.0;
 const ICON: f32 = 34.0;
@@ -24,7 +26,7 @@ pub fn icons() -> impl Iterator<Item = &'static str> {
 pub fn rail(s: &App) -> El {
     let professions = |secondary: bool| Profession::ALL.into_iter().filter(move |p| p.secondary() == secondary).map(|p| profession(s, p));
     col()
-        .w(60.0)
+        .w(RAIL)
         .h_full()
         .py(16.0)
         .gap(6.0)
@@ -35,9 +37,9 @@ pub fn rail(s: &App) -> El {
         .child(rule())
         .children(professions(true))
         .child(rule())
-        .child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.tab = Tab::Flips))
+        .child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.open_tab(Tab::Flips)))
         .child(el().grow(1.0))
-        .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.tab = Tab::Settings))
+        .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.open_tab(Tab::Settings)))
 }
 
 fn profession(s: &App, profession: Profession) -> El {

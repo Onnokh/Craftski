@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, col, el, row, text};
 
 use super::widgets::{Money, bar, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
-use super::{App, Dims, Ready, Recipes, columns, recipe_at, tooltip};
+use super::{App, Detail, Dims, Ready, Recipes, columns, recipe_at, tooltip};
 use crate::charts;
 use crate::menu::SOLD_STEPS;
 use crate::rows::{self, Column, FilterKind, percent};
@@ -147,5 +147,6 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         out = out.child(slot.cell(width).child(content));
     }
     let id = recipe.spell_id;
-    tooltip::hover(out, Tip::Recipe(id)).on_press(move |s: &mut App| s.selected = Some(id))
+    let sheet = d.detail == Detail::Sheet;
+    tooltip::hover(out, Tip::Recipe(id)).on_press(move |s: &mut App| (s.selected, s.sheet) = (Some(id), sheet))
 }

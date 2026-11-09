@@ -12,7 +12,7 @@ use crate::theme::{self, p};
 use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
 use crate::tooltip::Tip;
 use crate::view::columns::fit;
-use crate::view::{App, Dims, tooltip};
+use crate::view::{App, Detail, Dims, tooltip};
 
 const ROW: f32 = 32.0;
 
@@ -121,7 +121,8 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
         out = out.child(cell(column, width).child(content));
     }
     let tip = Tip::Flip(entry.flip);
-    tooltip::hover(out, tip).on_press(move |s: &mut App| s.flips.selected = Some(key))
+    let sheet = d.detail == Detail::Sheet;
+    tooltip::hover(out, tip).on_press(move |s: &mut App| (s.flips.selected, s.sheet) = (Some(key), sheet))
 }
 
 /// The merchant, how many others sell the item, and the zone when a search reaches past the

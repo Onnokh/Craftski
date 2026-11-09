@@ -4,8 +4,8 @@
 use rune::{Align, Color, Cursor, El, InlineIcon, ScrollSpec, Shadow, Span, Tx, col, el, row, text};
 
 use super::skin;
-use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, flexible, glyph, icon_frame, button, unknown, wowhead};
-use super::{App, Dims, Ready, recipe_at, tooltip};
+use super::widgets::{CLIPBOARD_LIST, Money, SHOPPING_BAG, TRIANGLE_ALERT, button, close_button, flexible, glyph, icon_frame, unknown, wowhead};
+use super::{App, Detail, Dims, Ready, recipe_at, tooltip};
 use crate::breakdown::{Caution, ReagentLine, Sale, breakdown, caution, shopping_list, subtitle, wowhead_url};
 use crate::charts;
 use crate::profit::{AuctionBasis, Evaluation, PriceOrigin};
@@ -28,7 +28,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let b = breakdown(recipe, e, &r.market.book, costs);
     let warning = caution(e.sold_per_day, e.auctions);
     let money = Money::new(theme::BODY, p().text);
-    let mut body = col().w_full().child(identity(s, recipe)).child(facts(r, e, warning, s.listings())).child(band("One craft"));
+    let mut body = col().w_full().child(identity(s, recipe, d)).child(facts(r, e, warning, s.listings())).child(band("One craft"));
     body = body.child(ledger_line(text("Sale price").font(theme::BODY).color(p().text), b.sale.map_or_else(unknown, |s| money.show(s.gross))));
     if let Some(Sale { basis: AuctionBasis::MarketValue, .. }) = b.sale {
         body = body.child(note("No current listings, 14-day average.", false));
@@ -54,7 +54,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     panel.px(PAD).pb(PAD).child(col().key("detail-body").instant_changes().w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body)).child(actions.key("actions"))
 }
 
-fn identity(s: &App, recipe: &Recipe) -> El {
+fn identity(s: &App, recipe: &Recipe, d: Dims) -> El {
     let quality = p().quality(recipe.quality);
     row()
         .w_full()
@@ -67,6 +67,7 @@ fn identity(s: &App, recipe: &Recipe) -> El {
                 .child(text(&recipe.item_name).font(theme::HEADING).color(quality).truncate())
                 .child(text(subtitle(recipe)).font(theme::CAPTION).color(p().muted).mt(4.0).truncate()),
         )
+        .children(close(d))
 }
 
 /// The market in three cells: region sales, realm listings and the profit rank among every
@@ -130,11 +131,16 @@ fn total(e: &Evaluation) -> El {
     out
 }
 
+/// The sheet's close button, where the detail panel goes over the table.
+pub(super) fn close(d: Dims) -> Option<El> {
+    (d.detail == Detail::Sheet).then(|| close_button("Close details", |s: &mut App| s.sheet = false))
+}
+
 /// The detail panel's box: a drawer over the table, edged in bronze and casting its shadow
 /// onto the rows beside it. The edge takes room, so the body and the art lie inside it.
 pub(super) fn panel(d: Dims) -> El {
     col()
-        .w(d.detail)
+        .w(d.panel)
         .h_full()
         .fill(p().surface)
         .border_sides([0.0, 0.0, 0.0, 2.0], p().bronze)

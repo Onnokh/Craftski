@@ -244,6 +244,11 @@ pub fn button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, act
         .on_press_tx(act)
 }
 
+/// A cross in a control-sized square that runs `act` on a press, spoken as `spoken`.
+pub fn close_button<S: 'static>(spoken: &str, act: impl Fn(&mut S) + 'static) -> El {
+    row().w(CONTROL).h(CONTROL).center().radius(4.0).child(glyph(&X, 18.0, p().muted)).hover(Color::WHITE.alpha(0.06)).role("button").label(spoken).cursor(Cursor::Pointer).on_press(act)
+}
+
 /// A "Wowhead" button that opens `url` in the browser, marked as leaving the app.
 pub fn wowhead<S: 'static>(url: String) -> El {
     link::<S>("Wowhead", "Open on Wowhead", url)
@@ -292,6 +297,7 @@ pub static SHOPPING_BAG: Icon = rune_icon!("shopping-bag");
 pub static TRIANGLE_ALERT: Icon = rune_icon!("triangle-alert");
 pub static REFRESH: Icon = rune_icon!("refresh-cw");
 static EXTERNAL: Icon = rune_icon!("square-arrow-out-up-right");
+static X: Icon = rune_icon!("x");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()

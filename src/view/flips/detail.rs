@@ -11,7 +11,7 @@ use crate::merchants::Merchant;
 use crate::profit::{AuctionBasis, SELLER_PERCENT};
 use crate::rows::per_day;
 use crate::theme::{self, p};
-use crate::view::detail::{band, ledger, note, panel};
+use crate::view::detail::{band, close, ledger, note, panel};
 use crate::view::widgets::{Money, flexible, icon_frame, unknown, wowhead};
 use crate::view::{App, Dims};
 
@@ -36,7 +36,8 @@ pub fn detail(s: &App, f: &Stocked, d: Dims) -> El {
             flexible()
                 .child(text(&name).font(theme::HEADING).color(quality).truncate())
                 .child(text(format!("{}, {}.", merchant.name, merchant.role)).font(theme::CAPTION).color(p().muted).mt(4.0).truncate()),
-        );
+        )
+        .children(close(d));
     let mut body = breakdown(col().w_full().child(identity).child(hero(flip)).child(band("Breakdown").mt(16.0)), flip);
     body = merchant_facts(body.child(band("Merchant")), flip, merchant, &s.rules);
     if !others.is_empty() {
