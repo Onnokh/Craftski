@@ -51,9 +51,10 @@ const SLOTS: [(Slot, f32); 6] = [(Slot::Skill, 56.0), (Slot::Profit, 112.0), (Sl
 /// The cells a narrower table leaves out, first to go first. The profit and sales a day stay.
 const DROPS: [Slot; 4] = [Slot::ProfitBar, Slot::Listed, Slot::Margin, Slot::Skill];
 
-/// The cells shown, without the listings where prices come without them.
+/// The cells shown, without the listings where prices come without them or the bar on a small
+/// screen.
 fn slots(s: &App, d: Dims) -> Vec<(Slot, f32)> {
-    let shown: Vec<(Slot, f32)> = SLOTS.into_iter().filter(|&(slot, _)| slot != Slot::Listed || s.listings()).collect();
+    let shown: Vec<(Slot, f32)> = SLOTS.into_iter().filter(|&(slot, _)| (slot != Slot::Listed || s.listings()) && (slot != Slot::ProfitBar || !d.small)).collect();
     columns::fit(&shown, &DROPS, d.row_room(), d.gap)
 }
 

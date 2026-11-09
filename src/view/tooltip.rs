@@ -31,9 +31,9 @@ pub fn hover(el: El, tip: Tip) -> El {
 
 /// The open tooltip beside the pointer, attached at the root: a point at the pointer, then the
 /// tooltip anchored to it.
-pub fn overlay(s: &App) -> Vec<El> {
+pub fn overlay(s: &App, zoom: f32) -> Vec<El> {
     let Some(card) = s.tip.filter(|_| s.menu.is_none()).and_then(|tip| card(s, s.ready()?, tip)) else { return Vec::new() };
-    let (x, y) = s.pointer;
+    let (x, y) = (s.pointer.0 / zoom, s.pointer.1 / zoom);
     let cursor = el().key(CURSOR).absolute(x, y).w(1.0).h(1.0).instant_changes().a11y_hidden();
     let panel = col().key("tooltip").instant_changes().w(WIDTH).role("tooltip").label(card.name.clone());
     let panel = match skin::frame(FRAME, EDGE) {

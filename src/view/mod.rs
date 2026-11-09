@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
+use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, el, row, text};
 
 use crate::flips::Rules;
 use crate::market::{self, Market, Origin, PriceSource, Read};
@@ -220,6 +220,8 @@ struct Dims {
     safe: [f32; 4],
     /// The status bar's width at the last layout, which decides what it leaves out.
     status: Option<f32>,
+    /// A phone-sized screen, which draws the app zoomed out and leaves out what only decorates.
+    small: bool,
 }
 
 impl Dims {
@@ -231,7 +233,7 @@ impl Dims {
             _ => (24.0, 12.0, 400.0, 24.0),
         };
         let detail = if main - panel >= TABLE_MIN { Detail::Side } else { Detail::Sheet };
-        Dims { pad, inset, detail, panel: panel.min(main), gap, safe: [0.0; 4], content: None, status: None }
+        Dims { pad, inset, detail, panel: panel.min(main), gap, safe: [0.0; 4], content: None, status: None, small: false }
     }
 
     /// A table cell's side padding, inside the table's inset.
@@ -650,9 +652,11 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let safe = cx.safe_area();
-    let main = cx.layout_with("root", move |r| r[2] - rail::RAIL - safe[1] - safe[3]).unwrap_or(f32::INFINITY);
-    let d = Dims { safe, content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(main) };
+    let screen = cx.layout_with("screen", |r| (r[2], r[3]));
+    let zoom = screen.map_or(1.0, |(w, h)| zoom(w, h));
+    let safe = cx.safe_area().map(|v| v / zoom);
+    let main = screen.map_or(f32::INFINITY, |(w, _)| w / zoom - rail::RAIL - safe[1] - safe[3]);
+    let d = Dims { safe, content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), small: zoom < 1.0, ..Dims::new(main) };
     let main = match &s.load {
         _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
@@ -681,7 +685,22 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
         .child(body)
         .children(status);
-    menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
+    let root = menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s, zoom));
+    let screen_el = el().key("screen").w_full().h_full();
+    match screen {
+        Some((w, h)) if zoom < 1.0 => {
+            // `scale` draws about the centre, so the larger root sits centred on the screen to
+            // shrink onto it exactly.
+            let (lw, lh) = (w / zoom, h / zoom);
+            screen_el.child(root.pin(Some((w - lw) / 2.0), Some((h - lh) / 2.0), None, None).w(lw).h(lh).scale(zoom))
+        }
+        _ => screen_el.child(root),
+    }
+}
+
+/// How small to draw the whole app on a small screen, laying it out that much larger.
+fn zoom(w: f32, h: f32) -> f32 {
+    if w < 1100.0 || h < 700.0 { 0.85 } else { 1.0 }
 }
 
 /// A tab's `content` column with its detail panel beside it, or over its right side while the
