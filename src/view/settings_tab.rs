@@ -90,7 +90,7 @@ fn house_caption(s: &App, house: PublicHouse) -> El {
 /// The page's place beside Blizzard and TSM, and the desktop app.
 #[cfg(target_arch = "wasm32")]
 fn about() -> El {
-    const DESKTOP_APP: &str = "https://github.com/Onnokh/tsm-crafts/releases/latest";
+    const DESKTOP_APP: &str = "https://github.com/Onnokh/Craftski/releases/latest";
     col()
         .w_full()
         .gap(12.0)
