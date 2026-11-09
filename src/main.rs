@@ -109,7 +109,7 @@ fn dump() -> Result<(), String> {
         println!(
             "{:<36} {:>5} {:>4} {:>14} {:>14} {:>14} {:>9} {:>9} {:>6}",
             r.item_name,
-            r.skill.map_or_else(na, |s| s.learn.to_string()),
+            r.learn().map_or_else(na, |learn| learn.to_string()),
             r.quantity,
             e.cost.map_or_else(na, |c| c.to_string()),
             e.resale.map_or_else(na, |c| c.to_string()),
