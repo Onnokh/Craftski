@@ -13,6 +13,8 @@ use crate::theme::{self, p};
 
 /// The title block's height, over the toolbar in the banner.
 const PAGE: f32 = 72.0;
+/// Between the title and the coffee button.
+const GAP: f32 = 16.0;
 /// The overview art's drawn height, which overhangs the banner top and bottom.
 const ART: f32 = 300.0;
 
@@ -30,15 +32,18 @@ pub fn header(profession: Profession, r: &Ready, coffee: Option<&Image>, d: Dims
     page(profession.name(), meta, coffee, d)
 }
 
-/// The title over its meta line, with the Buy Me a Coffee button at the far end.
+/// The title over its meta line, with the Buy Me a Coffee button at the far end. A title the
+/// title font would truncate there takes the smaller heading font.
 pub(super) fn page(title: &str, meta: String, coffee: Option<&Image>, d: Dims) -> El {
+    let room = d.row_room() - coffee.map_or(0.0, |_| GAP + COFFEE_SIZE.0);
+    let font = if rune::text::measure(title, &[], theme::TITLE, None).0 <= room { theme::TITLE } else { theme::HEADING };
     let words = col()
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .child(text(title).font(theme::TITLE).color(p().gold).truncate())
+        .child(text(title).font(font).color(p().gold).truncate())
         .child(text(meta).font(theme::CAPTION).color(p().muted).mt(4.0).truncate());
-    row().w_full().h(PAGE).pt(20.0).px(d.pad).gap(16.0).center_y().child(words).children(coffee.map(coffee_button))
+    row().w_full().h(PAGE).pt(20.0).px(d.pad).gap(GAP).center_y().child(words).children(coffee.map(coffee_button))
 }
 
 fn coffee_button(image: &Image) -> El {
