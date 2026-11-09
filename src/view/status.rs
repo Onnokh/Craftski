@@ -4,7 +4,7 @@
 use std::time::UNIX_EPOCH;
 
 use rune::time::LocalTime;
-use rune::{Color, Cursor, El, Span, el, rich, row, text};
+use rune::{Color, Cursor, El, Span, col, el, rich, row, text};
 
 use super::menu::opener;
 use super::widgets::{ARROW_ROOM, DROPDOWN_GAP, REFRESH, glyph};
@@ -72,8 +72,6 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
         .pr(RIGHT)
         .gap(GAP)
         .center_y()
-        .fill(p().ground)
-        .border_sides([1.0, 0.0, 0.0, 0.0], p().rule)
         .child(caption(GAME, p().faint))
         .child(rule)
         .child(if squeeze { prices.shrink().min_w(0.0) } else { prices });
@@ -90,7 +88,8 @@ pub fn status(s: &App, r: &Ready, d: Dims) -> El {
             (false, _) => caption(note, p().faint),
         });
     }
-    bar.child(reload())
+    let [_, right, bottom, left] = d.safe;
+    col().w_full().pb(bottom).pl(left).pr(right).fill(p().ground).border_sides([1.0, 0.0, 0.0, 0.0], p().rule).child(bar.child(reload()))
 }
 
 /// The realm prices come from, as a small dropdown that opens the list of realms in AppData.lua.

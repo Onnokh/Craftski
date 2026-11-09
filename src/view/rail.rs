@@ -4,7 +4,7 @@
 use rune::{Color, Cursor, El, ScrollSpec, col, el};
 
 use super::skin;
-use super::{App, Tab};
+use super::{App, Dims, Tab};
 use crate::recipes::Profession;
 use crate::skin::Piece;
 use crate::theme::p;
@@ -24,13 +24,16 @@ pub fn icons() -> impl Iterator<Item = &'static str> {
 }
 
 /// The rail, which scrolls where its tabs run past `height`, the height it had at the last
-/// layout. Where they fit, settings sits at its foot.
-pub fn rail(s: &App, height: Option<f32>) -> El {
+/// layout. Where they fit, settings sits at its foot. Its ground runs under the top and left
+/// safe-area insets.
+pub fn rail(s: &App, height: Option<f32>, d: Dims) -> El {
+    let [top, _, _, left] = d.safe;
     let professions = |secondary: bool| Profession::ALL.into_iter().filter(move |p| p.secondary() == secondary).map(|p| profession(s, p));
     let tabs = col()
         .w_full()
         .min_h(height.unwrap_or(0.0))
-        .py(16.0)
+        .pt(16.0 + top)
+        .pb(16.0)
         .gap(6.0)
         .items_center()
         .children(professions(false))
@@ -42,7 +45,8 @@ pub fn rail(s: &App, height: Option<f32>) -> El {
         .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.open_tab(Tab::Settings)));
     col()
         .key("rail")
-        .w(RAIL)
+        .w(RAIL + left)
+        .pl(left)
         .h_full()
         .min_h(0.0)
         .fill(Color::BLACK.alpha(0.55))

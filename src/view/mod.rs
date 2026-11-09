@@ -215,6 +215,9 @@ struct Dims {
     /// The column the banner and table share, its width at the last layout, which decides the
     /// table's columns and the toolbar's rows.
     content: Option<f32>,
+    /// The browser's safe-area insets, top, right, bottom and left, which the content keeps
+    /// clear of while the backgrounds run to the screen's edges.
+    safe: [f32; 4],
     /// The status bar's width at the last layout, which decides what it leaves out.
     status: Option<f32>,
 }
@@ -228,7 +231,7 @@ impl Dims {
             _ => (24.0, 12.0, 400.0, 24.0),
         };
         let detail = if main - panel >= TABLE_MIN { Detail::Side } else { Detail::Sheet };
-        Dims { pad, inset, detail, panel: panel.min(main), gap, content: None, status: None }
+        Dims { pad, inset, detail, panel: panel.min(main), gap, safe: [0.0; 4], content: None, status: None }
     }
 
     /// A table cell's side padding, inside the table's inset.
@@ -636,8 +639,9 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let main = cx.layout_with("root", |r| r[2] - rail::RAIL).unwrap_or(f32::INFINITY);
-    let d = Dims { content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(main) };
+    let safe = cx.safe_area();
+    let main = cx.layout_with("root", move |r| r[2] - rail::RAIL - safe[1] - safe[3]).unwrap_or(f32::INFINITY);
+    let d = Dims { safe, content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), ..Dims::new(main) };
     let main = match &s.load {
         _ if s.tab == Tab::Settings => settings_tab::main(s, d),
         Load::Loading => message("Loading TSM prices and recipes..."),
@@ -653,14 +657,19 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             || detail::detail(s, r, d),
         ),
     };
+    let [top, right, bottom, _] = safe;
+    let status = s.ready().map(|r| status::status(s, r, d));
+    let main = col().grow(1.0).min_w(0.0).h_full().pt(top).child(main.min_h(0.0));
+    let body = row().w_full().grow(1.0).min_h(0.0).pr(right).pb(if status.is_some() { 0.0 } else { bottom });
+    let body = body.child(rail::rail(s, cx.layout_with("rail", |r| r[3]), d)).child(main);
     let root = col()
         .key("root")
         .w_full()
         .h_full()
         .fill(p().ground)
         .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
-        .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s, cx.layout_with("rail", |r| r[3]))).child(main))
-        .children(s.ready().map(|r| status::status(s, r, d)));
+        .child(body)
+        .children(status);
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
 }
 
