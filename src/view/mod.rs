@@ -188,7 +188,6 @@ enum Recipes {
 /// Sizes that change between a roomy window and a narrow one.
 #[derive(Clone, Copy)]
 struct Dims {
-    compact: bool,
     pad: f32,
     /// The table's margin from the rail and the detail panel. Its cells pad by the rest of
     /// `pad`, so their text lines up with the title and toolbar above.
@@ -205,9 +204,9 @@ struct Dims {
 impl Dims {
     fn new(compact: bool) -> Dims {
         if compact {
-            Dims { compact, pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, content: None, status: None }
+            Dims { pad: 16.0, inset: 8.0, detail: 360.0, gap: 16.0, content: None, status: None }
         } else {
-            Dims { compact, pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, content: None, status: None }
+            Dims { pad: 24.0, inset: 12.0, detail: 400.0, gap: 24.0, content: None, status: None }
         }
     }
 
@@ -216,7 +215,8 @@ impl Dims {
         self.pad - self.inset
     }
 
-    /// The width a table row lays its cells out in, between its side padding.
+    /// The width inside the content column's side padding, where the toolbar and a table row
+    /// lay out.
     fn row_room(self) -> f32 {
         self.content.map_or(f32::INFINITY, |w| w - 2.0 * self.pad)
     }
