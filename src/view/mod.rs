@@ -349,6 +349,17 @@ impl App {
         self.selected = self.ready().and_then(|r| r.rows.first().map(|&i| r.market.recipes[i].spell_id));
     }
 
+    /// Whether the detail panel lies over the table.
+    fn sheet_shown(&self, d: Dims) -> bool {
+        self.sheet && d.detail == Detail::Sheet
+    }
+
+    /// The coffee button's image, left out under the sheet: the browser's link over the canvas
+    /// would still take a press meant for the sheet.
+    fn coffee(&self, d: Dims) -> Option<&Image> {
+        self.icons.coffee.as_ref().filter(|_| !self.sheet_shown(d))
+    }
+
     /// `tab`, with the detail sheet closed so its table shows whole.
     pub(super) fn open_tab(&mut self, tab: Tab) {
         (self.tab, self.sheet) = (tab, false);
@@ -652,7 +663,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             s,
             d,
             col()
-                .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.icons.coffee.as_ref(), d), toolbar::toolbar(s, d)))
+                .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.coffee(d), d), toolbar::toolbar(s, d)))
                 .child(table::table(s, r, d)),
             || detail::detail(s, r, d),
         ),
@@ -679,7 +690,7 @@ fn split(s: &App, d: Dims, content: El, detail: impl FnOnce() -> El) -> El {
     let out = row().grow(1.0).h_full().min_w(0.0).child(content.key("content").grow(1.0).shrink().min_w(0.0).h_full());
     match d.detail {
         Detail::Side => out.child(detail()),
-        Detail::Sheet if s.sheet => out.child(detail().pin(None, Some(0.0), Some(0.0), Some(0.0))),
+        Detail::Sheet if s.sheet_shown(d) => out.child(detail().pin(None, Some(0.0), Some(0.0), Some(0.0))),
         Detail::Sheet => out,
     }
 }
