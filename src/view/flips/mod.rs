@@ -7,7 +7,7 @@ mod toolbar;
 
 use std::collections::BTreeSet;
 
-use rune::{El, TextEdit, Tx, col, row};
+use rune::{El, TextEdit, Tx, col};
 
 use super::{App, Dims, Load, message};
 use crate::flip_rows::{self, Column, Filter, FilterKind, Row, Supply, Zone};
@@ -258,19 +258,7 @@ pub fn main(s: &App, d: Dims) -> El {
     if !matches!(s.load, Load::Ready(_)) {
         return message("Loading TSM prices...");
     }
-    row()
-        .grow(1.0)
-        .h_full()
-        .min_w(0.0)
-        .child(
-            col()
-                .grow(1.0)
-                .shrink()
-                .min_w(0.0)
-                .h_full()
-                .child(super::header::banner(None, header::header(s, f, d), toolbar::toolbar(s, d)))
-                .child(table::table(s, f, d)),
-        )
-        .child(detail::detail(s, f, d))
+    let content = col().child(super::header::banner(None, header::header(s, f, d), toolbar::toolbar(s, d))).child(table::table(s, f, d));
+    super::split(s, d, content, || detail::detail(s, f, d))
 }
 
