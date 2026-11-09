@@ -81,7 +81,7 @@ pub fn read_book(appdata: &Path) -> Result<(PriceBook, Read), String> {
     let modified = modified(appdata);
     let mut book = prices::load(appdata)?;
     book.vendor = vendor::load(appdata);
-    Ok((book, Read { at: SystemTime::now(), modified, warning: None }))
+    Ok((book, Read { at: crate::platform::now(), modified, warning: None }))
 }
 
 /// Prices from `origin`; public data downloads as `refresh` allows.

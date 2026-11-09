@@ -194,13 +194,19 @@ pub fn parse(db: &str, crawled: &str) -> Result<(Vec<Merchant>, HashMap<u32, Ite
 
 /// Blocks on file IO and, when the copies are missing or old, the network.
 pub fn load() -> Result<Catalog, String> {
-    let (merchants, mut items) = parse(&crate::foreverdb::fetch("vendors.json")?, WOWHEAD)?;
+    catalog(&crate::foreverdb::fetch("vendors.json")?, items::load)
+}
+
+/// The merchants in foreverdb's `vendors.json` and every item they stock, as `items` finds the
+/// ids it is asked for.
+pub fn catalog(vendors: &str, items: impl FnOnce(&BTreeSet<u32>) -> Result<HashMap<u32, Item>, String>) -> Result<Catalog, String> {
+    let (merchants, mut listed) = parse(vendors, WOWHEAD)?;
     let wanted: BTreeSet<u32> = merchants.iter().flat_map(|m| m.stock.iter().map(|s| s.item)).collect();
-    for (id, item) in items::load(&wanted)? {
-        let icon = item.icon.or_else(|| items.get(&id).and_then(|i| i.icon));
-        items.insert(id, Item { icon, ..item });
+    for (id, item) in items(&wanted)? {
+        let icon = item.icon.or_else(|| listed.get(&id).and_then(|i| i.icon));
+        listed.insert(id, Item { icon, ..item });
     }
-    Ok(Catalog { merchants, items })
+    Ok(Catalog { merchants, items: listed })
 }
 
 #[cfg(test)]

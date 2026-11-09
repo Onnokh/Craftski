@@ -2,8 +2,12 @@ mod detail;
 mod flips;
 mod folder;
 mod header;
+#[cfg_attr(target_arch = "wasm32", path = "jobs_web.rs")]
+mod jobs;
 mod menu;
 mod rail;
+#[cfg(not(target_arch = "wasm32"))]
+mod scenes;
 mod settings_tab;
 mod skin;
 mod status;
@@ -12,24 +16,26 @@ mod toolbar;
 mod tooltip;
 mod widgets;
 
-use std::collections::{BTreeSet, HashMap};
+#[cfg(not(target_arch = "wasm32"))]
+pub use scenes::*;
+
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, row, text};
 
 use crate::flips::Rules;
-use crate::icons;
 use crate::market::{self, Market, Origin, PriceSource, Read};
 use crate::menu::{Menu, SOLD_STEPS};
-use crate::merchants::{self, Catalog};
-use crate::prices::{self, PriceBook};
-use crate::profit::{self, Evaluation, PriceOrigin};
-use crate::public_data::{self, PublicHouse, Refresh};
-use crate::recipes::{self, FileDataId, Profession, Recipe};
+use crate::merchants::Catalog;
+use crate::prices::PriceBook;
+use crate::profit::{self, Evaluation};
+use crate::public_data::Refresh;
+use crate::recipes::{FileDataId, Profession, Recipe};
 use crate::rows::{self, Column, Filter, FilterKind, Hidden, Sort};
+use crate::platform;
 use crate::settings;
 use crate::sheets::Sheets;
 use crate::skin::Piece;
@@ -62,8 +68,8 @@ pub struct App {
     inbox: Option<Receiver<Msg>>,
     /// Where loader threads post, once the window is set up.
     outbox: Option<Outbox>,
-    /// Asks the art thread for a profession's cards ahead of the rest.
-    art_asks: Option<Sender<Profession>>,
+    /// Asks the art loader for a profession's cards ahead of the rest.
+    art: Option<jobs::ArtQueue>,
     /// The profession the crafts tab shows.
     profession: Profession,
     icons: Icons,
@@ -111,7 +117,7 @@ enum Msg {
     Sheets(Box<Result<Sheets, String>>),
     Icon(FileDataId, PathBuf),
     Rail(&'static str, PathBuf),
-    Skin(Piece, PathBuf),
+    Skin(Piece, crate::skin::Art),
 }
 
 #[derive(Clone)]
@@ -133,9 +139,15 @@ struct Icons {
     cache: Option<ImageCache>,
     items: HashMap<FileDataId, Image>,
     rail: HashMap<&'static str, Image>,
+    coffee: Option<Image>,
 }
 
 impl Icons {
+    fn attach(&mut self, cache: ImageCache) {
+        self.coffee = Some(cache.load(header::COFFEE));
+        self.cache = Some(cache);
+    }
+
     fn show(&mut self, id: FileDataId, path: &Path) {
         if let Some(cache) = &self.cache {
             self.items.insert(id, cache.file(path, 48.0, 2.0));
@@ -204,12 +216,14 @@ impl Dims {
 impl App {
     pub fn new() -> App {
         let profession = settings::start_profession().unwrap_or(Profession::Leatherworking);
-        let appdata = wow::locate();
+        // The browser has no AppData.lua to find.
+        let web = cfg!(target_arch = "wasm32");
+        let appdata = if web { None } else { wow::locate() };
         let source = settings::load_source();
         let readable = source != PriceSource::App || appdata.as_ref().is_some_and(|a| a.path.is_file());
         App {
             tab: Tab::Crafts,
-            searched: if appdata.is_none() { wow::install_dirs() } else { Vec::new() },
+            searched: if appdata.is_none() && !web { wow::install_dirs() } else { Vec::new() },
             appdata,
             source,
             refreshing: false,
@@ -217,7 +231,7 @@ impl App {
             load: if readable { Load::Loading } else { Load::Unlocated },
             inbox: None,
             outbox: None,
-            art_asks: None,
+            art: None,
             profession,
             icons: Icons::default(),
             hide_unpriced: true,
@@ -233,7 +247,7 @@ impl App {
             sheets: None,
             pointer: (0.0, 0.0),
             realm: settings::load_realm(),
-            now: unix_secs(SystemTime::now()),
+            now: platform::unix_now(),
         }
     }
 
@@ -268,14 +282,9 @@ impl App {
             return;
         };
         self.load = Load::Loading;
-        let Some(out) = self.outbox.clone() else { return };
-        let (realm, profession) = (self.realm.clone(), self.profession);
-        std::thread::spawn(move || {
-            let market = settled(|| market::load(&origin, Refresh::IfDue, &realm, profession));
-            let ids = market.as_ref().map(|m| icons::referenced(&m.recipes)).unwrap_or_default();
-            out.send(Msg::Market(origin, profession, Box::new(market)));
-            prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
-        });
+        if let Some(out) = &self.outbox {
+            jobs::market(out, origin, self.realm.clone(), self.profession);
+        }
     }
 
     /// What prices are read from: the AppData.lua located, or the public house for the
@@ -319,20 +328,16 @@ impl App {
     fn show_profession(&mut self, profession: Profession) {
         self.profession = profession;
         self.selected = None;
-        if let Some(ask) = &self.art_asks {
-            let _ = ask.send(profession);
+        if let Some(art) = &self.art {
+            art.ask(profession);
         }
         let Load::Ready(r) = &mut self.load else { return };
         r.market.set_recipes(Vec::new());
         r.recipes = Recipes::Loading;
         self.refresh();
-        let Some(out) = self.outbox.clone() else { return };
-        std::thread::spawn(move || {
-            let recipes = settled(|| recipes::load(profession));
-            let ids = recipes.as_deref().map(icons::referenced).unwrap_or_default();
-            out.send(Msg::Recipes(profession, Box::new(recipes)));
-            prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
-        });
+        if let Some(out) = &self.outbox {
+            jobs::recipes(out, profession);
+        }
     }
 
     /// Lands recipes loaded for `profession`, unless the player has moved on from it or they
@@ -371,19 +376,16 @@ impl App {
 
     /// Reads public data again on a loader thread, unless a refresh is already under way.
     fn refresh_public(&mut self, origin: Origin, refresh: Refresh) {
-        let Some(out) = self.outbox.clone().filter(|_| !self.refreshing) else { return };
+        let Some(out) = self.outbox.as_ref().filter(|_| !self.refreshing) else { return };
         self.refreshing = true;
-        std::thread::spawn(move || {
-            let prices = settled(|| market::read_prices(&origin, refresh));
-            out.send(Msg::Prices(origin, Box::new(prices)));
-        });
+        jobs::prices(out, origin, refresh);
     }
 
     /// Reprices every recipe and flip from prices read again. The selection, filters, tab and
     /// scroll stay; a failed read keeps the old prices and the status bar says why, as it does
     /// a warning that came with the new ones.
     fn land_prices(&mut self, result: Result<(PriceBook, Read), String>) {
-        self.now = unix_secs(SystemTime::now());
+        self.now = platform::unix_now();
         let Load::Ready(r) = &mut self.load else { return };
         match result {
             Ok((book, read)) => {
@@ -475,65 +477,32 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone()));
+    if s.icons.cache.is_none() {
+        s.icons.attach(ImageCache::new(wake.clone()));
+    }
     if !matches!(s.load, Load::Loading | Load::Unlocated) || s.inbox.is_some() {
         return;
     }
     let (tx, rx) = mpsc::channel();
     s.inbox = Some(rx);
     let out = Outbox { tx, wake };
-    s.outbox = Some(out.clone());
-    let (ask, asked) = mpsc::channel();
-    s.art_asks = Some(ask);
-    let (art, first) = (out.clone(), s.profession);
-    std::thread::spawn(move || crate::skin::fetch_in_order(first, &asked, |pieces| crate::skin::fetch(pieces, |piece, path| art.send(Msg::Skin(piece, path)))));
-    let sheets = out.clone();
-    std::thread::spawn(move || sheets.send(Msg::Sheets(Box::new(settled(crate::sheets::load)))));
+    s.art = Some(jobs::start(&out, s.profession));
+    s.outbox = Some(out);
     s.load_market();
-    std::thread::spawn(move || {
-        fetch_rail(|name, path| out.send(Msg::Rail(name, path)));
-        let catalog = merchants::load();
-        let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
-        out.send(Msg::Catalog(Box::new(catalog)));
-        prefetch(&ids, |id, path| out.send(Msg::Icon(id, path)));
-    });
-}
-
-/// `load`'s result, or an error should it panic, so a loading state always ends.
-fn settled<T>(load: impl FnOnce() -> Result<T, String> + std::panic::UnwindSafe) -> Result<T, String> {
-    std::panic::catch_unwind(load).unwrap_or_else(|_| Err("the loader stopped without a result".into()))
-}
-
-fn prefetch(ids: &BTreeSet<FileDataId>, on_ready: impl Fn(FileDataId, PathBuf) + Sync) {
-    match icons::prefetch(ids, on_ready) {
-        Ok(report) if !report.failed.is_empty() => eprintln!("{} of {} icons failed, first: {}", report.failed.len(), report.icons, report.failed[0].1),
-        Ok(_) => {}
-        Err(e) => eprintln!("icons not fetched: {e}"),
-    }
-}
-
-fn fetch_rail(on_ready: impl Fn(&'static str, PathBuf)) {
-    let names: Vec<&'static str> = rail::icons().collect();
-    for ((name, result), icon) in icons::fetch_named(&names).into_iter().zip(names.iter().copied()) {
-        match result {
-            Ok(path) => on_ready(icon, path),
-            Err(e) => eprintln!("rail icon {name}: {e}"),
-        }
-    }
 }
 
 /// Lands the loader's messages, and on each new minute moves the clock the ages read from and
 /// reloads when TSM has rewritten AppData.lua, or refreshes public data once a file is due.
 pub fn poll(s: &mut App, _: f64, tx: &mut Tx) -> bool {
     let landed = drain(s) | skin::newly_ready();
-    let now = unix_secs(SystemTime::now());
+    let now = platform::unix_now();
     tx.wake_after(Duration::from_secs(60 - now % 60));
     let ticked = now / 60 != s.now / 60;
     if ticked {
         s.now = now;
         match s.origin() {
             Some(Origin::AppData(path)) => s.reload_if_changed(&path),
-            Some(origin @ Origin::Public(house, side)) if public_data::due(house, side, now) => match s.load {
+            Some(origin @ Origin::Public(house, side)) if jobs::due(house, side, now) => match s.load {
                 Load::Ready(_) => s.refresh_public(origin, Refresh::IfDue),
                 Load::Failed(_) => s.load_market(),
                 _ => {}
@@ -570,9 +539,9 @@ fn drain(s: &mut App) -> bool {
             },
             Msg::Icon(id, path) => s.icons.show(id, &path),
             Msg::Rail(name, path) => s.icons.show_rail(name, &path),
-            Msg::Skin(piece, path) => {
+            Msg::Skin(piece, art) => {
                 if let Some(cache) = &s.icons.cache {
-                    skin::show(cache, piece, &path);
+                    skin::show(cache, piece, art);
                 }
             }
         }
@@ -640,7 +609,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .shrink()
                     .min_w(0.0)
                     .h_full()
-                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, d), toolbar::toolbar(s, d)))
+                    .child(header::banner(Some(Piece::OverviewCard(s.profession)), header::header(s.profession, r, s.icons.coffee.as_ref(), d), toolbar::toolbar(s, d)))
                     .child(table::table(s, r, d)),
             )
             .child(detail::detail(s, r, d)),
@@ -656,181 +625,12 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
 }
 
-fn unix_secs(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
 fn message(m: &str) -> El {
     col().grow(1.0).h_full().center().padding(24.0).child(text(m).font(theme::BODY).color(p().muted).wrap())
 }
 
 fn recipe_at(r: &Ready, i: usize) -> (&Recipe, &Evaluation) {
     (&r.market.recipes[i], &r.evals[i])
-}
-
-/// The profession `--profession` names, else the one last shown, with every icon and piece of
-/// art it draws fetched and decoded, so the snapshot shows them.
-pub fn scene_loaded(s: &mut App) {
-    s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
-    land_now(s);
-    let Load::Ready(r) = &s.load else { return };
-    show_icons(s, icons::referenced(&r.market.recipes));
-}
-
-/// Prices read on this thread from where they come from, as the loader thread reads them, but
-/// public data from the cache alone.
-fn land_now(s: &mut App) {
-    let market = s.origin().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|origin| market::load(&origin, Refresh::CacheOnly, &s.realm, s.profession));
-    s.land(s.profession, market);
-}
-
-/// A first launch where no AppData.lua was found, after picking a folder without one.
-pub fn scene_no_appdata(s: &mut App) {
-    (s.appdata, s.searched, s.load) = (None, wow::install_dirs(), Load::Unlocated);
-    s.picked_folder(Ok(Some(PathBuf::from(r"D:\Games\Warcraft"))));
-    show_icons(s, BTreeSet::new());
-    // An inbox keeps `setup` from starting loaders, which would land data after the snapshot.
-    s.inbox = Some(mpsc::channel().1);
-}
-
-/// The flips tab in Thunder Bluff, priced as the window would price it.
-pub fn scene_flips(s: &mut App) {
-    s.sheets = crate::sheets::load().inspect_err(|e| eprintln!("item tooltips: {e}")).ok();
-    s.tab = Tab::Flips;
-    land_now(s);
-    let catalog = merchants::load();
-    let ids = catalog.as_ref().map(flips::icon_ids).unwrap_or_default();
-    s.land_catalog(catalog);
-    show_icons(s, ids);
-}
-
-/// `flips` with the first listed item that more than one merchant sells selected.
-pub fn scene_flips_shared(s: &mut App) {
-    scene_flips(s);
-    s.flips.select_first_shared();
-}
-
-/// `flips` searched for patterns with filters that hide most of them.
-pub fn scene_flips_hidden(s: &mut App) {
-    scene_flips(s);
-    s.flips.search_patterns_narrowly();
-}
-
-/// The settings tab over a loaded catalog, its reputations listed for the saved faction.
-pub fn scene_settings(s: &mut App) {
-    scene_flips(s);
-    s.tab = Tab::Settings;
-}
-
-/// `loaded` priced from TSM's cached public data for EU PvP, the saved faction's house.
-pub fn scene_public(s: &mut App) {
-    s.source = PriceSource::Public(PublicHouse::default());
-    scene_loaded(s);
-}
-
-/// `settings` with TSM's cached public data for EU PvP chosen.
-pub fn scene_settings_public(s: &mut App) {
-    s.source = PriceSource::Public(PublicHouse::default());
-    scene_settings(s);
-}
-
-/// The flips tab with the zone menu open.
-pub fn scene_zones(s: &mut App) {
-    scene_flips(s);
-    s.menu = Some(Menu::Zone);
-}
-
-/// The flips tab with the Sold per day menu open.
-pub fn scene_flips_sold(s: &mut App) {
-    scene_flips(s);
-    s.menu = Some(Menu::FlipsSold);
-}
-
-fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
-    let (tx, rx) = mpsc::channel();
-    prefetch(&ids, |id, path| {
-        let _ = tx.send((id, path));
-    });
-    drop(tx);
-    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
-    for (id, path) in rx {
-        s.icons.show(id, &path);
-    }
-    let rail = std::cell::RefCell::new(Vec::new());
-    fetch_rail(|name, path| rail.borrow_mut().push((name, path)));
-    for (name, path) in rail.into_inner() {
-        s.icons.show_rail(name, &path);
-    }
-    let (tx, rx) = mpsc::channel();
-    let pieces: Vec<Piece> = Piece::SHARED.into_iter().chain(Piece::cards(s.profession)).collect();
-    if let Err(e) = crate::skin::fetch(&pieces, |piece, path| {
-        let _ = tx.send((piece, path));
-    }) {
-        eprintln!("interface art not fetched: {e}");
-    }
-    drop(tx);
-    if let Some(cache) = &s.icons.cache {
-        for (piece, path) in rx {
-            skin::show(cache, piece, &path);
-        }
-    }
-    for image in s.icons.items.values().chain(s.icons.rail.values()) {
-        let _ = image.wait();
-    }
-    skin::wait();
-    skin::newly_ready();
-}
-
-/// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
-pub fn scene_crafts_hidden(s: &mut App) {
-    scene_loaded(s);
-    s.min_sold = 3;
-    s.refresh();
-}
-
-/// `crafts-hidden` with the Sold per day menu open.
-pub fn scene_crafts_sold(s: &mut App) {
-    scene_crafts_hidden(s);
-    s.menu = Some(Menu::CraftsSold);
-}
-
-/// `loaded` with the first listed recipe that uses a reagent cheapest to craft selected.
-pub fn scene_crafted(s: &mut App) {
-    scene_loaded(s);
-    let Load::Ready(r) = &s.load else { return };
-    let costs = r.market.costs();
-    let crafted = |recipe: &&Recipe| recipe.reagents.iter().any(|g| costs.get(g.item_id).is_some_and(|p| matches!(p.origin, PriceOrigin::Crafted { .. })));
-    s.selected = r.rows.iter().map(|&i| &r.market.recipes[i]).find(crafted).map(|recipe| recipe.spell_id);
-}
-
-/// `loaded` with realm prices five hours old and region prices thirty, so the status bar
-/// shows both stale colours.
-pub fn scene_stale(s: &mut App) {
-    scene_loaded(s);
-    let Load::Ready(r) = &mut s.load else { return };
-    for realm in r.market.book.realms.values_mut() {
-        realm.updated = Some(s.now - 5 * 3600);
-    }
-    r.market.book.region_updated = Some(s.now - 30 * 3600);
-}
-
-/// `loaded` with the status bar's realm menu open over a second realm, PvE-Alliance, made up
-/// from the first with prices five hours older, since AppData.lua holds one realm.
-pub fn scene_realms(s: &mut App) {
-    scene_loaded(s);
-    let Load::Ready(r) = &mut s.load else { return };
-    if let Some((_, realm)) = r.market.book.realm() {
-        let older = prices::RealmBook { updated: realm.updated.map(|t| t - 5 * 3600), ..realm.clone() };
-        r.market.book.realms.insert("PvE-Alliance".into(), older);
-    }
-    s.menu = Some(Menu::Realm);
-}
-
-/// `flips` after a reload from a file that isn't there: the status bar says why and the old
-/// prices stay.
-pub fn scene_reload_failed(s: &mut App) {
-    scene_flips(s);
-    s.reload(Path::new(r"C:\no-such-wow\AppData.lua"));
 }
 
 #[cfg(test)]
@@ -840,6 +640,9 @@ mod tests {
     use crate::recipes::Quality;
     use crate::menu::Pick;
     use crate::flip_rows::Supply;
+    use crate::prices;
+    use crate::public_data::PublicHouse;
+    use std::time::UNIX_EPOCH;
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)

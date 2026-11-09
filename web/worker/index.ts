@@ -1,5 +1,6 @@
 // Serves TSM's public price files at /prices/* from KV, so visitors never reach TSM and TSM sees
-// at most one download per file each time it is due. Every other path is a static file in site/.
+// at most one download per file each time it is due. Serves the game data the browser build reads
+// at /data/* from the Cache API, see data.ts. Every other path is a static file in site/.
 //
 // KV is written only after a download or a 304, never per request, so writes stay within what
 // house.ts's MIN_MAX_AGE allows. Two simultaneous misses may both download; that costs one extra
@@ -21,6 +22,7 @@ import {
   tsmUrl,
   validators,
 } from "./house.ts";
+import { type DataFile, dataHeaders, parseDataPath, upstreamUrl } from "./data.ts";
 
 interface Env {
   ASSETS: Fetcher;
@@ -34,10 +36,15 @@ const NO_FILE = "TSM publishes no data for that house.\n";
 const STALE_CACHE = "public, max-age=60";
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname !== "/prices" && !url.pathname.startsWith("/prices/")) return env.ASSETS.fetch(request);
+    const route = ["prices", "data"].find((r) => url.pathname === `/${r}` || url.pathname.startsWith(`/${r}/`));
+    if (route === undefined) return env.ASSETS.fetch(request);
     if (request.method !== "GET" && request.method !== "HEAD") return text(request, 405, "Only GET and HEAD.\n", { Allow: "GET, HEAD" });
+    if (route === "data") {
+      const file = parseDataPath(url.pathname);
+      return file === null ? text(request, 404, "No such data file.\n") : data(request, ctx, file);
+    }
     const file = parsePath(url.pathname);
     if (file === null) return text(request, 404, "No such price file.\n");
     return prices(request, env, file);
@@ -79,6 +86,33 @@ async function download(file: File, copy: Copy | null, now: number): Promise<{ o
     console.log(`TSM download ${url}: ${e}`);
     return { ok: false, failure: { kind: "unreachable", detail: String(e) } };
   }
+}
+
+/** `file` from this data center's cache, else downloaded and cached for the next visitor. Only a
+ * 200 is cached, so the next request tries a failed download again. */
+async function data(request: Request, ctx: ExecutionContext, file: DataFile): Promise<Response> {
+  const url = new URL(request.url);
+  const key = new Request(url.origin + url.pathname);
+  const hit = await caches.default.match(key);
+  if (hit !== undefined) return headless(request, hit);
+  const upstream = upstreamUrl(file);
+  const host = new URL(upstream).host;
+  try {
+    const response = await fetch(upstream, { signal: AbortSignal.timeout(60_000) });
+    console.log(`data download ${upstream}: HTTP ${response.status}`);
+    if (response.status !== 200) return text(request, 502, `${host} answered HTTP ${response.status}.\n`);
+    const copy = new Response(response.body, { headers: dataHeaders(file) });
+    ctx.waitUntil(caches.default.put(key, copy.clone()));
+    return headless(request, copy);
+  } catch (e) {
+    console.log(`data download ${upstream}: ${e}`);
+    return text(request, 502, `${host} could not be reached.\n`);
+  }
+}
+
+/** `response` without its body for a HEAD request. */
+function headless(request: Request, response: Response): Response {
+  return request.method === "HEAD" ? new Response(null, response) : response;
 }
 
 function serve(request: Request, copy: Copy, cache: string, staleWhy?: Hold["why"]): Response {

@@ -30,11 +30,13 @@ pub fn main(s: &App, d: Dims) -> El {
         .child(setting("Honored or better with", honored(s)))
         .child(setting("Bartering", row().gap(8.0).children(bartering)))
         .child(caption("Honored takes 10% off the merchants of that faction, and Bartering its percent off every merchant, the two added together.").mt(16.0));
+    #[cfg(target_arch = "wasm32")]
+    let body = body.child(band("About").mt(32.0)).child(about());
     col()
         .grow(1.0)
         .h_full()
         .min_w(0.0)
-        .child(page("Settings", "Where prices come from, and who buys from merchants.".into(), d))
+        .child(page("Settings", "Where prices come from, and who buys from merchants.".into(), s.icons.coffee.as_ref(), d))
         .child(col().key("settings-body").w_full().grow(1.0).min_h(0.0).px(d.pad).pb(24.0).scroll(ScrollSpec { stick_bottom: false }).child(body))
 }
 
@@ -50,7 +52,8 @@ fn prices(s: &App) -> El {
         .flex_wrap()
         .child(radio("TSM desktop app", house.is_none(), |s| s.set_source(PriceSource::App)))
         .child(radio("TSM public data, no TSM needed", house.is_some(), |s| s.set_source(PriceSource::Public(settings::load_house()))));
-    let out = col().w_full().child(sources.mt(12.0));
+    // The browser reads public data only.
+    let out = if cfg!(target_arch = "wasm32") { col().w_full() } else { col().w_full().child(sources.mt(12.0)) };
     let Some(house) = house else {
         return out.child(caption("Reads the prices the TSM desktop app saves for WoW Forever in AppData.lua.").mt(16.0)).child(folder::block(s, false).mt(16.0));
     };
@@ -82,6 +85,19 @@ fn house_caption(s: &App, house: PublicHouse) -> El {
         _ => {}
     }
     out
+}
+
+/// The page's place beside Blizzard and TSM, and the desktop app.
+#[cfg(target_arch = "wasm32")]
+fn about() -> El {
+    const DESKTOP_APP: &str = "https://github.com/Onnokh/tsm-crafts/releases/latest";
+    col()
+        .w_full()
+        .gap(12.0)
+        .mt(16.0)
+        .child(caption("Not affiliated with Blizzard Entertainment or TradeSkillMaster. Prices are TSM's public data. Item art and icons load from wago.tools and Wowhead."))
+        .child(caption("The desktop app for Windows also reads the prices your own TSM desktop app saves."))
+        .child(row().child(super::widgets::link::<App>("Desktop app", "Download the desktop app", DESKTOP_APP.into())))
 }
 
 fn radio(label: &str, on: bool, pick: impl Fn(&mut App) + 'static) -> El {

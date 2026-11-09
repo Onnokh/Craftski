@@ -1,6 +1,6 @@
 //! The player's choices that outlive a session, one small text file each under
-//! `%LOCALAPPDATA%\Craftski`: the profession shown, their rank in each profession and the
-//! realm prices come from, the AppData.lua they chose or the public auction house they read
+//! `%LOCALAPPDATA%\Craftski`, or one localStorage key each in the browser: the profession
+//! shown, their rank in each profession and the realm prices come from, the AppData.lua they chose or the public auction house they read
 //! instead, and the character who buys from merchants.
 
 use std::path::{Path, PathBuf};
@@ -27,13 +27,36 @@ const PRICES: &str = "prices.txt";
 const PUBLIC_REGION: &str = "public-region.txt";
 const PUBLIC_REALM: &str = "public-realm.txt";
 
-fn path(file: &str) -> Option<PathBuf> {
-    Some(crate::cache::root()?.join(file))
+/// What `file` holds, trimmed, or None when nothing is saved.
+#[cfg(not(target_arch = "wasm32"))]
+fn saved(file: &str) -> Option<String> {
+    let path = crate::cache::root()?.join(file);
+    std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
-/// What `file` holds, trimmed, or None when nothing is saved.
+#[cfg(target_arch = "wasm32")]
 fn saved(file: &str) -> Option<String> {
-    path(file).and_then(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string())
+    storage()?.get_item(&key(file)).ok().flatten().map(|s| s.trim().to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save(file: &str, text: &str) {
+    if let Some(storage) = storage()
+        && let Err(e) = storage.set_item(&key(file), text.trim())
+    {
+        web_sys::console::warn_1(&format!("{file} not saved: {e:?}").into());
+    }
+}
+
+/// The page's localStorage, None where the browser refuses it, as some private windows do.
+#[cfg(target_arch = "wasm32")]
+fn storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok().flatten()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn key(file: &str) -> String {
+    format!("craftski:{file}")
 }
 
 /// What `file` holds, trimmed, or blank when nothing is saved.
@@ -41,8 +64,9 @@ fn load(file: &str) -> String {
     saved(file).unwrap_or_default()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn save(file: &str, text: &str) {
-    let Some(path) = path(file) else { return };
+    let Some(path) = crate::cache::root().map(|root| root.join(file)) else { return };
     let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&path, text.trim()));
     if let Err(e) = saved {
         eprintln!("not saved to {}: {e}", path.display());
@@ -56,7 +80,7 @@ fn skill_file(profession: Profession) -> String {
 /// The rank saved for `profession` as the player typed it, or blank when none is saved.
 pub fn load_skill(profession: Profession) -> String {
     let file = skill_file(profession);
-    let own = path(&file).is_some_and(|p| p.exists());
+    let own = saved(&file).is_some();
     load(if !own && profession == Profession::Leatherworking { LEGACY_SKILL } else { file.as_str() })
 }
 
@@ -129,9 +153,10 @@ fn rules_files(rules: &Rules) -> [(&'static str, String); 3] {
     [(FACTION, rules.side.name().to_string()), (HONORED, rules.honored.join("\n")), (BARTERING, rules.bartering.percent().to_string())]
 }
 
-/// Where prices come from, AppData.lua when nothing is saved.
+/// Where prices come from, AppData.lua when nothing is saved. The browser reads public data
+/// only.
 pub fn load_source() -> PriceSource {
-    source_from(saved)
+    if cfg!(target_arch = "wasm32") { PriceSource::Public(load_house()) } else { source_from(saved) }
 }
 
 pub fn save_source(source: PriceSource) {

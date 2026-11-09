@@ -128,11 +128,13 @@ impl State {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.first()?.flip)));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Selects the first row with more than one merchant, for a snapshot scene.
     pub fn select_first_shared(&mut self) {
         self.selected = self.stocked().and_then(|f| Some(f.key(f.rows.iter().find(|r| !r.others.is_empty())?.flip)));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// The state a user reported missing patterns in: "patter" searched at Sold 5+ a day,
     /// an endless supply and only profitable flips, for a snapshot scene.
     pub fn search_patterns_narrowly(&mut self) {

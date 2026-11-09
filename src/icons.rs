@@ -37,8 +37,17 @@ fn names_path(dir: &Path) -> PathBuf {
     dir.join("names.json")
 }
 
+/// The Wowhead name of each icon the cache has looked up, by file data id.
+pub fn known_names() -> BTreeMap<u32, String> {
+    dir().map(|dir| read_names(&dir)).unwrap_or_default()
+}
+
+fn read_names(dir: &Path) -> BTreeMap<u32, String> {
+    std::fs::read(names_path(dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
 /// The 56 px rendition: rows draw icons at 22 pt, which is 44 px at scale 2.
-fn image_url(name: &str) -> String {
+pub fn image_url(name: &str) -> String {
     format!("https://wow.zamimg.com/images/wow/icons/large/{name}.jpg")
 }
 
@@ -59,7 +68,7 @@ pub fn name_from_disposition(header: &str) -> Option<String> {
 pub fn prefetch(ids: &BTreeSet<FileDataId>, on_ready: impl Fn(FileDataId, PathBuf) + Sync) -> Result<Report, String> {
     let dir = dir().ok_or("LOCALAPPDATA is not set")?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut names: BTreeMap<u32, String> = std::fs::read(names_path(&dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let mut names = read_names(&dir);
     let ids: Vec<FileDataId> = ids.iter().copied().collect();
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(20))).build().into();
     let next = AtomicUsize::new(0);

@@ -1,10 +1,10 @@
-// The website: site/ as static assets and worker/ serving TSM's price files at /prices/*, at
-// craftski.onkie.dev. Deploy with `npm run deploy` from web/.
+// The website: site/ as static assets and worker/ serving TSM's price files at /prices/* and game
+// data at /data/*, at craftski.onkie.dev. Deploy with `npm run deploy` from web/.
 {
   "name": "craftski",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-06",
-  // Static files win; /prices/* has no files, so the Worker answers it.
+  // Static files win; /prices/* and /data/* have no files, so the Worker answers them.
   "assets": { "directory": "./site", "binding": "ASSETS" },
   "routes": [{ "pattern": "craftski.onkie.dev", "custom_domain": true }],
   "workers_dev": false,
