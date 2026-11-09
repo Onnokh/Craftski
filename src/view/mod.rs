@@ -659,7 +659,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .fill(p().ground)
         .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
-        .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s)).child(main))
+        .child(row().w_full().grow(1.0).min_h(0.0).child(rail::rail(s, cx.layout_with("rail", |r| r[3]))).child(main))
         .children(s.ready().map(|r| status::status(s, r, d)));
     menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s))
 }

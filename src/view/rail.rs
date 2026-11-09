@@ -1,7 +1,7 @@
 //! The rail: the primary professions, the secondary ones, then vendor flips, ruled apart, and
 //! settings at the foot.
 
-use rune::{Color, Cursor, El, col, el};
+use rune::{Color, Cursor, El, ScrollSpec, col, el};
 
 use super::skin;
 use super::{App, Tab};
@@ -23,23 +23,32 @@ pub fn icons() -> impl Iterator<Item = &'static str> {
     Profession::ALL.into_iter().map(Profession::icon).chain([COIN, GEAR])
 }
 
-pub fn rail(s: &App) -> El {
+/// The rail, which scrolls where its tabs run past `height`, the height it had at the last
+/// layout. Where they fit, settings sits at its foot.
+pub fn rail(s: &App, height: Option<f32>) -> El {
     let professions = |secondary: bool| Profession::ALL.into_iter().filter(move |p| p.secondary() == secondary).map(|p| profession(s, p));
-    col()
-        .w(RAIL)
-        .h_full()
+    let tabs = col()
+        .w_full()
+        .min_h(height.unwrap_or(0.0))
         .py(16.0)
         .gap(6.0)
         .items_center()
-        .fill(Color::BLACK.alpha(0.55))
-        .border_sides([0.0, 1.0, 0.0, 0.0], Color::BLACK)
         .children(professions(false))
         .child(rule())
         .children(professions(true))
         .child(rule())
         .child(tab(s, "Vendor flips", COIN, s.tab == Tab::Flips, |s: &mut App| s.open_tab(Tab::Flips)))
         .child(el().grow(1.0))
-        .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.open_tab(Tab::Settings)))
+        .child(tab(s, "Settings", GEAR, s.tab == Tab::Settings, |s: &mut App| s.open_tab(Tab::Settings)));
+    col()
+        .key("rail")
+        .w(RAIL)
+        .h_full()
+        .min_h(0.0)
+        .fill(Color::BLACK.alpha(0.55))
+        .border_sides([0.0, 1.0, 0.0, 0.0], Color::BLACK)
+        .scroll(ScrollSpec { stick_bottom: false })
+        .child(tabs)
 }
 
 fn profession(s: &App, profession: Profession) -> El {
