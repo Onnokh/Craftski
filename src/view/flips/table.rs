@@ -11,28 +11,30 @@ use crate::rows;
 use crate::theme::{self, p};
 use crate::view::widgets::{Money, column_title, flexible, hidden_hint, icon_frame, selectable_row, sold_per_day, unknown};
 use crate::tooltip::Tip;
-use crate::view::{App, Dims, tooltip};
+use crate::view::columns::fit;
+use crate::view::{App, Detail, Dims, tooltip};
 
 const ROW: f32 = 32.0;
 
-/// The columns shown, each with its width; the item takes the width left. A narrow window drops
-/// the sale rate and the limit, which the detail panel still shows, to leave the item its name.
+/// The columns after the item's, each with its width; the item takes the width left.
+const WIDTHS: [(Column, f32); 8] = [
+    (Column::Vendor, 160.0),
+    (Column::Paid, 112.0),
+    (Column::Sells, 112.0),
+    (Column::DepositLoss, 96.0),
+    (Column::Profit, 112.0),
+    (Column::SaleRate, 64.0),
+    (Column::SoldPerDay, 64.0),
+    (Column::Limit, 48.0),
+];
+/// The columns a narrower table leaves out, first to go first, all of which the detail panel
+/// still shows. The profit and sales a day stay.
+const DROPS: [Column; 6] = [Column::Limit, Column::SaleRate, Column::DepositLoss, Column::Vendor, Column::Paid, Column::Sells];
+
+/// The columns shown, each with its width; the item, first, takes the width left.
 fn columns(d: Dims) -> Vec<(Column, Option<f32>)> {
-    let widths: &[(Column, f32)] = if d.compact {
-        &[(Column::Vendor, 120.0), (Column::Paid, 96.0), (Column::Sells, 96.0), (Column::DepositLoss, 80.0), (Column::Profit, 96.0), (Column::SoldPerDay, 56.0)]
-    } else {
-        &[
-            (Column::Vendor, 160.0),
-            (Column::Paid, 112.0),
-            (Column::Sells, 112.0),
-            (Column::DepositLoss, 96.0),
-            (Column::Profit, 112.0),
-            (Column::SaleRate, 64.0),
-            (Column::SoldPerDay, 64.0),
-            (Column::Limit, 48.0),
-        ]
-    };
-    std::iter::once((Column::Item, None)).chain(widths.iter().map(|&(c, w)| (c, Some(w)))).collect()
+    let shown = fit(&WIDTHS, &DROPS, d.row_room(), d.gap);
+    std::iter::once((Column::Item, None)).chain(shown.into_iter().map(|(c, w)| (c, Some(w)))).collect()
 }
 
 pub fn table(s: &App, f: &Stocked, d: Dims) -> El {
@@ -119,7 +121,8 @@ fn table_row(s: &App, f: &Stocked, entry: &Row, d: Dims) -> El {
         out = out.child(cell(column, width).child(content));
     }
     let tip = Tip::Flip(entry.flip);
-    tooltip::hover(out, tip).on_press(move |s: &mut App| s.flips.selected = Some(key))
+    let sheet = d.detail == Detail::Sheet;
+    tooltip::hover(out, tip).on_press(move |s: &mut App| (s.flips.selected, s.sheet) = (Some(key), sheet))
 }
 
 /// The merchant, how many others sell the item, and the zone when a search reaches past the

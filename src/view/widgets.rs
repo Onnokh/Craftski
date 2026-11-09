@@ -3,7 +3,7 @@
 
 use rune::{Color, Cursor, El, Icon, Image, TextStyle, Tx, col, el, icon, row, text};
 
-use super::skin;
+use super::{Dims, skin};
 use crate::charts;
 use crate::copper::{Coin, Copper, Lanes};
 use crate::rows::per_day;
@@ -102,6 +102,65 @@ pub fn icon_frame(image: Option<&Image>, size: f32, quality: Color) -> El {
 
 /// Between a toolbar's search and its pills.
 pub const TOOLBAR_GAP: f32 = 12.0;
+/// Between a stacked toolbar's rows.
+const TOOLBAR_ROW_GAP: f32 = 8.0;
+const TOOLBAR_TOP: f32 = 16.0;
+const TOOLBAR_BOTTOM: f32 = 8.0;
+
+/// A toolbar: the search and what leads it, then the filters, each with its width. They share
+/// one row while it leaves the lead `lead_min`. Else the lead takes a row of its own over the
+/// filters: one row of their usual labels, or of their short ones, or as many rows of their
+/// usual labels as they need. `lead` gets the width its row has. Returns the toolbar and its
+/// height.
+pub fn toolbar(d: Dims, lead_min: f32, lead: impl FnOnce(f32) -> Vec<El>, filters: impl Fn(bool) -> Vec<(El, f32)>) -> (El, f32) {
+    let room = d.row_room();
+    let span = |f: &[(El, f32)]| f.iter().map(|(_, w)| w).sum::<f32>() + TOOLBAR_GAP * f.len().saturating_sub(1) as f32;
+    let long = filters(false);
+    if lead_min + 2.0 * TOOLBAR_GAP + span(&long) <= room {
+        let height = TOOLBAR_TOP + CONTROL + TOOLBAR_BOTTOM;
+        let out = row().w_full().h(height).pt(TOOLBAR_TOP).pb(TOOLBAR_BOTTOM).px(d.pad).gap(TOOLBAR_GAP).center_y();
+        let lead = lead(room - span(&long) - 2.0 * TOOLBAR_GAP);
+        return (out.children(lead).child(el().grow(1.0)).children(long.into_iter().map(|(e, _)| e)), height);
+    }
+    let filters = if span(&long) <= room { long } else { Some(filters(true)).filter(|short| span(short) <= room).unwrap_or(long) };
+    let mut lines: Vec<(Vec<El>, f32)> = Vec::new();
+    for (filter, w) in filters {
+        match lines.last_mut() {
+            Some((line, used)) if *used + TOOLBAR_GAP + w <= room => {
+                line.push(filter);
+                *used += TOOLBAR_GAP + w;
+            }
+            _ => lines.push((vec![filter], w)),
+        }
+    }
+    let height = TOOLBAR_TOP + CONTROL + (TOOLBAR_ROW_GAP + CONTROL) * lines.len() as f32 + TOOLBAR_BOTTOM;
+    let lead = lead(room);
+    let last = lead.len().saturating_sub(1);
+    let top = row().w_full().gap(TOOLBAR_GAP).center_y().children(lead.into_iter().enumerate().map(|(i, e)| if i == last { e.grow(1.0) } else { e }));
+    let lines = lines.into_iter().map(|(line, _)| row().gap(TOOLBAR_GAP).center_y().children(line));
+    (col().w_full().h(height).pt(TOOLBAR_TOP).pb(TOOLBAR_BOTTOM).px(d.pad).gap(TOOLBAR_ROW_GAP).child(top).children(lines), height)
+}
+
+/// The width `words` take in the body font.
+pub fn body_width(words: &str) -> f32 {
+    rune::text::measure(words, &[], theme::BODY, None).0
+}
+
+/// The width of a pill holding `words` in the body font, chevron included.
+pub fn pill_width(words: &[&str]) -> f32 {
+    12.0 + words.iter().map(|w| body_width(w)).sum::<f32>() + DROPDOWN_GAP * words.len().saturating_sub(1) as f32 + ARROW_ROOM
+}
+
+/// The width of a checkbox labelled `label`, with the game's box, the wider of its two.
+pub fn checkbox_width(label: &str) -> f32 {
+    (CONTROL - 22.0) / 2.0 + 22.0 + 7.0 + body_width(label) + 12.0
+}
+
+/// The width of a field box holding `label` and a field `field` wide.
+pub fn field_box_width(label: &str, field: f32) -> f32 {
+    12.0 + body_width(label) + 8.0 + field + 12.0
+}
+
 /// The room a dropdown keeps on its right for its chevron.
 pub const ARROW_ROOM: f32 = 30.0;
 
@@ -185,6 +244,11 @@ pub fn button<S: 'static>(label: &str, spoken: &str, leading: &'static Icon, act
         .on_press_tx(act)
 }
 
+/// A cross in a control-sized square that runs `act` on a press, spoken as `spoken`.
+pub fn close_button<S: 'static>(spoken: &str, act: impl Fn(&mut S) + 'static) -> El {
+    row().w(CONTROL).h(CONTROL).center().radius(4.0).child(glyph(&X, 18.0, p().muted)).hover(Color::WHITE.alpha(0.06)).role("button").label(spoken).cursor(Cursor::Pointer).on_press(act)
+}
+
 /// A "Wowhead" button that opens `url` in the browser, marked as leaving the app.
 pub fn wowhead<S: 'static>(url: String) -> El {
     link::<S>("Wowhead", "Open on Wowhead", url)
@@ -233,6 +297,7 @@ pub static SHOPPING_BAG: Icon = rune_icon!("shopping-bag");
 pub static TRIANGLE_ALERT: Icon = rune_icon!("triangle-alert");
 pub static REFRESH: Icon = rune_icon!("refresh-cw");
 static EXTERNAL: Icon = rune_icon!("square-arrow-out-up-right");
+static X: Icon = rune_icon!("x");
 
 pub fn glyph(i: &'static Icon, size: f32, color: Color) -> El {
     icon(i, size).color(color).a11y_hidden()

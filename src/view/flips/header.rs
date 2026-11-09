@@ -18,5 +18,5 @@ pub fn header(s: &App, f: &Stocked, d: Dims) -> El {
         "Every zone.".to_string()
     };
     let found = f.rows.len() + f.hidden.as_ref().map_or(0, |h| h.count);
-    page("Vendor flips", format!("{place} {}", shown(f.rows.len(), found, "item")), s.icons.coffee.as_ref(), d)
+    page("Vendor flips", format!("{place} {}", shown(f.rows.len(), found, "item")), s.coffee(d), d)
 }
