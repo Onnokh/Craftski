@@ -1,3 +1,5 @@
 /target
 /snap.png
 todo.md
+/web/node_modules
+/web/.wrangler
