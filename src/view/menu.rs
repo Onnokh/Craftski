@@ -1,6 +1,7 @@
 //! The one open toolbar menu, drawn over the window under the pill that opened it.
 
-use rune::{Align, Color, Cursor, El, ScrollSpec, Side, col, el, row, spacer, text};
+use rune::tok::motion;
+use rune::{Align, Color, Cursor, El, ScrollSpec, Side, Transition, Vec2, col, el, row, spacer, text};
 
 use super::{App, Load};
 use super::skin;
@@ -53,6 +54,15 @@ fn side(m: Menu) -> Side {
     }
 }
 
+/// The menu grows out of the corner that meets its pill, as if the pill unfolded it.
+fn unfold(m: Menu) -> Transition {
+    let corner = match side(m) {
+        Side::Top => Vec2::new(0.0, 1.0),
+        _ => Vec2::new(0.0, 0.0),
+    };
+    Transition::scale_anchor(0.96, corner).springs(motion::pair::SNAP)
+}
+
 /// A toolbar pill that opens `m` under itself.
 pub fn trigger(s: &App, m: Menu, active: bool, spoken: String, parts: Vec<El>) -> El {
     opener(pill(active, s.menu == Some(m)), m, p().gold, spoken, parts)
@@ -89,7 +99,8 @@ pub fn overlay(s: &App) -> Vec<El> {
         .child(col().w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list))
         .role("listbox")
         .label(name(m))
-        .anchored_fit(anchor(m), side(m), Align::Start, 4.0);
+        .anchored_fit(anchor(m), side(m), Align::Start, 4.0)
+        .transition(unfold(m));
     vec![scrim, panel]
 }
 
