@@ -1,5 +1,5 @@
 //! TSM's free public price files for WoW Forever, for a player without the TSM desktop app: one
-//! auction house's file and its region's, kept under `%LOCALAPPDATA%\tsm-crafts\public`.
+//! auction house's file and its region's, kept under `%LOCALAPPDATA%\Craftski\public`.
 //!
 //! The host answers a burst of requests with HTTP 429 and an hour's `Retry-After`, though its
 //! docs promise no limits. So each house costs two downloads, a cached file is downloaded again

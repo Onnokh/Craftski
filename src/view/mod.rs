@@ -475,7 +475,7 @@ impl App {
 }
 
 pub fn setup(s: &mut App, wake: Waker) {
-    widgets::load_coins(s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone())));
+    s.icons.cache.get_or_insert_with(|| ImageCache::new(wake.clone()));
     if !matches!(s.load, Load::Loading | Load::Unlocated) || s.inbox.is_some() {
         return;
     }
@@ -752,7 +752,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
         let _ = tx.send((id, path));
     });
     drop(tx);
-    let coins = widgets::load_coins(s.icons.cache.insert(ImageCache::new(Arc::new(|| {}))));
+    s.icons.cache = Some(ImageCache::new(Arc::new(|| {})));
     for (id, path) in rx {
         s.icons.show(id, &path);
     }
@@ -774,7 +774,7 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
             skin::show(cache, piece, &path);
         }
     }
-    for image in s.icons.items.values().chain(s.icons.rail.values()).chain(coins) {
+    for image in s.icons.items.values().chain(s.icons.rail.values()) {
         let _ = image.wait();
     }
     skin::wait();
@@ -847,7 +847,7 @@ mod tests {
 
     #[test]
     fn a_folder_without_apphelper_data_says_why_and_a_cancel_changes_nothing() {
-        let dir = std::env::temp_dir().join(format!("tsm-crafts-pick-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("craftski-pick-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut s = App::new();
         (s.appdata, s.load) = (None, Load::Unlocated);
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn choosing_a_realm_reprices_from_it_and_holds_through_a_reload() {
-        let dir = std::env::temp_dir().join(format!("tsm-crafts-realm-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("craftski-realm-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, [appdata("PvE-Alliance", 100, "6I"), appdata("PvP-Horde", 200, "7P")].join("
@@ -966,7 +966,7 @@ mod tests {
 
     #[test]
     fn reload_takes_the_new_prices_and_keeps_the_old_ones_when_the_read_fails() {
-        let dir = std::env::temp_dir().join(format!("tsm-crafts-reload-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("craftski-reload-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
@@ -1029,7 +1029,7 @@ mod tests {
 
     #[test]
     fn the_minute_check_reloads_only_after_appdata_is_rewritten() {
-        let dir = std::env::temp_dir().join(format!("tsm-crafts-watch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("craftski-watch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();

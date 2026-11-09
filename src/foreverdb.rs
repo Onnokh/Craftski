@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::recipes;
 
 /// foreverdb grows as players open merchants and loot items, so an older copy is fetched again.
 const MAX_AGE: Duration = Duration::from_secs(7 * 86_400);
@@ -12,7 +11,7 @@ const MAX_AGE: Duration = Duration::from_secs(7 * 86_400);
 /// download falls back to an older copy.
 pub fn fetch(file: &str) -> Result<String, String> {
     let url = format!("https://foreverdb.net/data/{file}");
-    let path = recipes::cache_dir().map(|d| d.join(format!("foreverdb-{file}")));
+    let path = crate::cache::root().map(|d| d.join(format!("foreverdb-{file}")));
     let fresh = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < MAX_AGE);
     if let Some(p) = path.as_deref().filter(|p| fresh(p))
         && let Ok(text) = std::fs::read_to_string(p)

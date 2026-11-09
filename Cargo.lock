@@ -650,6 +650,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "craftski"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "image",
+ "rune",
+ "rune-kit",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3433,19 +3446,6 @@ dependencies = [
  "memchr",
  "nom",
  "petgraph",
-]
-
-[[package]]
-name = "tsm-crafts"
-version = "0.1.0"
-dependencies = [
- "csv",
- "image",
- "rune",
- "rune-kit",
- "serde",
- "serde_json",
- "ureq",
 ]
 
 [[package]]

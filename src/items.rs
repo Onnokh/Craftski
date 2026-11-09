@@ -103,7 +103,7 @@ struct Cache {
 }
 
 fn cache_path() -> Option<PathBuf> {
-    Some(recipes::cache_dir()?.join(format!("items-{CACHE_SCHEMA}-{BUILD}.json")))
+    Some(crate::cache::root()?.join(format!("items-{CACHE_SCHEMA}-{BUILD}.json")))
 }
 
 /// The `wanted` items from the cache, or downloaded and joined when the cache lacks any.

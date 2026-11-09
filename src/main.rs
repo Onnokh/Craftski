@@ -34,6 +34,7 @@ use rune::{AppSpec, Display, WindowOptions, WindowSpec};
 const SIZE: (f32, f32) = (1640.0, 1000.0);
 
 fn main() {
+    cache::adopt_old_folder();
     let cli = std::env::args().find_map(|a| match a.as_str() {
         "--dump" => Some(dump as fn() -> Result<(), String>),
         "--fetch-icons" => Some(fetch_icons),
@@ -58,7 +59,7 @@ fn main() {
             }
         });
     }
-    let (fonts, families) = theme::fonts();
+    let (fonts, families) = (theme::FONTS, theme::FAMILIES);
     rune::run_windows(move |displays: &[Display]| {
         let spec = AppSpec::<view::App> {
             scenes: &[("loaded", view::scene_loaded), ("crafted", view::scene_crafted), ("flips", view::scene_flips), ("flips-shared", view::scene_flips_shared), ("zones", view::scene_zones), ("flips-sold", view::scene_flips_sold), ("crafts-hidden", view::scene_crafts_hidden), ("crafts-sold", view::scene_crafts_sold), ("flips-hidden", view::scene_flips_hidden), ("stale", view::scene_stale), ("realms", view::scene_realms), ("reload-failed", view::scene_reload_failed), ("no-appdata", view::scene_no_appdata), ("settings", view::scene_settings), ("public", view::scene_public), ("settings-public", view::scene_settings_public)],
@@ -67,7 +68,7 @@ fn main() {
             on_key: Some(view::on_key),
             fonts,
             families,
-            ..AppSpec::new("TSM Crafts", SIZE, view::App::new, view::view)
+            ..AppSpec::new("Craftski", SIZE, view::App::new, view::view)
         };
         let window = WindowSpec::new("main", spec);
         match displays.iter().find(|d| !d.primary) {

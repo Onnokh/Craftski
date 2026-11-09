@@ -1,9 +1,7 @@
 //! Small pieces every region draws: money with coins, framed icons, toolbar pills, labels and
 //! buttons.
 
-use std::sync::OnceLock;
-
-use rune::{Color, Cursor, El, Icon, Image, ImageCache, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, El, Icon, Image, TextStyle, Tx, col, el, icon, row, text};
 
 use super::skin;
 use crate::charts;
@@ -75,20 +73,9 @@ impl Money {
     }
 }
 
-static COINS: OnceLock<[Image; 3]> = OnceLock::new();
-
-/// The game's 13 px money icons, gold first, decoded once per process.
-pub fn load_coins(cache: &ImageCache) -> &'static [Image; 3] {
-    let files: [&'static [u8]; 3] = [include_bytes!("../../assets/coins/gold.png"), include_bytes!("../../assets/coins/silver.png"), include_bytes!("../../assets/coins/copper.png")];
-    COINS.get_or_init(|| files.map(|bytes| cache.load(bytes)))
-}
-
 fn coin_icon(coin: Coin, size: f32) -> El {
-    let slot = el().w(size).h(size).a11y_hidden();
-    match COINS.get() {
-        Some(coins) => slot.pixels(coins[coin as usize].pixels()),
-        None => slot,
-    }
+    let [face, rim] = p().coins[coin as usize];
+    el().w(size).h(size).radius(size / 2.0).fill(face).border(1.0, rim).a11y_hidden()
 }
 
 /// An item icon in a slot `size` points square: the game's slot frame around a smaller icon, or

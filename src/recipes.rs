@@ -442,13 +442,8 @@ struct Cache {
     recipes: Vec<Recipe>,
 }
 
-/// Where downloads and joined data are kept between runs.
-pub fn cache_dir() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("tsm-crafts"))
-}
-
 fn cache_path(profession: Profession) -> Option<PathBuf> {
-    Some(cache_dir()?.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.slug())))
+    Some(crate::cache::root()?.join(format!("recipes-{CACHE_SCHEMA}-{}-{BUILD}.json", profession.slug())))
 }
 
 /// Recipes from the cache, or downloaded, joined and cached when the cache lacks this build.
