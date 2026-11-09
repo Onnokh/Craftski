@@ -296,6 +296,11 @@ impl App {
         }
     }
 
+    /// Whether prices come with the realm's listing counts, which TSM's public data leaves out.
+    fn listings(&self) -> bool {
+        self.source == PriceSource::App
+    }
+
     /// What prices are read from: the AppData.lua located, or the public house for the
     /// character's faction.
     fn origin(&self) -> Option<Origin> {

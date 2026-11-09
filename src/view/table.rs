@@ -51,8 +51,10 @@ const SLOTS: [(Slot, f32); 6] = [(Slot::Skill, 56.0), (Slot::Profit, 112.0), (Sl
 /// The cells a narrower table leaves out, first to go first. The profit and sales a day stay.
 const DROPS: [Slot; 4] = [Slot::ProfitBar, Slot::Listed, Slot::Margin, Slot::Skill];
 
-fn slots(d: Dims) -> Vec<(Slot, f32)> {
-    columns::fit(&SLOTS, &DROPS, d.row_room(), d.gap)
+/// The cells shown, without the listings where prices come without them.
+fn slots(s: &App, d: Dims) -> Vec<(Slot, f32)> {
+    let shown: Vec<(Slot, f32)> = SLOTS.into_iter().filter(|&(slot, _)| slot != Slot::Listed || s.listings()).collect();
+    columns::fit(&shown, &DROPS, d.row_room(), d.gap)
 }
 
 pub fn table(s: &App, r: &Ready, d: Dims) -> El {
@@ -100,7 +102,7 @@ fn head(s: &App, d: Dims) -> El {
         })
     };
     let mut out = row().w_full().h(ROW).px(d.cell_pad()).gap(d.gap).center_y().fill(Color::BLACK.alpha(0.5)).border_sides([0.0, 0.0, 1.0, 0.0], p().bronze).child(title(Column::Item, flexible().items_start()));
-    for (slot, width) in slots(d) {
+    for (slot, width) in slots(s, d) {
         let cell = slot.cell(width);
         out = out.child(match slot.column() {
             Some(column) => title(column, cell),
@@ -133,7 +135,7 @@ fn table_row(s: &App, r: &Ready, index: usize, d: Dims, top: i64) -> El {
         .label(recipe.item_name.clone())
         .checked(selected)
         .child(flexible().items_start().child(item));
-    for (slot, width) in slots(d) {
+    for (slot, width) in slots(s, d) {
         let content = match slot {
             Slot::Skill => recipe.skill.map_or_else(unknown, |k| number(k.learn.to_string())),
             Slot::Profit => e.profit.map_or_else(unknown, |pr| Money::new(theme::BODY_STRONG, p().text).short().signed(pr)),

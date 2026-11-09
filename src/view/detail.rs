@@ -28,7 +28,7 @@ pub fn detail(s: &App, r: &Ready, d: Dims) -> El {
     let b = breakdown(recipe, e, &r.market.book, costs);
     let warning = caution(e.sold_per_day, e.auctions);
     let money = Money::new(theme::BODY, p().text);
-    let mut body = col().w_full().child(identity(s, recipe)).child(facts(r, e, warning)).child(band("One craft"));
+    let mut body = col().w_full().child(identity(s, recipe)).child(facts(r, e, warning, s.listings())).child(band("One craft"));
     body = body.child(ledger_line(text("Sale price").font(theme::BODY).color(p().text), b.sale.map_or_else(unknown, |s| money.show(s.gross))));
     if let Some(Sale { basis: AuctionBasis::MarketValue, .. }) = b.sale {
         body = body.child(note("No current listings, 14-day average.", false));
@@ -70,9 +70,9 @@ fn identity(s: &App, recipe: &Recipe) -> El {
 }
 
 /// The market in three cells: region sales, realm listings and the profit rank among every
-/// recipe priced under the current source, whatever the filters show. A figure the caution
-/// below is about turns amber.
-fn facts(r: &Ready, e: &Evaluation, warning: Option<Caution>) -> El {
+/// recipe priced under the current source, whatever the filters show. Without `listings` the
+/// realm listings go. A figure the caution below is about turns amber.
+fn facts(r: &Ready, e: &Evaluation, warning: Option<Caution>, listings: bool) -> El {
     let sold = e.sold_per_day.map_or_else(|| "None".into(), per_day);
     let listed = e.auctions.map_or_else(|| "\u{2014}".into(), |n| n.to_string());
     let rank = e.profit.map_or_else(
@@ -83,12 +83,12 @@ fn facts(r: &Ready, e: &Evaluation, warning: Option<Caution>) -> El {
         },
     );
     let cells = [
-        ("Sold per day", sold, 1.0, warning.is_some_and(|w| !w.on_listings())),
-        ("Listed here", listed, 0.85, warning.is_some_and(Caution::on_listings)),
-        ("Profit rank", rank, 1.15, false),
+        Some(("Sold per day", sold, 1.0, warning.is_some_and(|w| !w.on_listings()))),
+        listings.then(|| ("Listed here", listed, 0.85, warning.is_some_and(Caution::on_listings))),
+        Some(("Profit rank", rank, 1.15, false)),
     ];
     let mut out = row().w_full().mt(16.0).fill(Color::BLACK.alpha(0.4)).border(1.0, Color::BLACK);
-    for (i, (label, value, share, flagged)) in cells.into_iter().enumerate() {
+    for (i, (label, value, share, flagged)) in cells.into_iter().flatten().enumerate() {
         let cell = col()
             .w(0.0)
             .grow(share)
