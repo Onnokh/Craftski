@@ -25,7 +25,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use rune::{Align, Cx, El, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker, col, el, row, text};
+use rune::tok::motion;
+use rune::{Align, Cx, Edge, El, Image, ImageCache, Key, KeyEvent, TextEdit, Transition, Tx, Waker, col, el, row, text};
 
 use crate::flips::Rules;
 use crate::market::{self, Market, Origin, PriceSource, Read};
@@ -620,6 +621,11 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.tab == Tab::Settings {
         return false;
     }
+    // A held arrow repeats faster than the selection's fade settles, which would trail a glow
+    // down the rows; the selection and its scroll land at once instead.
+    if matches!(ev.key, Key::Up | Key::Down) {
+        tx.instant();
+    }
     if s.tab == Tab::Flips {
         let f = &mut s.flips;
         if ev.is_command('k') {
@@ -709,7 +715,7 @@ fn split(s: &App, d: Dims, content: El, detail: impl FnOnce() -> El) -> El {
     let out = row().grow(1.0).h_full().min_w(0.0).child(content.key("content").grow(1.0).shrink().min_w(0.0).h_full());
     match d.detail {
         Detail::Side => out.child(detail()),
-        Detail::Sheet if s.sheet_shown(d) => out.child(detail().pin(None, Some(0.0), Some(0.0), Some(0.0))),
+        Detail::Sheet if s.sheet_shown(d) => out.child(detail().pin(None, Some(0.0), Some(0.0), Some(0.0)).transition(Transition::move_edge(Edge::Trailing).springs(motion::pair::GLIDE))),
         Detail::Sheet => out,
     }
 }
@@ -961,5 +967,47 @@ mod tests {
         assert_eq!(s.ready().unwrap().market.book.realm().map(|(name, _)| name), Some("PvE-Horde"));
         assert_ne!(read_at(&s), first);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A window `w` by `h` showing two recipes, settled, with `key` just pressed.
+    fn pressed(w: f32, h: f32, key: &str) -> rune::Runtime<App> {
+        let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
+        let mut s = App::new();
+        s.hide_unpriced = false;
+        let market = Market::new(PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")], "");
+        s.land(s.profession, Ok(market));
+        let mut rt = rune::Runtime::new(s, view, (w, h), rune::Env::default());
+        rt.frame(1.0 / 60.0);
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no {key}"));
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt
+    }
+
+    /// Where `key` is drawn and how opaque, two frames after the press and once settled.
+    fn opening(rt: &mut rune::Runtime<App>, key: &str) -> [([f32; 4], f32); 2] {
+        rt.frame(1.0 / 60.0);
+        rt.frame(1.0 / 60.0);
+        let early = rt.presented(key).unwrap();
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        [early, rt.presented(key).unwrap()]
+    }
+
+    #[test]
+    fn a_menu_unfolds_from_the_corner_at_its_pill() {
+        let mut rt = pressed(1280.0, 800.0, "crafts-sold-pill");
+        let [(early, faded), (settled, opaque)] = opening(&mut rt, "menu");
+        assert_eq!((early[0], early[1]), (settled[0], settled[1]));
+        assert!(early[2] < settled[2] && faded < opaque, "{early:?} {faded} -> {settled:?} {opaque}");
+    }
+
+    #[test]
+    fn the_detail_sheet_slides_in_from_the_right_edge() {
+        let mut rt = pressed(720.0, 760.0, "2");
+        let [(early, _), (settled, _)] = opening(&mut rt, "detail-body");
+        assert!(early[0] > settled[0] + 100.0, "{early:?} -> {settled:?}");
     }
 }
