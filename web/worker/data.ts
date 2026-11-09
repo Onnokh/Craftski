@@ -7,7 +7,8 @@
  * build never changes, so a copy is good forever and a new build is a new path. */
 export const BUILD = "1.60.1.70862";
 const TABLES = ["SkillLineAbility", "SpellEffect", "SpellReagents", "ItemSparse", "Item", "ItemModifiedAppearance", "ItemAppearance"] as const;
-const FOREVERDB = ["vendors.json", "items.json", "stats.json", "itemmeta.json", "ratings.json"] as const;
+const PROFESSIONS = ["alchemy", "blacksmithing", "cooking", "enchanting", "engineering", "first-aid", "leatherworking", "mining", "tailoring"] as const;
+const FOREVERDB = ["vendors.json", "items.json", "stats.json", "itemmeta.json", "ratings.json", ...PROFESSIONS.map((p) => `professions/${p}.json` as const)] as const;
 
 /** foreverdb updates its files now and then; the desktop app rereads them weekly. */
 const FOREVERDB_MAX_AGE = 86_400;
@@ -18,7 +19,7 @@ export type ForeverdbFile = (typeof FOREVERDB)[number];
 export type DataFile = { source: "wago"; table: Table } | { source: "foreverdb"; file: ForeverdbFile };
 
 const WAGO_PATH = /^\/data\/wago\/([0-9.]+)\/([A-Za-z]+)\.csv$/;
-const FOREVERDB_PATH = /^\/data\/foreverdb\/([a-z]+\.json)$/;
+const FOREVERDB_PATH = /^\/data\/foreverdb\/((?:professions\/)?[a-z-]+\.json)$/;
 
 const member = <T extends string>(list: readonly T[], s: string): s is T => (list as readonly string[]).includes(s);
 

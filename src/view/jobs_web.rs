@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread::LocalKey;
 
-use futures_util::future::{FutureExt, LocalBoxFuture, Shared, join_all, try_join, try_join_all};
+use futures_util::future::{FutureExt, LocalBoxFuture, Shared, join, join_all, try_join, try_join_all};
 use wasm_bindgen_futures::spawn_local;
 
 use super::{Msg, Outbox, rail};
@@ -119,7 +119,13 @@ async fn site_file(path: &str) -> Result<SiteFile, String> {
 }
 
 async fn load_recipes(profession: Profession) -> Result<Vec<Recipe>, String> {
-    recipes::join(&*tables().await?, profession)
+    let (tables, json) = join(tables(), text(format!("/data/foreverdb/professions/{}.json", profession.slug()))).await;
+    let mut recipes = recipes::join(&*tables?, profession)?;
+    match json.and_then(|json| recipes::learn_ranks(&json)) {
+        Ok(ranks) => recipes::apply_learn_ranks(&mut recipes, &ranks),
+        Err(e) => warn(&format!("{} learn ranks unknown: {e}", profession.name())),
+    }
+    Ok(recipes)
 }
 
 async fn load_catalog() -> Result<Catalog, String> {
