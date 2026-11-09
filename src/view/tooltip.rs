@@ -2,6 +2,8 @@
 //! blue ground, the name in its quality colour, a craft's reagents with their icons, then the item's
 //! own lines.
 
+use std::time::Duration;
+
 use rune::{Align, El, Side, Span, col, el, row, text};
 
 use super::widgets::icon_frame;
@@ -26,6 +28,10 @@ pub fn hover(el: El, tip: Tip) -> El {
             s.tip = None;
         }
     })
+    // A delayed hover never opens under a press, and a finger's pan leaves its press's pause on
+    // until a pointer moves, so the rows a finger scrolls past stay shut. The mouse still opens
+    // one at once.
+    .hover_delays(Duration::from_millis(1), Duration::ZERO)
     .on_pointer_move(|s: &mut App, at| s.pointer = (at.x, at.y))
 }
 
@@ -78,4 +84,47 @@ fn body(s: &App, panel: El, card: Card) -> El {
             None => left,
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rune::{Cx, Env, Runtime, ScrollSpec, TouchPhase};
+
+    fn rows(_: &App, _: &mut Cx<App>) -> El {
+        col().key("list").size(200.0, 300.0).scroll(ScrollSpec { stick_bottom: false })
+            .children((0..30).map(|i| hover(el().key(format!("row{i}")).w_full().h(40.0).on_press(|_: &mut App| {}), Tip::Recipe(i))))
+    }
+
+    fn rig() -> Runtime<App> {
+        let mut rt = Runtime::new(App::new(), rows, (200.0, 300.0), Env::default());
+        rt.frame(0.0);
+        rt
+    }
+
+    #[test]
+    fn the_mouse_opens_the_tip_of_the_row_it_rests_on() {
+        let mut rt = rig();
+        rt.pointer_move(100.0, 100.0);
+        rt.frame(0.05);
+        assert_eq!(rt.state.tip, Some(Tip::Recipe(2)));
+    }
+
+    #[test]
+    fn a_finger_scrolling_the_list_opens_no_tip() {
+        let mut rt = rig();
+        let mut opened = Vec::new();
+        rt.touch(1, TouchPhase::Started, 100.0, 250.0, 0.0);
+        for i in 1..=20 {
+            rt.touch(1, TouchPhase::Moved, 100.0, 250.0 - 10.0 * i as f32, i as f64 * 0.02);
+            rt.frame(0.02);
+            opened.extend(rt.state.tip);
+        }
+        rt.touch(1, TouchPhase::Ended, 100.0, 50.0, 0.45);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+            opened.extend(rt.state.tip);
+        }
+        assert_eq!(opened, []);
+    }
 }
