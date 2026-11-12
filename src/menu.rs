@@ -5,26 +5,25 @@ use crate::flip_rows::{Supply, Zone};
 use crate::overview::Feed;
 use crate::settings;
 
-/// A minimum of sales a day: the pill's value, the menu's words and the threshold.
+/// A minimum demand, TSM's region sale rate read as an indicator: the pill's and menu's words and the threshold.
 pub struct SoldStep {
     pub value: &'static str,
-    pub item: &'static str,
     pub min: Option<f64>,
 }
 
 impl SoldStep {
-    /// "Sold 5+ a day", as the line under a table names the filter.
+    /// "Demand 5+", as the line under a table names the filter.
     pub fn named(&self) -> String {
-        format!("Sold {}", self.item)
+        format!("Demand {}", self.value)
     }
 }
 
 pub const SOLD_STEPS: [SoldStep; 5] = [
-    SoldStep { value: "Any", item: "Any", min: None },
-    SoldStep { value: ">0", item: ">0 a day", min: Some(0.0) },
-    SoldStep { value: "1+", item: "1+ a day", min: Some(1.0) },
-    SoldStep { value: "5+", item: "5+ a day", min: Some(5.0) },
-    SoldStep { value: "20+", item: "20+ a day", min: Some(20.0) },
+    SoldStep { value: "Any", min: None },
+    SoldStep { value: ">0", min: Some(0.0) },
+    SoldStep { value: "1+", min: Some(1.0) },
+    SoldStep { value: "5+", min: Some(5.0) },
+    SoldStep { value: "20+", min: Some(20.0) },
 ];
 
 /// A toolbar menu, at most one open at a time.
@@ -68,9 +67,9 @@ impl Item {
     }
 }
 
-/// The sales minimums, `current` chosen, each picked through `pick`.
+/// The demand minimums, `current` chosen, each picked through `pick`.
 pub fn sold(current: usize, pick: fn(usize) -> Pick) -> Vec<Item> {
-    SOLD_STEPS.iter().enumerate().map(|(i, step)| Item::plain(step.item, i == current, pick(i))).collect()
+    SOLD_STEPS.iter().enumerate().map(|(i, step)| Item::plain(step.value, i == current, pick(i))).collect()
 }
 
 /// Which stock to show by how much of it a merchant has.
@@ -123,21 +122,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_sold_menu_lists_each_minimum_a_day_and_marks_the_current_one() {
+    fn the_sold_menu_lists_each_minimum_and_marks_the_current_one() {
         let items = sold(3, Pick::CraftsSold);
         let seen: Vec<(&str, bool, Pick)> = items.iter().map(|i| (i.label.as_str(), i.on, i.pick.clone())).collect();
         assert_eq!(
             seen,
-            vec![("Any", false, Pick::CraftsSold(0)), (">0 a day", false, Pick::CraftsSold(1)), ("1+ a day", false, Pick::CraftsSold(2)), ("5+ a day", true, Pick::CraftsSold(3)), ("20+ a day", false, Pick::CraftsSold(4))]
+            vec![("Any", false, Pick::CraftsSold(0)), (">0", false, Pick::CraftsSold(1)), ("1+", false, Pick::CraftsSold(2)), ("5+", true, Pick::CraftsSold(3)), ("20+", false, Pick::CraftsSold(4))]
         );
-        assert_eq!((items[3].hint.clone(), items[3].spoken.as_str()), (None, "5+ a day"));
+        assert_eq!((items[3].hint.clone(), items[3].spoken.as_str()), (None, "5+"));
     }
 
     #[test]
-    fn the_sold_pill_shows_the_short_value_and_the_hint_names_it_in_words() {
+    fn the_sold_pill_shows_the_short_value_and_the_hint_names_it() {
         let values: Vec<&str> = SOLD_STEPS.iter().map(|s| s.value).collect();
         assert_eq!(values, ["Any", ">0", "1+", "5+", "20+"]);
-        assert_eq!(SOLD_STEPS[3].named(), "Sold 5+ a day");
+        assert_eq!(SOLD_STEPS[3].named(), "Demand 5+");
     }
 
     #[test]

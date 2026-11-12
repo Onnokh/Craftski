@@ -135,7 +135,7 @@ impl State {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    /// The state a user reported missing patterns in: "patter" searched at Sold 5+ a day,
+    /// The state a user reported missing patterns in: "patter" searched at Demand 5+,
     /// an endless supply and only profitable flips, for a snapshot scene.
     pub fn search_patterns_narrowly(&mut self) {
         self.search = TextEdit::new("patter");

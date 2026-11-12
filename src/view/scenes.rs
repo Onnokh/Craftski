@@ -80,7 +80,7 @@ pub fn scene_zones(s: &mut App) {
     s.menu = Some(Menu::Zone);
 }
 
-/// The flips tab with the Sold per day menu open.
+/// The flips tab with the Demand menu open.
 pub fn scene_flips_sold(s: &mut App) {
     scene_flips(s);
     s.menu = Some(Menu::FlipsSold);
@@ -121,14 +121,14 @@ fn show_icons(s: &mut App, ids: BTreeSet<FileDataId>) {
     skin::newly_ready();
 }
 
-/// `loaded` with Sold 5+ a day, so the line under the table says what it hides.
+/// `loaded` with Demand 5+, so the line under the table says what it hides.
 pub fn scene_crafts_hidden(s: &mut App) {
     scene_loaded(s);
     s.min_sold = 3;
     s.refresh();
 }
 
-/// `crafts-hidden` with the Sold per day menu open.
+/// `crafts-hidden` with the Demand menu open.
 pub fn scene_crafts_sold(s: &mut App) {
     scene_crafts_hidden(s);
     s.menu = Some(Menu::CraftsSold);

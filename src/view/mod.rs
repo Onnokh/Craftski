@@ -271,7 +271,7 @@ impl App {
             profession,
             icons: Icons::default(),
             hide_unpriced: true,
-            min_sold: 0,
+            min_sold: 1,
             sort: Sort { column: Column::Profit, descending: true },
             selected: None,
             sheet: false,
@@ -803,7 +803,7 @@ mod tests {
         let mut s = App::new();
         s.toggle_menu(Menu::FlipsSold);
         s.pick(Pick::FlipsSold(4));
-        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 4, 0));
+        assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 4, 1));
         s.toggle_menu(Menu::Supply);
         s.pick(Pick::Supply(Supply::Limited));
         assert_eq!((s.menu, s.flips.supply()), (None, Supply::Limited));
@@ -853,7 +853,7 @@ mod tests {
             (s.profession, format!("{:?}", r.recipes), rows.join(", "), s.selected, s.search.text.clone())
         };
         let mut s = App::new();
-        (s.profession, s.hide_unpriced) = (Profession::Leatherworking, false);
+        (s.profession, s.hide_unpriced, s.min_sold) = (Profession::Leatherworking, false, 0);
         s.land(Profession::Leatherworking, Ok(market(vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")])));
         s.search = TextEdit::new("bag");
         s.refresh();
@@ -973,7 +973,7 @@ mod tests {
     fn pressed(w: f32, h: f32, key: &str) -> rune::Runtime<App> {
         let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
         let mut s = App::new();
-        s.hide_unpriced = false;
+        (s.hide_unpriced, s.min_sold) = (false, 0);
         let market = Market::new(PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")], "");
         s.land(s.profession, Ok(market));
         let mut rt = rune::Runtime::new(s, view, (w, h), rune::Env::default());

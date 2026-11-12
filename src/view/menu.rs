@@ -31,7 +31,7 @@ pub fn anchor(m: Menu) -> &'static str {
 
 fn name(m: Menu) -> &'static str {
     match m {
-        Menu::CraftsSold | Menu::FlipsSold => "Minimum sold per day",
+        Menu::CraftsSold | Menu::FlipsSold => "Minimum demand",
         Menu::Supply => "Supply",
         Menu::Zone => "Zone",
         Menu::Realm => "Realm",

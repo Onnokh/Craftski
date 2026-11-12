@@ -1,4 +1,4 @@
-//! Search, then one pill per filter: sold per day, the player's skill, and priced only.
+//! Search, then one pill per filter: demand, the player's skill, and priced only.
 
 use rune::{El, Key, KeyEvent, Tx, text, text_input};
 
@@ -15,12 +15,12 @@ const SKILL_FIELD: f32 = 28.0;
 
 /// The toolbar and its height.
 pub fn toolbar(s: &App, d: Dims) -> (El, f32) {
-    widgets::toolbar(d, SEARCH_MIN, |_| vec![search(s)], |short| vec![sold(s, short), skill(s, short), priced(s, short)])
+    widgets::toolbar(d, SEARCH_MIN, |_| vec![search(s)], |short| vec![sold(s), skill(s, short), priced(s, short)])
 }
 
-fn sold(s: &App, short: bool) -> (El, f32) {
-    let (label, value) = (if short { "Sold/day" } else { "Sold per day" }, SOLD_STEPS[s.min_sold].value);
-    let pill = trigger(s, Menu::CraftsSold, sold_active(s.min_sold), format!("Sold per day: {value}"), vec![text(label).font(theme::BODY).color(p().muted), text(value).font(theme::BODY).color(p().text)]);
+fn sold(s: &App) -> (El, f32) {
+    let (label, value) = ("Demand", SOLD_STEPS[s.min_sold].value);
+    let pill = trigger(s, Menu::CraftsSold, sold_active(s.min_sold), format!("Demand: {value}"), vec![text(label).font(theme::BODY).color(p().muted), text(value).font(theme::BODY).color(p().text)]);
     (pill, pill_width(&[label, value]))
 }
 
