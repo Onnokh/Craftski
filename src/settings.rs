@@ -26,20 +26,39 @@ const PRICES: &str = "prices.txt";
 /// The public house's region and realm by slug, kept while the app reads AppData.lua.
 const PUBLIC_REGION: &str = "public-region.txt";
 const PUBLIC_REALM: &str = "public-realm.txt";
+/// Saved on the welcome screen's Start.
+const WELCOMED: &str = "welcomed.txt";
 
 /// What `file` holds, trimmed, or None when nothing is saved.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
 fn saved(file: &str) -> Option<String> {
     let path = crate::cache::root()?.join(file);
     std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 fn saved(file: &str) -> Option<String> {
     storage()?.get_item(&key(file)).ok().flatten().map(|s| s.trim().to_string())
 }
 
-#[cfg(target_arch = "wasm32")]
+// Tests save to a store of their own thread's, so each starts from nothing saved and none
+// touches the player's settings.
+#[cfg(test)]
+thread_local! {
+    static STORE: std::cell::RefCell<std::collections::HashMap<String, String>> = Default::default();
+}
+
+#[cfg(test)]
+fn saved(file: &str) -> Option<String> {
+    STORE.with_borrow(|store| store.get(file).cloned())
+}
+
+#[cfg(test)]
+fn save(file: &str, text: &str) {
+    STORE.with_borrow_mut(|store| store.insert(file.to_string(), text.trim().to_string()));
+}
+
+#[cfg(all(target_arch = "wasm32", not(test)))]
 fn save(file: &str, text: &str) {
     if let Some(storage) = storage()
         && let Err(e) = storage.set_item(&key(file), text.trim())
@@ -49,12 +68,12 @@ fn save(file: &str, text: &str) {
 }
 
 /// The page's localStorage, None where the browser refuses it, as some private windows do.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 fn key(file: &str) -> String {
     format!("craftski:{file}")
 }
@@ -64,7 +83,7 @@ fn load(file: &str) -> String {
     saved(file).unwrap_or_default()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
 fn save(file: &str, text: &str) {
     let Some(path) = crate::cache::root().map(|root| root.join(file)) else { return };
     let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&path, text.trim()));
@@ -189,6 +208,21 @@ fn source_files(source: PriceSource) -> Vec<(&'static str, &'static str)> {
     }
 }
 
+/// Whether the player is past the welcome screen.
+pub fn welcomed() -> bool {
+    welcomed_from(saved)
+}
+
+pub fn save_welcomed() {
+    save(WELCOMED, "yes");
+}
+
+/// A player who saved a price source, house or faction before the welcome screen came has
+/// already chosen what it asks.
+fn welcomed_from(saved: impl Fn(&str) -> Option<String>) -> bool {
+    [WELCOMED, PRICES, PUBLIC_REGION, PUBLIC_REALM, FACTION].into_iter().any(|file| saved(file).is_some())
+}
+
 /// The rank a typed value names; anything but a whole number means no rank.
 pub fn parse_skill(text: &str) -> Option<u16> {
     text.trim().parse().ok()
@@ -238,6 +272,14 @@ mod tests {
         let eu_pvp = PublicHouse { region: Region::Eu, realm: ForeverRealm::PvP };
         assert_eq!((source_from(saved_as(&[])), house_from(saved_as(&[]))), (PriceSource::App, eu_pvp));
         assert_eq!(source_from(saved_as(&[("prices.txt", "public"), ("public-region.txt", "mars")])), PriceSource::Public(eu_pvp));
+    }
+
+    #[test]
+    fn the_welcome_screen_shows_until_start_or_a_saved_source_house_or_faction() {
+        let welcomed = |files: &[(&'static str, &str)]| welcomed_from(saved_as(files));
+        assert_eq!((welcomed(&[]), welcomed(&[("profession.txt", "tailoring"), ("skill-cooking.txt", "150"), ("honored.txt", "")])), (false, false));
+        let returning = [("welcomed.txt", "yes"), ("prices.txt", "app"), ("public-region.txt", "us"), ("public-realm.txt", "pve"), ("faction.txt", "Alliance")];
+        assert_eq!(returning.map(|file| welcomed(&[file])), [true; 5]);
     }
 
     #[test]

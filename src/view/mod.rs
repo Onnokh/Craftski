@@ -15,6 +15,7 @@ mod status;
 mod table;
 mod toolbar;
 mod tooltip;
+mod welcome;
 mod widgets;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,6 +54,9 @@ pub enum Tab {
 }
 
 pub struct App {
+    /// The welcome screen is up, on a first visit only: it fills the window, and no prices
+    /// load until its Start.
+    welcome: bool,
     tab: Tab,
     /// The AppData.lua prices come from under the desktop app source, resolved once at start
     /// and on each folder the player picks.
@@ -258,6 +262,7 @@ impl App {
         let source = settings::load_source();
         let readable = source != PriceSource::App || appdata.as_ref().is_some_and(|a| a.path.is_file());
         App {
+            welcome: !settings::welcomed(),
             tab: Tab::Crafts,
             searched: if appdata.is_none() && !web { wow::install_dirs() } else { Vec::new() },
             appdata,
@@ -308,8 +313,12 @@ impl App {
     }
 
     /// Reads TSM's prices with the shown profession's recipes on a loader thread, or asks for
-    /// the folder when there is no AppData.lua to read.
+    /// the folder when there is no AppData.lua to read. Under the welcome screen it waits for
+    /// Start, whatever the player picks there.
     fn load_market(&mut self) {
+        if self.welcome {
+            return;
+        }
         let origin = match self.origin() {
             Some(Origin::AppData(path)) if !path.is_file() => None,
             origin => origin,
@@ -661,7 +670,39 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let screen = cx.layout_with("screen", |r| (r[2], r[3]));
     let zoom = screen.map_or(1.0, |(w, h)| zoom(w, h));
     let safe = cx.safe_area().map(|v| v / zoom);
-    let main = screen.map_or(f32::INFINITY, |(w, _)| w / zoom - rail::RAIL - safe[1] - safe[3]);
+    let (body, status) = if s.welcome {
+        let [top, right, bottom, left] = safe;
+        let d = Dims { safe, small: zoom < 1.0, ..Dims::new(screen.map_or(f32::INFINITY, |(w, _)| w / zoom - right - left)) };
+        let tall = screen.map_or(0.0, |(_, h)| h / zoom - top - bottom);
+        (col().w_full().grow(1.0).min_h(0.0).pt(top).pr(right).pb(bottom).pl(left).child(welcome::screen(s, d, tall)), None)
+    } else {
+        app(s, cx, screen.map_or(f32::INFINITY, |(w, _)| w / zoom), zoom, safe)
+    };
+    let root = col()
+        .key("root")
+        .w_full()
+        .h_full()
+        .fill(p().ground)
+        .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
+        .child(body)
+        .children(status);
+    let root = menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s, zoom));
+    let screen_el = el().key("screen").w_full().h_full();
+    match screen {
+        Some((w, h)) if zoom < 1.0 => {
+            // `scale` draws about the centre, so the larger root sits centred on the screen to
+            // shrink onto it exactly.
+            let (lw, lh) = (w / zoom, h / zoom);
+            screen_el.child(root.pin(Some((w - lw) / 2.0), Some((h - lh) / 2.0), None, None).w(lw).h(lh).scale(zoom))
+        }
+        _ => screen_el.child(root),
+    }
+}
+
+/// The rail beside the open tab, and the status bar under them once prices load, in a window
+/// `wide` points across.
+fn app(s: &App, cx: &mut Cx<App>, wide: f32, zoom: f32, safe: [f32; 4]) -> (El, Option<El>) {
+    let main = wide - rail::RAIL - safe[1] - safe[3];
     let d = Dims { safe, content: cx.layout_with("content", |r| r[2]), status: cx.layout_with("status", |r| r[2]), small: zoom < 1.0, ..Dims::new(main) };
     let main = match &s.load {
         _ if s.tab == Tab::Settings => settings_tab::main(s, d),
@@ -682,26 +723,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let status = s.ready().map(|r| status::status(s, r, d));
     let main = col().grow(1.0).min_w(0.0).h_full().pt(top).child(main.min_h(0.0));
     let body = row().w_full().grow(1.0).min_h(0.0).pr(right).pb(if status.is_some() { 0.0 } else { bottom });
-    let body = body.child(rail::rail(s, cx.layout_with("rail", |r| r[3]), d)).child(main);
-    let root = col()
-        .key("root")
-        .w_full()
-        .h_full()
-        .fill(p().ground)
-        .children(skin::cover(Piece::Background, (Align::Center, Align::Center)))
-        .child(body)
-        .children(status);
-    let root = menu::overlay(s).into_iter().fold(root, |r, e| r.child(e)).children(tooltip::overlay(s, zoom));
-    let screen_el = el().key("screen").w_full().h_full();
-    match screen {
-        Some((w, h)) if zoom < 1.0 => {
-            // `scale` draws about the centre, so the larger root sits centred on the screen to
-            // shrink onto it exactly.
-            let (lw, lh) = (w / zoom, h / zoom);
-            screen_el.child(root.pin(Some((w - lw) / 2.0), Some((h - lh) / 2.0), None, None).w(lw).h(lh).scale(zoom))
-        }
-        _ => screen_el.child(root),
-    }
+    (body.child(rail::rail(s, cx.layout_with("rail", |r| r[3]), d)).child(main), status)
 }
 
 /// How small to draw the whole app on a small screen, laying it out that much larger.
@@ -736,8 +758,37 @@ mod tests {
     use crate::menu::Pick;
     use crate::flip_rows::Supply;
     use crate::prices;
-    use crate::public_data::PublicHouse;
+    use crate::merchants::Side;
+    use crate::public_data::{ForeverRealm, PublicHouse, Region};
     use std::time::UNIX_EPOCH;
+
+    /// The app on a later visit, past the welcome screen.
+    fn returning() -> App {
+        App { welcome: false, ..App::new() }
+    }
+
+    #[test]
+    fn a_first_visit_loads_no_prices_for_its_choices_until_start() {
+        let mut s = App::new();
+        (s.appdata, s.load) = (None, Load::Unlocated);
+        assert!(s.welcome);
+        s.set_source(PriceSource::Public(PublicHouse { region: Region::Us, realm: ForeverRealm::Roleplay }));
+        s.set_rules(|r| r.side = Side::Alliance);
+        assert!(matches!(s.load, Load::Unlocated));
+        s.start();
+        assert_eq!((s.welcome, matches!(s.load, Load::Loading), App::new().welcome), (false, true, false));
+    }
+
+    #[test]
+    fn start_saves_the_house_and_faction_shown_though_never_picked() {
+        let mut s = App::new();
+        let house = PublicHouse { region: Region::Us, realm: ForeverRealm::RoleplayPvp };
+        (s.source, s.rules.side) = (PriceSource::Public(house), Side::Alliance);
+        let saved = || (settings::load_source(), settings::load_rules().side, settings::welcomed());
+        assert_eq!(saved(), (PriceSource::App, Side::Horde, false));
+        s.start();
+        assert_eq!(saved(), (PriceSource::Public(house), Side::Alliance, true));
+    }
 
     fn appdata(scope: &str, time: u64, min_buyout: &str) -> String {
         format!(r#"x.LoadData("AUCTIONDB_NON_COMMODITY_DATA","{scope}",[[return {{downloadTime={time},fields={{"itemString","minBuyout"}},data={{{{4234,{min_buyout}}}}}}}]])"#)
@@ -747,7 +798,7 @@ mod tests {
     fn a_folder_without_apphelper_data_says_why_and_a_cancel_changes_nothing() {
         let dir = std::env::temp_dir().join(format!("craftski-pick-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut s = App::new();
+        let mut s = returning();
         (s.appdata, s.load) = (None, Load::Unlocated);
         let why = format!("No TSM AppHelper data under {}. Pick the folder that holds _forever_, and make sure the TSM desktop app has synced once.", dir.display());
         s.picked_folder(Ok(Some(dir.clone())));
@@ -759,7 +810,7 @@ mod tests {
 
     #[test]
     fn a_pill_toggles_its_menu_and_closing_says_whether_one_was_open() {
-        let mut s = App::new();
+        let mut s = returning();
         s.toggle_menu(Menu::Zone);
         assert_eq!(s.menu, Some(Menu::Zone));
         s.toggle_menu(Menu::Zone);
@@ -781,7 +832,7 @@ mod tests {
 
     #[test]
     fn changing_tab_or_profession_closes_the_detail_sheet() {
-        let mut s = App::new();
+        let mut s = returning();
         s.sheet = true;
         s.open_tab(Tab::Flips);
         assert_eq!((s.tab == Tab::Flips, s.sheet), (true, false));
@@ -792,7 +843,7 @@ mod tests {
 
     #[test]
     fn choosing_a_sold_minimum_sets_the_recipe_filter_and_closes_the_menu() {
-        let mut s = App::new();
+        let mut s = returning();
         s.toggle_menu(Menu::CraftsSold);
         s.pick(Pick::CraftsSold(3));
         assert_eq!((s.menu, s.min_sold), (None, 3));
@@ -800,7 +851,7 @@ mod tests {
 
     #[test]
     fn the_flips_menus_set_the_flips_filters_and_leave_the_recipes_alone() {
-        let mut s = App::new();
+        let mut s = returning();
         s.toggle_menu(Menu::FlipsSold);
         s.pick(Pick::FlipsSold(4));
         assert_eq!((s.menu, s.flips.min_sold(), s.min_sold), (None, 4, 1));
@@ -811,7 +862,7 @@ mod tests {
 
     #[test]
     fn choosing_a_zone_moves_to_it_and_closes_the_menu() {
-        let mut s = App::new();
+        let mut s = returning();
         s.toggle_menu(Menu::Zone);
         s.pick(Pick::Zone("Mulgore".into()));
         assert_eq!((s.menu, s.flips.zone()), (None, "Mulgore"));
@@ -824,7 +875,7 @@ mod tests {
         let path = dir.join("AppData.lua");
         std::fs::write(&path, [appdata("PvE-Alliance", 100, "6I"), appdata("PvP-Horde", 200, "7P")].join("
 ")).unwrap();
-        let mut s = App::new();
+        let mut s = returning();
         s.realm = "Gone-Realm".into();
         s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), &s.realm)));
         let seen = |s: &App| {
@@ -852,7 +903,7 @@ mod tests {
             let rows: Vec<&str> = r.rows.iter().map(|&i| r.market.recipes[i].item_name.as_str()).collect();
             (s.profession, format!("{:?}", r.recipes), rows.join(", "), s.selected, s.search.text.clone())
         };
-        let mut s = App::new();
+        let mut s = returning();
         (s.profession, s.hide_unpriced, s.min_sold) = (Profession::Leatherworking, false, 0);
         s.land(Profession::Leatherworking, Ok(market(vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")])));
         s.search = TextEdit::new("bag");
@@ -875,7 +926,7 @@ mod tests {
 
     #[test]
     fn a_first_load_for_a_profession_since_left_keeps_its_prices_and_loads_the_new_one() {
-        let mut s = App::new();
+        let mut s = returning();
         s.profession = Profession::Mining;
         let recipe = Recipe { spell_id: 1, item_id: 1, item_name: "Light Armor Kit".into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
         s.land(Profession::Leatherworking, Ok(Market::new(prices::PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe], "")));
@@ -889,7 +940,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
-        let mut s = App::new();
+        let mut s = returning();
         s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let seen = |s: &App| {
             let r = s.ready().unwrap();
@@ -912,9 +963,7 @@ mod tests {
 
     #[test]
     fn public_data_needs_no_appdata_and_lands_only_for_the_house_and_faction_in_use() {
-        use crate::merchants::Side;
-        use crate::public_data::{ForeverRealm, Region};
-        let mut s = App::new();
+        let mut s = returning();
         let house = PublicHouse { region: Region::Eu, realm: ForeverRealm::PvP };
         (s.appdata, s.source, s.rules.side) = (None, PriceSource::Public(house), Side::Horde);
         s.load_market();
@@ -952,7 +1001,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("AppData.lua");
         std::fs::write(&path, appdata("PvP-Horde", 100, "6I")).unwrap();
-        let mut s = App::new();
+        let mut s = returning();
         s.land(s.profession, market::read_book(&path).map(|(book, read)| Market::new(book, read, Vec::new(), "")));
         let read_at = |s: &App| s.ready().unwrap().market.read.at;
         let first = read_at(&s);
@@ -972,7 +1021,7 @@ mod tests {
     /// A window `w` by `h` showing two recipes, settled, with `key` just pressed.
     fn pressed(w: f32, h: f32, key: &str) -> rune::Runtime<App> {
         let recipe = |spell_id, name: &str| Recipe { spell_id, item_id: spell_id, item_name: name.into(), quality: Quality::Common, slot: None, icon: None, quantity: 1.0, skill: None, reagents: vec![] };
-        let mut s = App::new();
+        let mut s = returning();
         (s.hide_unpriced, s.min_sold) = (false, 0);
         let market = Market::new(PriceBook::default(), market::Read { at: UNIX_EPOCH, modified: None, warning: None }, vec![recipe(1, "Light Armor Kit"), recipe(2, "Linen Bag")], "");
         s.land(s.profession, Ok(market));
