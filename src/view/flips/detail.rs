@@ -121,6 +121,6 @@ fn auction_facts(body: El, flip: &Flip, listing_hours: u64) -> El {
     let dep = flip.deposit;
     let number = |v: String| text(v).font(theme::BODY).color(p().text);
     body.child(ledger("Sale rate", flip.sale_rate.map_or_else(unknown, |r| number(format!("{:.0}%", r * 100.0)))))
-        .child(ledger("Sold per day, region", flip.sold_per_day.map_or_else(unknown, |v| number(per_day(v)))))
+        .child(ledger("Demand, region", flip.sold_per_day.map_or_else(unknown, |v| number(per_day(v)))))
         .child(fact("Deposit", format!("{} per {}, {} hours", dep.per_listing, dep.post_stack, listing_hours)))
 }

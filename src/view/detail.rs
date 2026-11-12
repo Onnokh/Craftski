@@ -84,7 +84,7 @@ fn facts(r: &Ready, e: &Evaluation, warning: Option<Caution>, listings: bool) ->
         },
     );
     let cells = [
-        Some(("Sold per day", sold, 1.0, warning.is_some_and(|w| !w.on_listings()))),
+        Some(("Demand", sold, 1.0, warning.is_some_and(|w| !w.on_listings()))),
         listings.then(|| ("Listed here", listed, 0.85, warning.is_some_and(Caution::on_listings))),
         Some(("Profit rank", rank, 1.15, false)),
     ];

@@ -62,7 +62,7 @@ impl Caution {
     pub fn note(self) -> &'static str {
         match self {
             Caution::Untested => "Margin untested. Post one before crafting a stack.",
-            Caution::SlowSeller => "Sells under once a day. Expect to wait for a buyer.",
+            Caution::SlowSeller => "Low demand. Expect to wait for a buyer.",
             Caution::FewListed => "Few listed, so one seller can move the price.",
         }
     }

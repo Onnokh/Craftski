@@ -33,7 +33,7 @@ impl Column {
             Column::DepositLoss => "Deposit loss",
             Column::Profit => "Profit",
             Column::SaleRate => "Sale rate",
-            Column::SoldPerDay => "Sold/day",
+            Column::SoldPerDay => "Demand",
             Column::Limit => "Limit",
         }
     }

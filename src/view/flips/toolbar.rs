@@ -1,4 +1,4 @@
-//! The zone's pill, search, then one pill per filter: sold per day, supply and profitable only.
+//! The zone's pill, search, then one pill per filter: demand, supply and profitable only.
 
 use rune::{El, Key, KeyEvent, Tx, text, text_input};
 
@@ -18,7 +18,7 @@ const SEARCH_WIDE: f32 = 480.0;
 
 /// The toolbar and its height.
 pub fn toolbar(s: &App, d: Dims) -> (El, f32) {
-    widgets::toolbar(d, ZONE_MIN + TOOLBAR_GAP + SEARCH_MIN, |room| vec![zone(s), search(s, room >= SEARCH_WIDE)], |short| vec![sold(s, short), supply(s), profitable(s, short)])
+    widgets::toolbar(d, ZONE_MIN + TOOLBAR_GAP + SEARCH_MIN, |room| vec![zone(s), search(s, room >= SEARCH_WIDE)], |short| vec![sold(s), supply(s), profitable(s, short)])
 }
 
 fn zone(s: &App) -> El {
@@ -27,9 +27,9 @@ fn zone(s: &App) -> El {
     trigger(s, Menu::Zone, false, format!("Zone: {zone}"), vec![glyph(&MAP_PIN, 14.0, p().muted), name]).shrink().min_w(ZONE_MIN)
 }
 
-fn sold(s: &App, short: bool) -> (El, f32) {
-    let (label, value) = (if short { "Sold/day" } else { "Sold per day" }, SOLD_STEPS[s.flips.min_sold].value);
-    let pill = trigger(s, Menu::FlipsSold, sold_active(s.flips.min_sold), format!("Sold per day: {value}"), vec![text(label).font(theme::BODY).color(p().muted), text(value).font(theme::BODY).color(p().text)]);
+fn sold(s: &App) -> (El, f32) {
+    let (label, value) = ("Demand", SOLD_STEPS[s.flips.min_sold].value);
+    let pill = trigger(s, Menu::FlipsSold, sold_active(s.flips.min_sold), format!("Demand: {value}"), vec![text(label).font(theme::BODY).color(p().muted), text(value).font(theme::BODY).color(p().text)]);
     (pill, pill_width(&[label, value]))
 }
 

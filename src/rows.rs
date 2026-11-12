@@ -22,7 +22,7 @@ impl Column {
             Column::Skill => "Skill",
             Column::Profit => "Profit",
             Column::Margin => "Margin",
-            Column::SoldPerDay => "Sold/day",
+            Column::SoldPerDay => "Demand",
             Column::Auctions => "Listed",
         }
     }
