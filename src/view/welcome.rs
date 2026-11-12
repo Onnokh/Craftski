@@ -34,12 +34,11 @@ pub fn screen(s: &App, d: Dims, tall: f32) -> El {
 
 impl App {
     /// Leaves the welcome screen for good with what it shows saved, the house the player never
-    /// changed from included, and loads prices from there.
+    /// changed from included. Its prices are already loading, or landed.
     pub(super) fn start(&mut self) {
         settings::save_source(self.source);
         settings::save_rules(&self.rules);
         settings::save_welcomed();
         self.welcome = false;
-        self.load_market();
     }
 }
