@@ -54,8 +54,8 @@ pub enum Tab {
 }
 
 pub struct App {
-    /// The welcome screen is up, on a first visit only: it fills the window, and no prices
-    /// load until its Start.
+    /// The welcome screen is up, on a first visit only. It fills the window while prices for
+    /// what it shows load behind it.
     welcome: bool,
     tab: Tab,
     /// The AppData.lua prices come from under the desktop app source, resolved once at start
@@ -313,12 +313,8 @@ impl App {
     }
 
     /// Reads TSM's prices with the shown profession's recipes on a loader thread, or asks for
-    /// the folder when there is no AppData.lua to read. Under the welcome screen it waits for
-    /// Start, whatever the player picks there.
+    /// the folder when there is no AppData.lua to read.
     fn load_market(&mut self) {
-        if self.welcome {
-            return;
-        }
         let origin = match self.origin() {
             Some(Origin::AppData(path)) if !path.is_file() => None,
             origin => origin,
@@ -768,15 +764,17 @@ mod tests {
     }
 
     #[test]
-    fn a_first_visit_loads_no_prices_for_its_choices_until_start() {
+    fn a_first_visit_preloads_the_house_picked_and_start_keeps_that_load() {
         let mut s = App::new();
         (s.appdata, s.load) = (None, Load::Unlocated);
         assert!(s.welcome);
-        s.set_source(PriceSource::Public(PublicHouse { region: Region::Us, realm: ForeverRealm::Roleplay }));
+        let house = PublicHouse { region: Region::Us, realm: ForeverRealm::Roleplay };
+        s.set_source(PriceSource::Public(house));
         s.set_rules(|r| r.side = Side::Alliance);
-        assert!(matches!(s.load, Load::Unlocated));
+        assert_eq!((matches!(s.load, Load::Loading), s.origin()), (true, Some(Origin::Public(house, Side::Alliance))));
+        s.load = Load::Failed("landed".into());
         s.start();
-        assert_eq!((s.welcome, matches!(s.load, Load::Loading), App::new().welcome), (false, true, false));
+        assert_eq!((s.welcome, matches!(s.load, Load::Failed(_)), App::new().welcome), (false, true, false));
     }
 
     #[test]
