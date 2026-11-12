@@ -86,7 +86,7 @@ await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (route) => {
     return file ? route.fulfill({ status: 200, headers: { ...cors, "Content-Type": "image/jpeg" }, body: readFileSync(file) }) : route.fulfill({ status: 404, headers: cors });
   }
   if (atlas) return route.fulfill({ status: 200, headers: { ...cors, "Content-Type": "application/octet-stream" }, body: await fixture(`casc-${atlas}.blp`, target.href) });
-  if (target.host === "rybbit.missingmounts.com") {
+  if (target.host === "rybbit.onkie.dev") {
     analytics.push(target.href);
     return route.fulfill({ status: 200, headers: { "Content-Type": "text/javascript" }, body: "" });
   }
