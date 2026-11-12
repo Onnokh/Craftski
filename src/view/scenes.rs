@@ -18,19 +18,37 @@ pub fn scene_loaded(s: &mut App) {
 }
 
 /// Prices read on this thread from where they come from, as the loader thread reads them, but
-/// public data from the cache alone.
+/// public data from the cache alone, past the welcome screen whatever is saved.
 fn land_now(s: &mut App) {
+    s.welcome = false;
     let market = s.origin().ok_or_else(|| "no AppData.lua found".to_string()).and_then(|origin| market::load(&origin, Refresh::CacheOnly, &s.realm, s.profession));
     s.land(s.profession, market);
 }
 
-/// A first launch where no AppData.lua was found, after picking a folder without one.
+/// A first launch past the welcome screen where no AppData.lua was found, after picking a
+/// folder without one.
 pub fn scene_no_appdata(s: &mut App) {
-    (s.appdata, s.searched, s.load) = (None, wow::install_dirs(), Load::Unlocated);
+    (s.welcome, s.appdata, s.searched, s.load) = (false, None, wow::install_dirs(), Load::Unlocated);
     s.picked_folder(Ok(Some(PathBuf::from(r"D:\Games\Warcraft"))));
     show_icons(s, BTreeSet::new());
     // An inbox keeps `setup` from starting loaders, which would land data after the snapshot.
     s.inbox = Some(mpsc::channel().1);
+}
+
+/// A first visit's welcome screen, with the price source and faction saved, or else the
+/// defaults.
+pub fn scene_welcome(s: &mut App) {
+    s.welcome = true;
+    show_icons(s, BTreeSet::new());
+    // An inbox keeps `setup` from starting loaders, which would land data after the snapshot.
+    s.inbox = Some(mpsc::channel().1);
+}
+
+/// `welcome` with TSM's public data for EU PvP chosen, as the browser shows it but with the
+/// source choice.
+pub fn scene_welcome_public(s: &mut App) {
+    s.source = PriceSource::Public(PublicHouse::default());
+    scene_welcome(s);
 }
 
 /// The flips tab in Thunder Bluff, priced as the window would price it.

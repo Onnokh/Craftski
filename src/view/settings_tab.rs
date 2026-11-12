@@ -18,7 +18,6 @@ use crate::theme::{self, p};
 
 pub fn main(s: &App, d: Dims) -> El {
     let r = &s.rules;
-    let faction = Side::ALL.into_iter().map(|side| choice(side.name(), r.side == side, move |r| r.side = side));
     let bartering = Bartering::ALL.into_iter().map(|b| choice(&b.label(), r.bartering == b, move |r| r.bartering = b));
     let body = col()
         .w_full()
@@ -26,7 +25,7 @@ pub fn main(s: &App, d: Dims) -> El {
         .child(band("Prices"))
         .child(prices(s))
         .child(band("Character").mt(32.0))
-        .child(setting("Faction", row().gap(8.0).children(faction)))
+        .child(faction(s))
         .child(setting("Honored or better with", honored(s)))
         .child(setting("Bartering", row().gap(8.0).children(bartering)))
         .child(caption("Honored takes 10% off the merchants of that faction, and Bartering its percent off every merchant, the two added together.").mt(16.0));
@@ -42,7 +41,7 @@ pub fn main(s: &App, d: Dims) -> El {
 
 /// The two sources: the desktop app with the AppData.lua it reads, or TSM's public data with
 /// the region and realm whose auction house it reads.
-fn prices(s: &App) -> El {
+pub(super) fn prices(s: &App) -> El {
     let house = match s.source {
         PriceSource::App => None,
         PriceSource::Public(house) => Some(house),
@@ -119,6 +118,11 @@ fn honored(s: &App) -> El {
     if merchants.is_some() { out } else { col().w_full().gap(8.0).child(out).child(caption("The rest show once the merchants load.")) }
 }
 
+pub(super) fn faction(s: &App) -> El {
+    let faction = Side::ALL.into_iter().map(|side| choice(side.name(), s.rules.side == side, move |r| r.side = side));
+    setting("Faction", row().gap(8.0).children(faction))
+}
+
 fn setting(label: &str, control: El) -> El {
     col().w_full().gap(8.0).mt(16.0).child(text(label).font(theme::LABEL).color(p().muted)).child(control)
 }
@@ -127,14 +131,14 @@ fn choice(label: &str, on: bool, pick: impl Fn(&mut Rules) + Copy + 'static) -> 
     radio(label, on, move |s| s.set_rules(pick))
 }
 
-fn caption(words: &str) -> El {
+pub(super) fn caption(words: &str) -> El {
     text(words).font(theme::CAPTION).color(p().muted).wrap()
 }
 
 impl App {
     /// Changes the character, remembered for next time, and prices the flips for it. Under
     /// public data, a new faction reads its own auction house.
-    fn set_rules(&mut self, change: impl FnOnce(&mut Rules)) {
+    pub(super) fn set_rules(&mut self, change: impl FnOnce(&mut Rules)) {
         let side = self.rules.side;
         change(&mut self.rules);
         settings::save_rules(&self.rules);

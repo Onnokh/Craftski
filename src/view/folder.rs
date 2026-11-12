@@ -4,7 +4,7 @@
 use rune::{El, FileDialogOptions, FileDialogResult, Tx, col, row, text};
 
 use super::widgets::{CLOUD_DOWNLOAD, FOLDER_OPEN, button};
-use super::{App, Load};
+use super::App;
 use crate::market::PriceSource;
 use crate::settings;
 use crate::theme::{self, p};
@@ -26,12 +26,12 @@ pub fn not_found(s: &App) -> El {
 /// pick found nothing; and the button that asks for the folder, with one that switches to TSM's
 /// public data when `offer_public`.
 pub fn block(s: &App, offer_public: bool) -> El {
-    let missing = matches!(s.load, Load::Unlocated);
     let mut out = col().key("appdata").w_full().gap(4.0);
     out = match &s.appdata {
         Some(a) => {
-            let how = if missing { format!("AppData.lua, {}, is missing", a.source.words()) } else { format!("AppData.lua, {}", a.source.words()) };
-            out.child(caption(&how, p().muted)).child(text(a.path.display().to_string()).font(theme::BODY).color(p().text).wrap())
+            // Asked of the file rather than the load, which the welcome screen holds back.
+            let how = if a.path.is_file() { format!("AppData.lua, {}", a.source.words()) } else { format!("AppData.lua, {}, is missing", a.source.words()) };
+            out.child(caption(&how, p().muted)).child(text(a.path.display().to_string()).font(theme::BODY).color(p().text).wrap_anywhere())
         }
         None => {
             let looked = s.searched.iter().map(|dir| caption(&dir.display().to_string(), p().faint));
